@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { analysePhase2, loadCase, listCases, type AnalysisProvider } from '../src/index.js';
+import { analysePhase2, loadCase, listCases, loadRubric, type AnalysisProvider } from '../src/index.js';
 
 test('all on-disk cases run; every accepted finding has a matching quote', async () => {
   const cases = await listCases();
@@ -57,6 +57,27 @@ test('reviews may report customer-seen distress; new red flags are reported but 
   assert.deepEqual(result.redFlags.map((flag) => flag.kind).sort(), ['governance_issue', 'operational_distress']);
   assert.equal(result.agents[0]?.warnings.length, 1); // litigation is not allowed from reviews
   assert.equal(result.score, 50); // only the original four kinds cost Phase 2 points
+});
+
+test('rubric is data: changing it changes the score and is recorded; invalid rubrics are rejected', async () => {
+  const rubric = await loadRubric();
+  const healthy = await analysePhase2(await loadCase('healthy-business'));
+  assert.deepEqual(healthy.rubric, rubric);
+  const generous = await analysePhase2(await loadCase('healthy-business'),
+    { rubric: { ...rubric, version: 'experiment', positiveReview: 20 } });
+  assert.equal(generous.score, healthy.score! + 12);
+  assert.equal(generous.rubric.version, 'experiment');
+  const input = await loadCase('healthy-business');
+  await assert.rejects(analysePhase2(input, { rubric: { ...rubric, penalisedKinds: ['lawsuit'] } as any }));
+  await assert.rejects(analysePhase2(input, { rubric: { ...rubric, newsWeight: 0.5 } }), /add up to 1/);
+  const directory = await mkdtemp(join(tmpdir(), 'phase2-rubric-'));
+  try {
+    const path = join(directory, 'rubric.json');
+    const { baseline, ...missing } = rubric;
+    void baseline;
+    await writeFile(path, JSON.stringify(missing));
+    await assert.rejects(loadRubric(path), /Invalid rubric/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('agent failures preserve successful results and remove failed-source coverage', async () => {

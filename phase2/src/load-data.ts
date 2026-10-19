@@ -1,10 +1,12 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Business, Evidence, Phase2Input } from './contracts.js';
+import { z } from 'zod';
+import { rubricSchema, type Business, type Evidence, type Phase2Input, type Phase2Rubric } from './contracts.js';
 
 // Relative to the package, never the caller's working directory. Also works in dist/.
 export const DEFAULT_DATA_DIR = fileURLToPath(new URL('../data/', import.meta.url));
+export const DEFAULT_RUBRIC_PATH = fileURLToPath(new URL('../policy/rubric.json', import.meta.url));
 
 async function json(path: string): Promise<unknown> {
   try {
@@ -13,6 +15,13 @@ async function json(path: string): Promise<unknown> {
   } catch (error) {
     throw new Error(`Cannot read JSON file ${path}: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/** Read and validate a scoring rubric file. An invalid rubric is rejected before any analysis. */
+export async function loadRubric(path = DEFAULT_RUBRIC_PATH): Promise<Phase2Rubric> {
+  const result = rubricSchema.safeParse(await json(path));
+  if (!result.success) throw new Error(`Invalid rubric ${path}:\n${z.prettifyError(result.error)}`);
+  return result.data;
 }
 
 export async function listCases(dataDir = DEFAULT_DATA_DIR): Promise<string[]> {

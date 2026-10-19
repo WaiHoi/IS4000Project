@@ -83,20 +83,36 @@ successful results and remove failed-source coverage. The CLI saves a report and
 exits nonzero if an agent fails. Complete means processing completed, not sufficient
 coverage or a safe business.
 
-The rubric starts at 50; review sentiment adds 8, subtracts 10, or adds zero for
-a tie. Growth adds 5 per article up to 10; litigation, fraud, insolvency or
-regulatory news subtracts 20 per article.
+### Scoring rubric (data, not code)
 
-Red flags (all reported in `redFlags`; Phase 3 maps each to a severity):
+The weights are in [`policy/rubric.json`](policy/rubric.json). With the defaults:
+the score starts at 50; review sentiment adds 8, subtracts 10, or adds zero for a
+tie. Growth adds 5 per article up to 10; each article with a `penalisedKinds` red
+flag (litigation, fraud, insolvency, regulatory_action) subtracts 20. Scores are
+clamped to 0-100. Full count coverage is five reviews and two news items,
+weighted 70%/30%. This is a demonstration heuristic, not a default probability.
+
+Change the scoring by editing that file (bump `version`), or try a copy without
+changing the default:
+
+```sh
+npm run demo -- --case healthy-business --rubric ./my-rubric.json
+```
+
+The rubric is validated before any AI call: missing or unknown fields, unknown
+red-flag kinds, or review/news weights that do not add up to 1 are rejected. The
+full rubric is copied into every report (`rubric`), so each score shows which
+weights produced it. In code, pass `{ rubric }` to `analysePhase2`, or omit it to
+use the default file.
+
+### Red flags
+
+All adverse kinds are reported in `redFlags`; Phase 3 maps each to a severity:
 litigation, fraud, insolvency, regulatory_action, payment_distress,
-operational_distress, licence_issue, governance_issue and other_adverse. Kinds
-and which agent may report them are listed in `src/config.ts`. Reviews may report
+operational_distress, licence_issue, governance_issue and other_adverse. Which
+agent may report which kind is a guardrail in `src/config.ts`. Reviews may report
 payment_distress, operational_distress and other_adverse when the customer saw it
-directly; other red flags come from news only. The newer kinds do not change the
-Phase 2 score.
-Scores are clamped to 0-100. Full count coverage is five reviews and two news
-items, weighted 70%/30%. This is a demonstration heuristic, not a default probability.
-Exact duplicate source text is excluded.
+directly; other red flags come from news only. Exact duplicate source text is excluded.
 
 ## Tests and build
 
@@ -140,7 +156,8 @@ directly instead of loading files. Imports do not write files or execute the CLI
 - `agents/`: reviews/news instructions and structured outputs.
 - `providers/`: OpenRouter and mock adapters.
 - `processing/`: preparation, verification and scoring.
-- `config.ts`: deterministic rubric.
+- `policy/rubric.json`: scoring weights (loaded with `loadRubric`).
+- `config.ts`: red-flag kinds and which agent may report each.
 
 ## Limits
 

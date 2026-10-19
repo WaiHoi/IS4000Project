@@ -4,7 +4,7 @@
 
 export const FINDING_KINDS = [
   'positive_review', 'negative_review', 'growth',
-  // Adverse kinds (red flags). Phase 3 maps each to a severity in phase3/src/config.ts.
+  // Adverse kinds (red flags). Phase 3 maps each to a severity in phase3/policy/default.json.
   'litigation', 'fraud', 'insolvency', 'regulatory_action',
   'payment_distress', 'operational_distress', 'licence_issue', 'governance_issue', 'other_adverse',
 ] as const;
@@ -59,6 +59,23 @@ export type Factor = {
   evidenceIds: string[];
 };
 
+/** Phase 2 scoring rubric (phase2/policy/rubric.json), recorded in every report. */
+export type Phase2Rubric = {
+  version: string;
+  baseline: number;
+  positiveReview: number;
+  negativeReview: number;
+  growth: number;
+  maxGrowth: number;
+  redFlag: number;
+  // Red-flag kinds that cost redFlag points; all adverse kinds are still reported.
+  penalisedKinds: AdverseKind[];
+  fullReviewCount: number;
+  fullNewsCount: number;
+  reviewWeight: number;
+  newsWeight: number;
+};
+
 /** The Phase 2 report: what Phase 2 writes and Phase 3 reads. */
 export type Phase2Result = {
   schemaVersion: '1.0';
@@ -66,6 +83,7 @@ export type Phase2Result = {
   businessName: string;
   provider: ProviderName;
   model: ModelInfo | null;
+  rubric: Phase2Rubric;
   generatedAt: string;
   status: 'complete' | 'partial' | 'unavailable';
   score: number | null;

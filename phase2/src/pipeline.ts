@@ -1,4 +1,5 @@
-import { agentOutputSchema, type AgentResult, type AnalysisProvider, type Phase2Input, type Phase2Result, type Source } from './contracts.js';
+import { agentOutputSchema, rubricSchema, type AgentResult, type AnalysisProvider, type Phase2Input, type Phase2Result, type Phase2Rubric, type Source } from './contracts.js';
+import { loadRubric } from './load-data.js';
 import { prepareEvidence } from './processing/prepare-evidence.js';
 import { verifySignals } from './processing/verify-signals.js';
 import { aggregate } from './processing/aggregate.js';
@@ -8,10 +9,13 @@ export interface Phase2Options {
   provider?: 'mock' | 'openrouter' | AnalysisProvider;
   model?: string;
   timeoutMs?: number;
+  // Scoring rubric; defaults to policy/rubric.json. Validated either way.
+  rubric?: Phase2Rubric;
 }
 
 // Expects input already validated by intake (schema, consent, unique evidence IDs).
 export async function analysePhase2(input: Phase2Input, options: Phase2Options = {}): Promise<Phase2Result> {
+  const rubric = rubricSchema.parse(options.rubric ?? await loadRubric());
   const prepared = prepareEvidence(input);
   const timeoutMs = options.timeoutMs ?? 60000;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300000) throw new Error('timeoutMs must be an integer from 1 to 300000.');
@@ -59,11 +63,11 @@ export async function analysePhase2(input: Phase2Input, options: Phase2Options =
   }
 
   const agents = await Promise.all([runSource('review'), runSource('news')]);
-  const summary = aggregate(agents, prepared.evidence);
+  const summary = aggregate(agents, prepared.evidence, rubric);
   const incomplete = agents.some((agent) => agent.status === 'failed' || agent.warnings.length > 0);
   return {
     schemaVersion: '1.0', businessId: input.business.id, businessName: input.business.name,
-    provider: provider.name, model: provider.model ?? null, generatedAt: new Date().toISOString(),
+    provider: provider.name, model: provider.model ?? null, rubric, generatedAt: new Date().toISOString(),
     status: summary.score === null ? 'unavailable' : incomplete ? 'partial' : 'complete',
     ...summary,
     evidence: prepared.evidence,

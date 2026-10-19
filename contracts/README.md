@@ -7,7 +7,7 @@ kind or a report field here once, and both phases pick it up.
 Constants and types only, with no runtime dependencies. Each phase builds its
 own zod schemas from these lists. Phase 3 has a compile-time check that its
 schema accepts this report type, so a mismatch fails `npm run typecheck`.
-Severity policy is not shared: it stays in `phase3/src/config.ts`.
+Severity policy is not shared: it is data in `phase3/policy/default.json`.
 
 ## Build first
 

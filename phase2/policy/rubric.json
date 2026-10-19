@@ -1,0 +1,14 @@
+{
+  "version": "prototype-v1",
+  "baseline": 50,
+  "positiveReview": 8,
+  "negativeReview": -10,
+  "growth": 5,
+  "maxGrowth": 10,
+  "redFlag": -20,
+  "penalisedKinds": ["litigation", "fraud", "insolvency", "regulatory_action"],
+  "fullReviewCount": 5,
+  "fullNewsCount": 2,
+  "reviewWeight": 0.7,
+  "newsWeight": 0.3
+}
