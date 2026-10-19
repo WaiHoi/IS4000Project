@@ -1,3 +1,4 @@
+import { ALLOWED_KINDS } from '../config.js';
 import type { Evidence, Finding, Source } from '../contracts.js';
 
 export function verifySignals(findings: Finding[], evidence: Evidence[], source: Source) {
@@ -7,9 +8,8 @@ export function verifySignals(findings: Finding[], evidence: Evidence[], source:
   const seen = new Set<string>();
   for (const finding of findings) {
     const item = registry.get(finding.evidenceId);
-    const reviewKind = ['positive_review', 'negative_review'].includes(finding.kind);
     const key = `${finding.kind}:${finding.evidenceId}`;
-    if (!item || item.source !== source || reviewKind !== (source === 'review') ||
+    if (!item || item.source !== source || !ALLOWED_KINDS[source].includes(finding.kind) ||
         !finding.quote.trim() || !item.text.includes(finding.quote)) {
       warnings.push(`Rejected unsupported ${finding.kind} finding citing ${finding.evidenceId}.`);
     } else if (!seen.has(key)) {

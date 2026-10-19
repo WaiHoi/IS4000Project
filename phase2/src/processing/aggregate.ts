@@ -1,4 +1,4 @@
-import { RUBRIC, RED_FLAG_KINDS } from '../config.js';
+import { RUBRIC, RED_FLAG_KINDS, PENALISED_KINDS } from '../config.js';
 import type { AgentResult, Evidence, Factor, Finding } from '../contracts.js';
 
 export function aggregate(agents: AgentResult[], evidence: Evidence[]) {
@@ -23,8 +23,9 @@ export function aggregate(agents: AgentResult[], evidence: Evidence[]) {
     points: Math.min(RUBRIC.maxGrowth, RUBRIC.growth * growth.length),
     evidenceIds: growth.map((finding) => finding.evidenceId) });
   const redFlags = findings.filter((finding) => RED_FLAG_KINDS.some((kind) => kind === finding.kind));
+  const penalised = redFlags.filter((finding) => PENALISED_KINDS.some((kind) => kind === finding.kind));
   // At most one adverse penalty per article, even when it describes several flag types.
-  for (const evidenceId of new Set(redFlags.map((finding) => finding.evidenceId))) {
+  for (const evidenceId of new Set(penalised.map((finding) => finding.evidenceId))) {
     factors.push({ name: 'Adverse news finding', points: RUBRIC.redFlag, evidenceIds: [evidenceId] });
   }
   const dataGaps: string[] = [];

@@ -80,7 +80,16 @@ exits nonzero if an agent fails. Complete means processing completed, not suffic
 coverage or a safe business.
 
 The rubric starts at 50; review sentiment adds 8, subtracts 10, or adds zero for
-a tie. Growth adds 5 per article up to 10; adverse news subtracts 20 per article.
+a tie. Growth adds 5 per article up to 10; litigation, fraud, insolvency or
+regulatory news subtracts 20 per article.
+
+Red flags (all reported in `redFlags`; Phase 3 maps each to a severity):
+litigation, fraud, insolvency, regulatory_action, payment_distress,
+operational_distress, licence_issue, governance_issue and other_adverse. Kinds
+and which agent may report them are listed in `src/config.ts`. Reviews may report
+payment_distress, operational_distress and other_adverse when the customer saw it
+directly; other red flags come from news only. The newer kinds do not change the
+Phase 2 score.
 Scores are clamped to 0-100. Full count coverage is five reviews and two news
 items, weighted 70%/30%. This is a demonstration heuristic, not a default probability.
 Exact duplicate source text is excluded.

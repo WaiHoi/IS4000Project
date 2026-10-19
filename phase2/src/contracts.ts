@@ -24,10 +24,17 @@ export interface Phase2Input {
   evidence: Evidence[];
 }
 
+export const FINDING_KINDS = [
+  'positive_review', 'negative_review', 'growth',
+  // Adverse kinds (red flags). Phase 3 maps each to a severity; see phase3/src/config.ts.
+  'litigation', 'fraud', 'insolvency', 'regulatory_action',
+  'payment_distress', 'operational_distress', 'licence_issue', 'governance_issue', 'other_adverse',
+] as const;
+
 // Model output is untrusted, so it is still schema-checked.
 const id = z.string().trim().min(1).max(200);
 export const findingSchema = z.object({
-  kind: z.enum(['positive_review', 'negative_review', 'growth', 'litigation', 'fraud', 'insolvency', 'regulatory_action']),
+  kind: z.enum(FINDING_KINDS),
   summary: z.string().trim().min(1).max(1000),
   evidenceId: id,
   quote: z.string().trim().min(1).max(20000),

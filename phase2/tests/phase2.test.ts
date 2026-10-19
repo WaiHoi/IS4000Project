@@ -45,6 +45,20 @@ test('fabricated quote, unknown citation, wrong source and duplicate findings', 
   assert.equal(result.status, 'partial');
 });
 
+test('reviews may report customer-seen distress; new red flags are reported but not penalised', async () => {
+  const provider: AnalysisProvider = { name: 'custom', async analyse({ source, evidence }) {
+    const item = evidence[0]!;
+    const finding = { summary: 'Adverse', evidenceId: item.id, quote: item.text };
+    return { findings: source === 'review'
+      ? [{ ...finding, kind: 'operational_distress' as const }, { ...finding, kind: 'litigation' as const }]
+      : [{ ...finding, kind: 'governance_issue' as const }] };
+  } };
+  const result = await analysePhase2(await loadCase('healthy-business'), { provider });
+  assert.deepEqual(result.redFlags.map((flag) => flag.kind).sort(), ['governance_issue', 'operational_distress']);
+  assert.equal(result.agents[0]?.warnings.length, 1); // litigation is not allowed from reviews
+  assert.equal(result.score, 50); // only the original four kinds cost Phase 2 points
+});
+
 test('agent failures preserve successful results and remove failed-source coverage', async () => {
   const provider: AnalysisProvider = { name: 'custom', async analyse({ source }) {
     if (source === 'news') throw new Error('Do not expose secret provider request');
