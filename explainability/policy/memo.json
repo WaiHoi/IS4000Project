@@ -1,0 +1,15 @@
+{
+  "version": "prototype-v1",
+  "maxRetries": 2,
+  "requiredCitationKinds": [
+    "negative_review",
+    "litigation", "fraud", "insolvency", "regulatory_action",
+    "payment_distress", "operational_distress", "licence_issue", "governance_issue", "other_adverse"
+  ],
+  "forbidDigitsInNarrative": true,
+  "forbiddenNarrativeTerms": ["score", "risk band", "approve", "decline"],
+  "protectedTerms": [
+    "gender", "race", "ethnicity", "religion", "marital", "pregnan*",
+    "male", "female", "elderly", "muslim", "christian", "hindu", "buddhist", "postal code", "dialect"
+  ]
+}
