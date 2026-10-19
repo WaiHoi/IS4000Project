@@ -1,0 +1,23 @@
+{
+  "version": "prototype-v2",
+  "baseUnstructuredWeight": 0.3,
+  "mediumThreshold": 40,
+  "lowThreshold": 70,
+  "severity": {
+    "fraud": "critical",
+    "insolvency": "critical",
+    "regulatory_action": "critical",
+    "litigation": "major",
+    "payment_distress": "major",
+    "licence_issue": "major",
+    "operational_distress": "major",
+    "governance_issue": "minor",
+    "other_adverse": "review"
+  },
+  "reviewOnlySeverity": {
+    "critical": "major",
+    "major": "minor",
+    "review": "review",
+    "minor": "minor"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@credit-copilot/phase3",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic credit score blending and review policy",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "data",
+    "policy",
+    "README.md"
+  ],
+  "scripts": {
+    "demo": "tsx src/cli.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@credit-copilot/contracts": "file:../contracts",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

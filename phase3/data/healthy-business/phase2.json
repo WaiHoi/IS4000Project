@@ -1,0 +1,202 @@
+{
+  "schemaVersion": "1.0",
+  "businessId": "DEMO-BAKERY-01",
+  "businessName": "Sample Sunrise Bakery (fictional)",
+  "provider": "mock",
+  "generatedAt": "2026-10-17T17:03:59.074Z",
+  "status": "complete",
+  "score": 68,
+  "confidence": 1,
+  "coverage": {
+    "reviews": 5,
+    "news": 2,
+    "failedSources": []
+  },
+  "factors": [
+    {
+      "name": "Neutral baseline",
+      "points": 50,
+      "evidenceIds": []
+    },
+    {
+      "name": "Review sentiment",
+      "points": 8,
+      "evidenceIds": [
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5"
+      ]
+    },
+    {
+      "name": "Reported growth events",
+      "points": 10,
+      "evidenceIds": [
+        "N1",
+        "N2"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "kind": "positive_review",
+      "summary": "Positive customer feedback",
+      "evidenceId": "R1",
+      "quote": "Excellent service. Our catering order arrived on time."
+    },
+    {
+      "kind": "positive_review",
+      "summary": "Positive customer feedback",
+      "evidenceId": "R2",
+      "quote": "Great service and careful packaging for our cake."
+    },
+    {
+      "kind": "positive_review",
+      "summary": "Positive customer feedback",
+      "evidenceId": "R3",
+      "quote": "I highly recommend the bakery for reliable collection."
+    },
+    {
+      "kind": "positive_review",
+      "summary": "Positive customer feedback",
+      "evidenceId": "R4",
+      "quote": "Excellent communication about delivery times."
+    },
+    {
+      "kind": "positive_review",
+      "summary": "Positive customer feedback",
+      "evidenceId": "R5",
+      "quote": "Great service when we ordered for a company event."
+    },
+    {
+      "kind": "growth",
+      "summary": "Growth event reported",
+      "evidenceId": "N1",
+      "quote": "The bakery announced its second outlet will open next month."
+    },
+    {
+      "kind": "growth",
+      "summary": "Growth event reported",
+      "evidenceId": "N2",
+      "quote": "The bakery won a major contract to supply bread to a local hotel."
+    }
+  ],
+  "redFlags": [],
+  "dataGaps": [],
+  "evidence": [
+    {
+      "id": "R1",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "Excellent service. Our catering order arrived on time.",
+      "publishedAt": "2026-09-01T10:00:00Z"
+    },
+    {
+      "id": "R2",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "Great service and careful packaging for our cake.",
+      "publishedAt": "2026-09-08T10:00:00Z"
+    },
+    {
+      "id": "R3",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "I highly recommend the bakery for reliable collection.",
+      "publishedAt": "2026-09-15T10:00:00Z"
+    },
+    {
+      "id": "R4",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "Excellent communication about delivery times.",
+      "publishedAt": "2026-09-22T10:00:00Z"
+    },
+    {
+      "id": "R5",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "Great service when we ordered for a company event.",
+      "publishedAt": "2026-10-01T10:00:00Z"
+    },
+    {
+      "id": "N1",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "news",
+      "text": "The bakery announced its second outlet will open next month.",
+      "publishedAt": "2026-09-30T10:00:00Z"
+    },
+    {
+      "id": "N2",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "news",
+      "text": "The bakery won a major contract to supply bread to a local hotel.",
+      "publishedAt": "2026-10-03T10:00:00Z"
+    }
+  ],
+  "excludedEvidence": [],
+  "warnings": [
+    "Mock mode: keyword matching only; no AI model was called."
+  ],
+  "agents": [
+    {
+      "source": "review",
+      "status": "completed",
+      "inputCount": 5,
+      "findings": [
+        {
+          "kind": "positive_review",
+          "summary": "Positive customer feedback",
+          "evidenceId": "R1",
+          "quote": "Excellent service. Our catering order arrived on time."
+        },
+        {
+          "kind": "positive_review",
+          "summary": "Positive customer feedback",
+          "evidenceId": "R2",
+          "quote": "Great service and careful packaging for our cake."
+        },
+        {
+          "kind": "positive_review",
+          "summary": "Positive customer feedback",
+          "evidenceId": "R3",
+          "quote": "I highly recommend the bakery for reliable collection."
+        },
+        {
+          "kind": "positive_review",
+          "summary": "Positive customer feedback",
+          "evidenceId": "R4",
+          "quote": "Excellent communication about delivery times."
+        },
+        {
+          "kind": "positive_review",
+          "summary": "Positive customer feedback",
+          "evidenceId": "R5",
+          "quote": "Great service when we ordered for a company event."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "source": "news",
+      "status": "completed",
+      "inputCount": 2,
+      "findings": [
+        {
+          "kind": "growth",
+          "summary": "Growth event reported",
+          "evidenceId": "N1",
+          "quote": "The bakery announced its second outlet will open next month."
+        },
+        {
+          "kind": "growth",
+          "summary": "Growth event reported",
+          "evidenceId": "N2",
+          "quote": "The bakery won a major contract to supply bread to a local hotel."
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "1.0",
+  "businessId": "DEMO-NEW-06",
+  "businessName": "Sample New Business (fictional)",
+  "provider": "mock",
+  "generatedAt": "2026-10-17T17:03:59.083Z",
+  "status": "unavailable",
+  "score": null,
+  "confidence": 0,
+  "coverage": {
+    "reviews": 0,
+    "news": 0,
+    "failedSources": []
+  },
+  "factors": [],
+  "findings": [],
+  "redFlags": [],
+  "dataGaps": [
+    "Only 0 analysed reviews; request more dated customer reviews.",
+    "Only 0 analysed news items; request relevant public business notices."
+  ],
+  "evidence": [],
+  "excludedEvidence": [],
+  "warnings": [
+    "Mock mode: keyword matching only; no AI model was called."
+  ],
+  "agents": [
+    {
+      "source": "review",
+      "status": "skipped",
+      "inputCount": 0,
+      "findings": [],
+      "warnings": []
+    },
+    {
+      "source": "news",
+      "status": "skipped",
+      "inputCount": 0,
+      "findings": [],
+      "warnings": []
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "1.0",
+  "businessId": "DEMO-CAFE-02",
+  "businessName": "Sample Harbour Cafe (fictional)",
+  "provider": "mock",
+  "generatedAt": "2026-10-17T17:03:59.080Z",
+  "status": "complete",
+  "score": 20,
+  "confidence": 0.29,
+  "coverage": {
+    "reviews": 1,
+    "news": 1,
+    "failedSources": []
+  },
+  "factors": [
+    {
+      "name": "Neutral baseline",
+      "points": 50,
+      "evidenceIds": []
+    },
+    {
+      "name": "Review sentiment",
+      "points": -10,
+      "evidenceIds": [
+        "R1"
+      ]
+    },
+    {
+      "name": "Adverse news finding",
+      "points": -20,
+      "evidenceIds": [
+        "N1"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "kind": "negative_review",
+      "summary": "Negative customer feedback",
+      "evidenceId": "R1",
+      "quote": "Poor service. Our prepaid order never arrived."
+    },
+    {
+      "kind": "litigation",
+      "summary": "Litigation reported; verify the source",
+      "evidenceId": "N1",
+      "quote": "A supplier filed a lawsuit against the cafe over disputed invoices. The allegations have not been decided by the court."
+    }
+  ],
+  "redFlags": [
+    {
+      "kind": "litigation",
+      "summary": "Litigation reported; verify the source",
+      "evidenceId": "N1",
+      "quote": "A supplier filed a lawsuit against the cafe over disputed invoices. The allegations have not been decided by the court."
+    }
+  ],
+  "dataGaps": [
+    "Only 1 analysed reviews; request more dated customer reviews.",
+    "Only 1 analysed news items; request relevant public business notices."
+  ],
+  "evidence": [
+    {
+      "id": "R1",
+      "businessId": "DEMO-CAFE-02",
+      "source": "review",
+      "text": "Poor service. Our prepaid order never arrived.",
+      "publishedAt": "2026-10-01T10:00:00Z"
+    },
+    {
+      "id": "N1",
+      "businessId": "DEMO-CAFE-02",
+      "source": "news",
+      "text": "A supplier filed a lawsuit against the cafe over disputed invoices. The allegations have not been decided by the court.",
+      "publishedAt": "2026-10-02T10:00:00Z"
+    }
+  ],
+  "excludedEvidence": [],
+  "warnings": [
+    "Mock mode: keyword matching only; no AI model was called."
+  ],
+  "agents": [
+    {
+      "source": "review",
+      "status": "completed",
+      "inputCount": 1,
+      "findings": [
+        {
+          "kind": "negative_review",
+          "summary": "Negative customer feedback",
+          "evidenceId": "R1",
+          "quote": "Poor service. Our prepaid order never arrived."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "source": "news",
+      "status": "completed",
+      "inputCount": 1,
+      "findings": [
+        {
+          "kind": "litigation",
+          "summary": "Litigation reported; verify the source",
+          "evidenceId": "N1",
+          "quote": "A supplier filed a lawsuit against the cafe over disputed invoices. The allegations have not been decided by the court."
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}
