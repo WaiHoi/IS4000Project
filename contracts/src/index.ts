@@ -98,3 +98,53 @@ export type Phase2Result = {
   warnings: string[];
   agents: AgentResult[];
 };
+
+// ---- Phase 3 assessment: what Phase 3 writes and explainability reads. ----
+
+export const SEVERITIES = ['critical', 'major', 'review', 'minor'] as const;
+export type Severity = typeof SEVERITIES[number];
+export type RiskBand = 'Low' | 'Medium' | 'High';
+export type ReviewStatus = 'Ready' | 'Manual review required' | 'Insufficient data';
+
+/** Phase 3 policy (phase3/policy/default.json), recorded in every assessment. */
+export type Phase3Policy = {
+  version: string;
+  baseUnstructuredWeight: number;
+  mediumThreshold: number;
+  lowThreshold: number;
+  severity: Record<AdverseKind, Severity>;
+  reviewOnlySeverity: Record<Severity, Severity>;
+};
+
+export type RedFlag = Finding & { kind: AdverseKind; severity: Severity };
+
+export type Override = {
+  rule: 'band_cap' | 'mandatory_review' | 'analyst_review';
+  reason: string;
+  evidenceIds: string[];
+};
+
+export type Phase3Assessment = {
+  schemaVersion: '1.0';
+  businessId: string;
+  businessName: string;
+  policy: Phase3Policy;
+  traditionalScore: number | null;
+  traditionalCoverage: number;
+  unstructuredScore: number | null;
+  unstructuredConfidence: number;
+  phase2Provider: ProviderName;
+  // Older Phase 2 reports may lack temperature/maxTokens, so only id and promptVersion are required.
+  phase2Model: ({ id: string; promptVersion: string } & Record<string, unknown>) | null;
+  phase2Status: Phase2Result['status'];
+  effectiveUnstructuredWeight: number;
+  compositeScore: number | null;
+  compositeBand: RiskBand | null;
+  riskBand: RiskBand | null;
+  reviewStatus: ReviewStatus;
+  overrides: Override[];
+  redFlags: RedFlag[];
+  warnings: string[];
+  dataGaps: string[];
+  explanation: string;
+};

@@ -27,8 +27,10 @@ test('full coverage blend is 70/30 and does not mutate the inputs', async () => 
 });
 
 test('no online presence falls back without a risk penalty', async () => {
-  const input = await loadCase('no-evidence');
-  const result = assess(input.phase1, input.phase2);
+  const { phase1, phase2 } = await healthy();
+  // An unavailable Phase 2 result: no evidence analysed.
+  Object.assign(phase2, { status: 'unavailable', score: null, confidence: 0, findings: [], redFlags: [], evidence: [] });
+  const result = assess(phase1, phase2);
   assert.equal(result.compositeScore, 85);
   assert.equal(result.effectiveUnstructuredWeight, 0);
   assert.equal(result.reviewStatus, 'Ready');
@@ -42,15 +44,23 @@ test('thin evidence reduces its effective weight', async () => {
   assert.equal(result.compositeScore, 84.49);
 });
 
+// Healthy case plus a news article reporting a lawsuit.
+async function withLawsuit() {
+  const { phase1, phase2 } = await healthy();
+  const item = phase2.evidence.find((e: any) => e.source === 'news');
+  item.text = 'A supplier filed a lawsuit against the bakery over disputed invoices.';
+  phase2.findings.push({ kind: 'litigation', summary: 'Lawsuit reported', evidenceId: item.id, quote: item.text });
+  return { phase1, phase2, evidenceId: item.id as string };
+}
+
 test('litigation caps Low at Medium and cannot improve a High band', async () => {
-  const input = await loadCase('litigation');
-  const phase1 = input.phase1 as any;
-  const result = assess(phase1, input.phase2);
+  const { phase1, phase2, evidenceId } = await withLawsuit();
+  const result = assess(phase1, phase2);
   assert.equal(result.compositeBand, 'Low');
   assert.equal(result.riskBand, 'Medium');
   assert.equal(result.reviewStatus, 'Manual review required');
-  assert.deepEqual(result.overrides[0]?.evidenceIds, ['N1']);
-  assert.equal(assess({ ...phase1, score: 10 }, input.phase2).riskBand, 'High');
+  assert.deepEqual(result.overrides[0]?.evidenceIds, [evidenceId]);
+  assert.equal(assess({ ...phase1, score: 10 }, phase2).riskBand, 'High');
 });
 
 for (const kind of ['fraud', 'insolvency', 'regulatory_action']) {
@@ -172,10 +182,9 @@ test('reject identity mismatch, invalid scales and inconsistent unavailable resu
 });
 
 test('reject unsupported flags rather than silently dropping adverse evidence', async () => {
-  const input = await loadCase('litigation');
-  const phase2 = input.phase2 as any;
-  phase2.redFlags[0].quote = 'Fabricated quote';
-  assert.throws(() => assess(input.phase1, phase2), /Unsupported adverse/);
+  const lawsuit = await withLawsuit();
+  lawsuit.phase2.findings.at(-1).quote = 'Fabricated quote';
+  assert.throws(() => assess(lawsuit.phase1, lawsuit.phase2), /Unsupported adverse/);
   const { phase1, phase2: other } = await healthy();
   other.evidence[0].businessId = 'OTHER';
   assert.throws(() => assess(phase1, other), /another business/);

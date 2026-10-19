@@ -18,11 +18,11 @@ npm run demo
 ```
 
 Demo input is read from `data/<case>/phase1.json` and `phase2.json`. Results go to
-`output/<case>.json`. The included snapshots were generated from the actual
-Phase 2 mock provider; they are fictional examples, not lending evidence.
+`output/<case>.json`. The included `healthy-business` case uses the live Phase 2
+(OpenRouter) report; it is a fictional example, not lending evidence.
 
 ```sh
-npm run demo -- --case litigation
+npm run demo -- --case healthy-business
 npm run demo -- --list
 npm test
 npm run typecheck

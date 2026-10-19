@@ -2,8 +2,14 @@
   "schemaVersion": "1.0",
   "businessId": "DEMO-BAKERY-01",
   "businessName": "Sample Sunrise Bakery (fictional)",
-  "provider": "mock",
-  "generatedAt": "2026-10-17T17:03:59.074Z",
+  "provider": "openrouter",
+  "model": {
+    "id": "google/gemini-2.5-flash",
+    "promptVersion": "77ef4800b1d6",
+    "temperature": 0,
+    "maxTokens": 4000
+  },
+  "generatedAt": "2026-10-19T08:49:01.005Z",
   "status": "complete",
   "score": 68,
   "confidence": 1,
@@ -41,43 +47,43 @@
   "findings": [
     {
       "kind": "positive_review",
-      "summary": "Positive customer feedback",
+      "summary": "The business provided excellent service and delivered a catering order on time.",
       "evidenceId": "R1",
       "quote": "Excellent service. Our catering order arrived on time."
     },
     {
       "kind": "positive_review",
-      "summary": "Positive customer feedback",
+      "summary": "The business provided great service and careful packaging for a cake.",
       "evidenceId": "R2",
       "quote": "Great service and careful packaging for our cake."
     },
     {
       "kind": "positive_review",
-      "summary": "Positive customer feedback",
+      "summary": "The business is recommended for reliable collection.",
       "evidenceId": "R3",
       "quote": "I highly recommend the bakery for reliable collection."
     },
     {
       "kind": "positive_review",
-      "summary": "Positive customer feedback",
+      "summary": "The business provided excellent communication about delivery times.",
       "evidenceId": "R4",
       "quote": "Excellent communication about delivery times."
     },
     {
       "kind": "positive_review",
-      "summary": "Positive customer feedback",
+      "summary": "The business provided great service for a company event order.",
       "evidenceId": "R5",
       "quote": "Great service when we ordered for a company event."
     },
     {
       "kind": "growth",
-      "summary": "Growth event reported",
+      "summary": "The bakery announced its second outlet will open next month.",
       "evidenceId": "N1",
       "quote": "The bakery announced its second outlet will open next month."
     },
     {
       "kind": "growth",
-      "summary": "Growth event reported",
+      "summary": "The bakery won a major contract to supply bread to a local hotel.",
       "evidenceId": "N2",
       "quote": "The bakery won a major contract to supply bread to a local hotel."
     }
@@ -136,9 +142,7 @@
     }
   ],
   "excludedEvidence": [],
-  "warnings": [
-    "Mock mode: keyword matching only; no AI model was called."
-  ],
+  "warnings": [],
   "agents": [
     {
       "source": "review",
@@ -147,31 +151,31 @@
       "findings": [
         {
           "kind": "positive_review",
-          "summary": "Positive customer feedback",
+          "summary": "The business provided excellent service and delivered a catering order on time.",
           "evidenceId": "R1",
           "quote": "Excellent service. Our catering order arrived on time."
         },
         {
           "kind": "positive_review",
-          "summary": "Positive customer feedback",
+          "summary": "The business provided great service and careful packaging for a cake.",
           "evidenceId": "R2",
           "quote": "Great service and careful packaging for our cake."
         },
         {
           "kind": "positive_review",
-          "summary": "Positive customer feedback",
+          "summary": "The business is recommended for reliable collection.",
           "evidenceId": "R3",
           "quote": "I highly recommend the bakery for reliable collection."
         },
         {
           "kind": "positive_review",
-          "summary": "Positive customer feedback",
+          "summary": "The business provided excellent communication about delivery times.",
           "evidenceId": "R4",
           "quote": "Excellent communication about delivery times."
         },
         {
           "kind": "positive_review",
-          "summary": "Positive customer feedback",
+          "summary": "The business provided great service for a company event order.",
           "evidenceId": "R5",
           "quote": "Great service when we ordered for a company event."
         }
@@ -185,13 +189,13 @@
       "findings": [
         {
           "kind": "growth",
-          "summary": "Growth event reported",
+          "summary": "The bakery announced its second outlet will open next month.",
           "evidenceId": "N1",
           "quote": "The bakery announced its second outlet will open next month."
         },
         {
           "kind": "growth",
-          "summary": "Growth event reported",
+          "summary": "The bakery won a major contract to supply bread to a local hotel.",
           "evidenceId": "N2",
           "quote": "The bakery won a major contract to supply bread to a local hotel."
         }

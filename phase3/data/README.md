@@ -16,9 +16,10 @@ from `phase2/output/`, or pass its path to the CLI using `--phase2` with `--phas
 Both phases must refer to the same business ID. All scores must be 0–100, higher
 means safer. Do not pass raw reviews/news as Phase 3 input: analyse them in Phase 2.
 
-The included fictional healthy/litigation/no-evidence files are actual offline
-Phase 2 outputs paired with a sample traditional score of 85. They are editable
-and reloaded from disk on every run; no dataset is embedded in the source code.
+The included fictional `healthy-business` case pairs a sample traditional score of
+85 with the live Phase 2 report (`phase2/output/healthy-business.openrouter.json`).
+Files are editable and reloaded from disk on every run; no dataset is embedded in
+the source code. Red-flag and no-evidence scenarios are built inside the tests.
 
 Run `npm run demo -- --case my-business`. Local output is overwritten per case;
 your backend should implement persistent audit records separately.

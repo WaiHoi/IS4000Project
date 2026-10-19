@@ -14,7 +14,7 @@ npm ci
 npm run demo
 
 # One dataset.
-npm run demo -- --case litigation
+npm run demo -- --case healthy-business
 
 # List available datasets.
 npm run demo -- --list

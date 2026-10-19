@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { ADVERSE_KINDS, FINDING_KINDS, type AdverseKind, type Phase2Result } from '@credit-copilot/contracts';
+import {
+  ADVERSE_KINDS, FINDING_KINDS, SEVERITIES, type Phase2Result, type Phase3Assessment, type Phase3Policy,
+} from '@credit-copilot/contracts';
 
 const id = z.string().trim().min(1);
 const score = z.number().min(0).max(100).nullable();
@@ -14,11 +16,9 @@ export const traditionalResultSchema = z.object({
   }
 });
 
-// Finding kinds and the Phase 2 report type are shared with Phase 2 via ../contracts.
-export { ADVERSE_KINDS } from '@credit-copilot/contracts';
-export type { AdverseKind } from '@credit-copilot/contracts';
-export const SEVERITIES = ['critical', 'major', 'review', 'minor'] as const;
-export type Severity = typeof SEVERITIES[number];
+// Finding kinds, the Phase 2 report and the Phase 3 assessment types are shared via ../contracts.
+export { ADVERSE_KINDS, SEVERITIES } from '@credit-copilot/contracts';
+export type { AdverseKind, Severity, RiskBand, Override, RedFlag } from '@credit-copilot/contracts';
 
 const findingSchema = z.object({
   kind: z.enum(FINDING_KINDS),
@@ -77,33 +77,10 @@ export const policySchema = z.object({
 export type TraditionalResult = z.infer<typeof traditionalResultSchema>;
 export type UnstructuredResult = z.infer<typeof unstructuredResultSchema>;
 export type Policy = z.infer<typeof policySchema>;
-export type RiskBand = 'Low' | 'Medium' | 'High';
-export type RedFlag = UnstructuredResult['redFlags'][number] & { kind: AdverseKind; severity: Severity };
-export interface Override {
-  rule: 'band_cap' | 'mandatory_review' | 'analyst_review';
-  reason: string;
-  evidenceIds: string[];
-}
-export interface AssessmentResult {
-  schemaVersion: '1.0';
-  businessId: string;
-  businessName: string;
-  policy: Policy;
-  traditionalScore: number | null;
-  traditionalCoverage: number;
-  unstructuredScore: number | null;
-  unstructuredConfidence: number;
-  phase2Provider: UnstructuredResult['provider'];
-  phase2Model: UnstructuredResult['model'];
-  phase2Status: UnstructuredResult['status'];
-  effectiveUnstructuredWeight: number;
-  compositeScore: number | null;
-  compositeBand: RiskBand | null;
-  riskBand: RiskBand | null;
-  reviewStatus: 'Ready' | 'Manual review required' | 'Insufficient data';
-  overrides: Override[];
-  redFlags: RedFlag[];
-  warnings: string[];
-  dataGaps: string[];
-  explanation: string;
-}
+// The assessment shape is the shared contract read by explainability.
+export type AssessmentResult = Phase3Assessment;
+
+// Compile-time check: the policy file schema produces exactly the shared policy type.
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+const policyMatchesContract: Same<Policy, Phase3Policy> = true;
+void policyMatchesContract;
