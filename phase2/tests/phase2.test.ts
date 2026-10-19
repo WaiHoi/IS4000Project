@@ -142,6 +142,10 @@ test('SDK requests use OpenRouter chat completions and the findings schema', asy
   const result = await analysePhase2(await loadCase('healthy-business'), { provider });
   assert.equal(result.status, 'complete');
   assert.equal(result.provider, 'openrouter');
+  assert.equal(result.model?.id, 'example/model');
+  assert.match(result.model?.promptVersion ?? '', /^[0-9a-f]{12}$/);
+  assert.equal(result.model?.temperature, 0);
+  assert.equal((await analysePhase2(await loadCase('healthy-business'))).model, null); // mock: no model
   assert.equal(requests.length, 2);
   for (const request of requests) {
     assert.equal(request.url, 'https://openrouter.ai/api/v1/chat/completions');

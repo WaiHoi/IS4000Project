@@ -63,7 +63,7 @@ export async function analysePhase2(input: Phase2Input, options: Phase2Options =
   const incomplete = agents.some((agent) => agent.status === 'failed' || agent.warnings.length > 0);
   return {
     schemaVersion: '1.0', businessId: input.business.id, businessName: input.business.name,
-    provider: provider.name, generatedAt: new Date().toISOString(),
+    provider: provider.name, model: provider.model ?? null, generatedAt: new Date().toISOString(),
     status: summary.score === null ? 'unavailable' : incomplete ? 'partial' : 'complete',
     ...summary,
     evidence: prepared.evidence,

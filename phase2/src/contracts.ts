@@ -64,8 +64,18 @@ export interface AgentRequest {
   signal: AbortSignal;
 }
 
+/** Which model and prompts produced a result, for audit and model comparison. */
+export interface ModelInfo {
+  id: string;
+  // Short hash of both agents' instructions and model settings: changes whenever a prompt or setting changes.
+  promptVersion: string;
+  temperature: number;
+  maxTokens: number;
+}
+
 export interface AnalysisProvider {
   name: ProviderName;
+  model?: ModelInfo;
   analyse(request: AgentRequest): Promise<AgentOutput>;
 }
 
@@ -89,6 +99,7 @@ export interface Phase2Result {
   businessId: string;
   businessName: string;
   provider: ProviderName;
+  model: ModelInfo | null;
   generatedAt: string;
   status: 'complete' | 'partial' | 'unavailable';
   score: number | null;

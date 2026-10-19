@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import OpenAI from 'openai';
 import { Runner, OpenAIChatCompletionsModel } from '@openai/agents';
 import { createReviewsAgent } from '../agents/reviews-agent.js';
 import { createNewsAgent } from '../agents/news-agent.js';
+import { COMMON_MODEL_SETTINGS } from '../agents/instructions.js';
 import { agentOutputSchema, type AnalysisProvider } from '../contracts.js';
 
 export function createOpenRouterProvider(options: { model: string; apiKey?: string; fetch?: typeof fetch }): AnalysisProvider {
@@ -15,8 +17,13 @@ export function createOpenRouterProvider(options: { model: string; apiKey?: stri
   // OpenAI tracing is disabled so no OpenAI account or key is needed.
   const runner = new Runner({ tracingDisabled: true });
   const agents = { review: createReviewsAgent(model), news: createNewsAgent(model) };
+  const promptVersion = createHash('sha256')
+    .update(JSON.stringify([agents.review.instructions, agents.news.instructions, COMMON_MODEL_SETTINGS]))
+    .digest('hex').slice(0, 12);
   return {
     name: 'openrouter',
+    model: { id: options.model, promptVersion,
+      temperature: COMMON_MODEL_SETTINGS.temperature, maxTokens: COMMON_MODEL_SETTINGS.maxTokens },
     async analyse({ source, business, evidence, signal }) {
       const result = await runner.run(agents[source], JSON.stringify({ business, evidence }), { maxTurns: 2, signal });
       if (!result.finalOutput) throw new Error('Agent returned no structured output.');
