@@ -3,7 +3,11 @@
 From the project root:
 
 ```sh
-cd phase2
+# Build the shared contracts package first.
+cd contracts
+npm ci
+npm run build
+cd ../phase2
 npm ci
 ```
 

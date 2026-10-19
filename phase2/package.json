@@ -26,6 +26,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
+    "@credit-copilot/contracts": "file:../contracts",
     "@openai/agents": "0.20.0",
     "dotenv": "18.0.8",
     "openai": "7.36.0",

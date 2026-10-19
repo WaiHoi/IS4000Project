@@ -1,35 +1,25 @@
 import { z } from 'zod';
+import { FINDING_KINDS, type Evidence, type Finding, type ModelInfo, type ProviderName, type Source } from '@credit-copilot/contracts';
+
+// Kinds and report types shared with Phase 3 live in ../contracts. Re-exported so
+// Phase 2 modules and consumers keep importing from here.
+export { FINDING_KINDS, ADVERSE_KINDS } from '@credit-copilot/contracts';
+export type {
+  AdverseKind, AgentResult, Evidence, Factor, Finding, FindingKind, ModelInfo, Phase2Result, ProviderName, Source,
+} from '@credit-copilot/contracts';
 
 // Input is validated by intake (schema, consent, unique evidence IDs) before Phase 2.
 // Phase 2 trusts these shapes and only screens content (see processing/prepare-evidence.ts).
-export type Source = 'review' | 'news';
-
 export interface Business {
   id: string;
   name: string;
   claims?: string[];
 }
 
-export interface Evidence {
-  id: string;
-  businessId: string;
-  source: Source;
-  text: string;
-  publishedAt: string;
-  url?: string;
-}
-
 export interface Phase2Input {
   business: Business;
   evidence: Evidence[];
 }
-
-export const FINDING_KINDS = [
-  'positive_review', 'negative_review', 'growth',
-  // Adverse kinds (red flags). Phase 3 maps each to a severity; see phase3/src/config.ts.
-  'litigation', 'fraud', 'insolvency', 'regulatory_action',
-  'payment_distress', 'operational_distress', 'licence_issue', 'governance_issue', 'other_adverse',
-] as const;
 
 // Model output is untrusted, so it is still schema-checked.
 const id = z.string().trim().min(1).max(200);
@@ -39,6 +29,11 @@ export const findingSchema = z.object({
   evidenceId: id,
   quote: z.string().trim().min(1).max(20000),
 }).strict();
+
+// Compile-time check: the schema produces exactly the shared Finding type.
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+const findingMatchesContract: Same<z.infer<typeof findingSchema>, Finding> = true;
+void findingMatchesContract;
 
 // Strict check applied in code to whatever the model returns.
 export const agentOutputSchema = z.object({ findings: z.array(findingSchema).max(500) }).strict();
@@ -53,9 +48,7 @@ export const modelOutputSchema = z.object({
     quote: z.string(),
   }).strict()),
 }).strict();
-export type Finding = z.infer<typeof findingSchema>;
 export type AgentOutput = z.infer<typeof agentOutputSchema>;
-export type ProviderName = 'mock' | 'openrouter' | 'custom';
 
 export interface AgentRequest {
   source: Source;
@@ -64,53 +57,8 @@ export interface AgentRequest {
   signal: AbortSignal;
 }
 
-/** Which model and prompts produced a result, for audit and model comparison. */
-export interface ModelInfo {
-  id: string;
-  // Short hash of both agents' instructions and model settings: changes whenever a prompt or setting changes.
-  promptVersion: string;
-  temperature: number;
-  maxTokens: number;
-}
-
 export interface AnalysisProvider {
   name: ProviderName;
   model?: ModelInfo;
   analyse(request: AgentRequest): Promise<AgentOutput>;
-}
-
-export interface AgentResult {
-  source: Source;
-  status: 'completed' | 'skipped' | 'failed';
-  inputCount: number;
-  findings: Finding[];
-  warnings: string[];
-  error?: string;
-}
-
-export interface Factor {
-  name: string;
-  points: number;
-  evidenceIds: string[];
-}
-
-export interface Phase2Result {
-  schemaVersion: '1.0';
-  businessId: string;
-  businessName: string;
-  provider: ProviderName;
-  model: ModelInfo | null;
-  generatedAt: string;
-  status: 'complete' | 'partial' | 'unavailable';
-  score: number | null;
-  confidence: number;
-  coverage: { reviews: number; news: number; failedSources: Source[] };
-  factors: Factor[];
-  findings: Finding[];
-  redFlags: Finding[];
-  evidence: Evidence[];
-  excludedEvidence: { id: string; reason: string }[];
-  dataGaps: string[];
-  warnings: string[];
-  agents: AgentResult[];
 }

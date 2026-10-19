@@ -1,4 +1,4 @@
-import type { Finding, Source } from './contracts.js';
+import { ADVERSE_KINDS, type Finding, type Source } from './contracts.js';
 
 // Rubric points and count-based coverage are prototype policy, not calibrated probabilities.
 export const RUBRIC = {
@@ -14,11 +14,8 @@ export const RUBRIC = {
   newsWeight: 0.3,
 } as const;
 
-// Every adverse kind is reported as a red flag; Phase 3 decides its effect on the band.
-export const RED_FLAG_KINDS = [
-  'litigation', 'fraud', 'insolvency', 'regulatory_action',
-  'payment_distress', 'operational_distress', 'licence_issue', 'governance_issue', 'other_adverse',
-] as const satisfies readonly Finding['kind'][];
+// Every adverse kind (shared with Phase 3) is reported as a red flag; Phase 3 decides its effect on the band.
+export const RED_FLAG_KINDS = ADVERSE_KINDS;
 
 // Only these kinds cost RUBRIC.redFlag points in the Phase 2 score (unchanged prototype rubric).
 export const PENALISED_KINDS = ['litigation', 'fraud', 'insolvency', 'regulatory_action'] as const satisfies readonly Finding['kind'][];

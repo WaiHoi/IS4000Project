@@ -9,7 +9,11 @@ tracing is disabled; no OpenAI account or key is needed.
 Install Node.js 22+, then run in a terminal:
 
 ```sh
-cd phase2
+# Shared contracts (finding kinds, report types) must be built first.
+cd contracts
+npm ci
+npm run build
+cd ../phase2
 npm ci
 ```
 
@@ -129,7 +133,8 @@ directly instead of loading files. Imports do not write files or execute the CLI
 
 ## Ownership
 
-- `contracts.ts`: shared input types and the agent output schema.
+- `contracts.ts`: Phase 2 input types and agent output schemas; finding kinds and
+  report types come from the shared [`../contracts`](../contracts/README.md) package.
 - `load-data.ts`: demo disk adapter (no validation).
 - `pipeline.ts`: coordination, timeouts and failure states.
 - `agents/`: reviews/news instructions and structured outputs.
