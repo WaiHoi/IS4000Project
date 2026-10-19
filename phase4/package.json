@@ -1,0 +1,9 @@
+{
+  "name": "@credit-copilot/phase4", "version": "0.1.0", "private": true, "type": "module",
+  "engines": { "node": ">=22.13" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "data", "README.md"],
+  "scripts": { "demo": "tsx src/cli.ts", "history": "tsx src/cli.ts --history", "test": "tsx --test tests/*.test.ts", "typecheck": "tsc --noEmit", "build": "tsc", "start": "node dist/cli.js" },
+  "dependencies": { "@credit-copilot/explainability": "file:../explainability", "zod": "4.6.7" },
+  "devDependencies": { "@types/node": "26.6.5", "tsx": "4.23.15", "typescript": "7.0.2" }
+}

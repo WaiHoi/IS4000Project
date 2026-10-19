@@ -1,0 +1,8 @@
+{
+  "submissionId": "demo-healthy-business-review-1",
+  "analystId": "demo-analyst",
+  "action": "request_information",
+  "reason": "Please provide updated financial records and clarify the cited evidence.",
+  "override": false,
+  "acknowledgeWarnings": true
+}

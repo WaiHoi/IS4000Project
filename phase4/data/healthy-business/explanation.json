@@ -1,0 +1,205 @@
+{
+  "schemaVersion": "1.0",
+  "assessmentId": "healthy-business-demo",
+  "assessmentDigest": "4a5559a13256866cb2b19065e26074149345a8cafde3c6f882b7bdf4c2f362d2",
+  "businessId": "DEMO-BAKERY-01",
+  "provider": "mock",
+  "model": null,
+  "policy": {
+    "version": "prototype-v1",
+    "maxRetries": 2,
+    "requiredCitationKinds": [
+      "negative_review",
+      "litigation",
+      "fraud",
+      "insolvency",
+      "regulatory_action",
+      "payment_distress",
+      "operational_distress",
+      "licence_issue",
+      "governance_issue",
+      "other_adverse"
+    ],
+    "forbidDigitsInNarrative": true,
+    "forbiddenNarrativeTerms": [
+      "score",
+      "risk band",
+      "approve",
+      "decline"
+    ],
+    "protectedTerms": [
+      "gender",
+      "race",
+      "ethnicity",
+      "religion",
+      "marital",
+      "pregnan*",
+      "male",
+      "female",
+      "elderly",
+      "muslim",
+      "christian",
+      "hindu",
+      "buddhist",
+      "postal code",
+      "dialect"
+    ]
+  },
+  "status": "verified",
+  "assessment": {
+    "schemaVersion": "1.0",
+    "businessId": "DEMO-BAKERY-01",
+    "businessName": "Sample Sunrise Bakery (fictional)",
+    "traditionalScore": 85,
+    "unstructuredScore": 68,
+    "compositeScore": 79.9,
+    "riskBand": "Low",
+    "compositeBand": "Low",
+    "reviewStatus": "Ready",
+    "effectiveUnstructuredWeight": 0.3,
+    "warnings": [],
+    "dataGaps": [],
+    "overrides": [],
+    "redFlags": [],
+    "policy": {
+      "version": "prototype-v2",
+      "baseUnstructuredWeight": 0.3,
+      "mediumThreshold": 40,
+      "lowThreshold": 70,
+      "severity": {
+        "litigation": "major",
+        "fraud": "critical",
+        "insolvency": "critical",
+        "regulatory_action": "critical",
+        "payment_distress": "major",
+        "operational_distress": "major",
+        "licence_issue": "major",
+        "governance_issue": "minor",
+        "other_adverse": "review"
+      },
+      "reviewOnlySeverity": {
+        "critical": "major",
+        "major": "minor",
+        "review": "review",
+        "minor": "minor"
+      }
+    },
+    "traditionalCoverage": 1,
+    "unstructuredConfidence": 1,
+    "phase2Provider": "openrouter",
+    "phase2Model": {
+      "id": "google/gemini-2.5-flash",
+      "promptVersion": "77ef4800b1d6",
+      "temperature": 0,
+      "maxTokens": 4000
+    },
+    "phase2Status": "complete",
+    "explanation": "Composite 79.9 = 0.7000 × traditional 85 + 0.3000 × unstructured 68. Composite band: Low. Final band: Low. Review status: Ready. The analyst makes the final decision."
+  },
+  "memo": {
+    "businessId": "DEMO-BAKERY-01",
+    "scores": {
+      "traditional": 85,
+      "unstructured": 68,
+      "composite": 79.9
+    },
+    "riskBand": "Low",
+    "reviewStatus": "Ready",
+    "claims": [
+      {
+        "text": "The supplied source contains a business signal requiring analyst interpretation.",
+        "evidenceId": "R1",
+        "quote": "Excellent service. Our catering order arrived on time."
+      },
+      {
+        "text": "The supplied source contains a business signal requiring analyst interpretation.",
+        "evidenceId": "R2",
+        "quote": "Great service and careful packaging for our cake."
+      },
+      {
+        "text": "The supplied source contains a business signal requiring analyst interpretation.",
+        "evidenceId": "R3",
+        "quote": "I highly recommend the bakery for reliable collection."
+      },
+      {
+        "text": "The supplied source contains a business signal requiring analyst interpretation.",
+        "evidenceId": "R4",
+        "quote": "Excellent communication about delivery times."
+      },
+      {
+        "text": "The supplied source contains a business signal requiring analyst interpretation.",
+        "evidenceId": "R5",
+        "quote": "Great service when we ordered for a company event."
+      },
+      {
+        "text": "The supplied source contains a business signal requiring analyst interpretation.",
+        "evidenceId": "N1",
+        "quote": "The bakery announced its second outlet will open next month."
+      },
+      {
+        "text": "The supplied source contains a business signal requiring analyst interpretation.",
+        "evidenceId": "N2",
+        "quote": "The bakery won a major contract to supply bread to a local hotel."
+      }
+    ],
+    "limitations": [
+      "Offline template only; no AI interpretation was performed."
+    ]
+  },
+  "renderedMemo": "Assessment: healthy-business-demo\nTraditional score: 85. Unstructured score: 68. Composite score: 79.9.\nFinal risk band: Low. Review status: Ready.\nThe supplied source contains a business signal requiring analyst interpretation. [R1]\nThe supplied source contains a business signal requiring analyst interpretation. [R2]\nThe supplied source contains a business signal requiring analyst interpretation. [R3]\nThe supplied source contains a business signal requiring analyst interpretation. [R4]\nThe supplied source contains a business signal requiring analyst interpretation. [R5]\nThe supplied source contains a business signal requiring analyst interpretation. [N1]\nThe supplied source contains a business signal requiring analyst interpretation. [N2]\nOffline template only; no AI interpretation was performed.\nThe analyst makes the final credit decision.",
+  "evidence": [
+    {
+      "id": "R1",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "Excellent service. Our catering order arrived on time."
+    },
+    {
+      "id": "R2",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "Great service and careful packaging for our cake."
+    },
+    {
+      "id": "R3",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "I highly recommend the bakery for reliable collection."
+    },
+    {
+      "id": "R4",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "Excellent communication about delivery times."
+    },
+    {
+      "id": "R5",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "review",
+      "text": "Great service when we ordered for a company event."
+    },
+    {
+      "id": "N1",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "news",
+      "text": "The bakery announced its second outlet will open next month."
+    },
+    {
+      "id": "N2",
+      "businessId": "DEMO-BAKERY-01",
+      "source": "news",
+      "text": "The bakery won a major contract to supply bread to a local hotel."
+    }
+  ],
+  "attempts": [
+    {
+      "number": 1,
+      "issues": [],
+      "criticPassed": true,
+      "verificationPassed": true
+    }
+  ],
+  "warnings": [
+    "Mock memo and critic; no AI review performed."
+  ]
+}
