@@ -1,0 +1,4 @@
+[
+  { "id": "N1", "businessId": "DEMO-BAKERY-01", "source": "news", "text": "The bakery announced its second outlet will open next month.", "publishedAt": "2026-09-30T10:00:00Z" },
+  { "id": "N2", "businessId": "DEMO-BAKERY-01", "source": "news", "text": "The bakery won a major contract to supply bread to a local hotel.", "publishedAt": "2026-10-03T10:00:00Z" }
+]

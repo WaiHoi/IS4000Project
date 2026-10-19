@@ -1,0 +1,7 @@
+[
+  { "id": "R1", "businessId": "DEMO-BAKERY-01", "source": "review", "text": "Excellent service. Our catering order arrived on time.", "publishedAt": "2026-09-01T10:00:00Z" },
+  { "id": "R2", "businessId": "DEMO-BAKERY-01", "source": "review", "text": "Great service and careful packaging for our cake.", "publishedAt": "2026-09-08T10:00:00Z" },
+  { "id": "R3", "businessId": "DEMO-BAKERY-01", "source": "review", "text": "I highly recommend the bakery for reliable collection.", "publishedAt": "2026-09-15T10:00:00Z" },
+  { "id": "R4", "businessId": "DEMO-BAKERY-01", "source": "review", "text": "Excellent communication about delivery times.", "publishedAt": "2026-09-22T10:00:00Z" },
+  { "id": "R5", "businessId": "DEMO-BAKERY-01", "source": "review", "text": "Great service when we ordered for a company event.", "publishedAt": "2026-10-01T10:00:00Z" }
+]

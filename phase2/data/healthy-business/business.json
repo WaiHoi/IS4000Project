@@ -1,0 +1,6 @@
+{
+  "id": "DEMO-BAKERY-01",
+  "name": "Sample Sunrise Bakery (fictional)",
+  "consent": true,
+  "claims": ["We are opening a second outlet."]
+}
