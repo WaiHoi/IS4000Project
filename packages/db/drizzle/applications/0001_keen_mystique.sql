@@ -1,0 +1,1 @@
+ALTER TABLE "applications" ADD COLUMN "ai_research_consent" boolean DEFAULT false NOT NULL;

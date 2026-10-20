@@ -36,6 +36,7 @@ test("Monitoring demo: age → alert → acknowledge → pay", async ({ page }) 
 			email: TOMAS,
 			phone: "+1-555-0200",
 			address: "2 Café Street",
+			city: "Demo City",
 		},
 		sme: {
 			companyName: "Café Aurora",

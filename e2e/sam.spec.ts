@@ -23,6 +23,7 @@ test("Sam decline path: apply → declined SCORE_TOO_LOW, no loan", async ({ pag
 	await page.locator("#field-national-id").fill("SAMDEMO11");
 	await page.locator("#field-phone").fill("+1-555-0300");
 	await page.locator("#field-address").fill("3 Demo Street");
+	await page.locator("#field-city").fill("Demo City");
 	await page.locator("#field-employment-status").selectOption("employed");
 	await page.locator("#field-employer-name").fill("Gig Platform");
 	await page.locator("#field-employment-years").fill("1");

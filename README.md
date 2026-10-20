@@ -1,11 +1,13 @@
-# Creditworthiness Pipeline — Phase 1
+# Creditworthiness Pipeline — Phase 1 + Phase 2 advisory research
 
 Docs: [docs/index.md](docs/index.md).
 
 End-to-end credit pipeline: apply → verify → gather data → score → policy
-decision → human review → price & book → monitor. Traditional pipeline only:
-deterministic mocks throughout (labelled "Mock data" in the UI), no LLM or
-real providers. Architecture: [docs/explanation/architecture.md](docs/explanation/architecture.md).
+decision → human review → price & book → monitor. The pipeline itself uses
+deterministic mocks throughout (labelled "Mock data" in the UI). Phase 2
+adds an advisory agent-research brief (approved LLM + Tavily cited sources,
+officer-triggered, never decisive) behind `AGENTS_ENABLED` +
+`AGENT_CASE_BRIEF_ENABLED`. Architecture: [docs/explanation/architecture.md](docs/explanation/architecture.md).
 
 ## Prereqs
 
@@ -22,7 +24,7 @@ cp .env.example .env   # then set a real SESSION_SECRET
 pnpm install                    # non-interactive; build scripts pre-approved in pnpm-workspace.yaml (allowBuilds)
 docker compose up -d --wait     # postgres, kafka, temporal, temporal-ui
 pnpm setup                      # db:wait -> db:init -> kafka:init -> db:migrate -> db:seed
-pnpm dev                        # gateway :3001 + services :4001-4004 + worker + web :3000 in parallel
+pnpm dev                        # gateway :3001 + services :4001-4005 + worker + web :3000 in parallel
 ```
 
 Then open http://localhost:3000 and log in (password `demo1234`, see table).
@@ -76,50 +78,54 @@ starts its own worker/gateway/services/web and stops them afterwards).
 
 ## Command reference
 
-| Command                                           | What it does                                                                               |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `pnpm dev`                                        | gateway + 4 services + worker + web in parallel                                            |
-| `pnpm dev:services`                               | gateway + 4 services (no worker/web)                                                       |
-| `pnpm typecheck`                                  | `tsc --noEmit` in every package + `scripts/` + `e2e/`                                      |
-| `pnpm lint` / `pnpm format` / `pnpm format:check` | `oxlint` / `oxfmt .` / `oxfmt --check .`                                                   |
-| `pnpm test`                                       | unit tests, compose-free (core 77 ? db 9 ? service-kit 6 ? gateway 5 ? worker 27 = 124)    |
-| `pnpm test:integration`                           | gateway (14) + services (6+4+5+5) + worker (8) integration = 42, needs compose             |
-| `pnpm test:e2e`                                   | Playwright (4 specs), boots worker/gateway/services/web itself, needs compose              |
-| `pnpm demo:check`                                 | scripted HTTP smoke (Maria/Sam/Tomás + monitoring/pay), needs the stack                    |
-| `pnpm demo:monitor`                               | officer login + `POST /demo/monitoring/run`, prints counts                                 |
-| `pnpm db:wait`                                    | polls `pg_isready` in the postgres container (timeout `DB_WAIT_TIMEOUT_S`, default 120)    |
-| `pnpm db:init`                                    | creates the 4 service DBs (+ Temporal pair) if missing — self-provisions existing clusters |
-| `pnpm kafka:init`                                 | creates the 7 SPEC FR-10.1 topics (3 partitions, RF 1), idempotent                         |
-| `pnpm setup`                                      | `db:wait && db:init && kafka:init && db:migrate && db:seed`                                |
-| `pnpm build`                                      | recursive `--if-present` build                                                             |
+| Command                                           | What it does                                                                                                                              |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                                        | gateway + 5 services + worker + web in parallel                                                                                           |
+| `pnpm dev:services`                               | gateway + 4 services (no research/worker/web)                                                                                             |
+| `pnpm typecheck`                                  | `tsc --noEmit` in every package + `scripts/` + `e2e/`                                                                                     |
+| `pnpm lint` / `pnpm format` / `pnpm format:check` | `oxlint` / `oxfmt .` / `oxfmt --check .`                                                                                                  |
+| `pnpm test`                                       | unit tests, compose-free (core 87 + db 9 + service-kit 14 + gateway 5 + research 73 + worker 28 = 216)                                    |
+| `pnpm test:integration`                           | gateway (15) + applications (11) + loans (5) + portfolio (5) + review (19) + worker (10) + research (38) integration = 103, needs compose |
+| `pnpm test:e2e`                                   | Playwright (5 specs), boots worker/gateway/services/web itself, needs compose                                                             |
+| `pnpm demo:check`                                 | scripted HTTP smoke (Maria/Sam/Tomás + monitoring/pay), needs the stack                                                                   |
+| `pnpm demo:monitor`                               | officer login + `POST /demo/monitoring/run`, prints counts                                                                                |
+| `pnpm db:wait`                                    | polls `pg_isready` in the postgres container (timeout `DB_WAIT_TIMEOUT_S`, default 120)                                                   |
+| `pnpm db:init`                                    | creates the 5 service DBs (+ Temporal pair) if missing — self-provisions existing clusters                                                |
+| `pnpm kafka:init`                                 | creates the 7 SPEC FR-10.1 topics (3 partitions, RF 1), idempotent                                                                        |
+| `pnpm setup`                                      | `db:wait && db:init && kafka:init && db:migrate && db:seed`                                                                               |
+| `pnpm build`                                      | recursive `--if-present` build                                                                                                            |
 
 ## Ports & env
 
-| Service        | Port | Notes                                                                                                                                                                                                               |
-| -------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| web (Vite)     | 3000 | proxies `/api` → `127.0.0.1:3001`                                                                                                                                                                                   |
-| gateway (Hono) | 3001 | binds `API_HOST` (default 127.0.0.1); `GET /api/health` → `{status:"ok"}` + `services` map                                                                                                                          |
-| postgres 18    | 5432 | one cluster, four databases: `credit_auth` (gateway) · `credit_applications` · `credit_loans` · `credit_portfolio`; init SQL creates all six (+ `temporal` pair); volume mounts `/var/lib/postgresql` (PG18 layout) |
-| kafka (KRaft)  | 9092 | host listener; internal `kafka:29092` for future in-compose clients                                                                                                                                                 |
-| temporal       | 7233 | auto-setup against the postgres service                                                                                                                                                                             |
-| temporal-ui    | 8080 | pointed at `temporal:7233`                                                                                                                                                                                          |
-| applications   | 4001 | P1a microservice: intake + case detail (no loan block)                                                                                                                                                              |
-| review         | 4002 | stateless: queue + officer decisions (no DB)                                                                                                                                                                        |
-| loans          | 4003 | P1a microservice: loans, alerts, demo controls, internal loan lookup                                                                                                                                                |
-| portfolio      | 4004 | dashboard summary + Kafka consumer                                                                                                                                                                                  |
+| Service        | Port | Notes                                                                                                                                                                                                                                     |
+| -------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| web (Vite)     | 3000 | proxies `/api` → `127.0.0.1:3001`                                                                                                                                                                                                         |
+| gateway (Hono) | 3001 | binds `API_HOST` (default 127.0.0.1); `GET /api/health` → `{status:"ok"}` + `services` map                                                                                                                                                |
+| postgres 18    | 5432 | one cluster, five databases: `credit_auth` (gateway) · `credit_applications` · `credit_loans` · `credit_portfolio` · `credit_research`; init SQL creates all seven (+ `temporal` pair); volume mounts `/var/lib/postgresql` (PG18 layout) |
+| kafka (KRaft)  | 9092 | host listener; internal `kafka:29092` for future in-compose clients                                                                                                                                                                       |
+| temporal       | 7233 | auto-setup against the postgres service                                                                                                                                                                                                   |
+| temporal-ui    | 8080 | pointed at `temporal:7233`                                                                                                                                                                                                                |
+| applications   | 4001 | P1a microservice: intake + case detail (no loan block)                                                                                                                                                                                    |
+| review         | 4002 | stateless: queue + officer decisions (no DB)                                                                                                                                                                                              |
+| loans          | 4003 | P1a microservice: loans, alerts, demo controls, internal loan lookup                                                                                                                                                                      |
+| portfolio      | 4004 | dashboard summary + Kafka consumer                                                                                                                                                                                                        |
+| research       | 4005 | Phase 2 advisory briefs (Node, never Bun — Agents/Grafana SDKs are Node-only); owns `credit_research`; runs only when `AGENTS_ENABLED` + `AGENT_CASE_BRIEF_ENABLED`                                                                       |
 
 Environment files are loaded explicitly ? Bun's dev scripts pass
-`--env-file=../../.env`, Node (worker/tests) uses `dotenv` ? and validated by
+`--env-file=../../.env`, Node (worker/research/tests) uses `dotenv` ? and validated by
 **t3-env** (`@t3-oss/env-core`) with per-app zod schemas, so a missing or
-invalid variable fails fast at boot. Bun does auto-load `.env` from its cwd,
+invalid variable fails fast at boot (except `db:migrate`, which skips the
+research database with a clear log when `RESEARCH_DATABASE_URL` is unset —
+set it to enable Phase 2). Bun does auto-load `.env` from its cwd,
 but services run with cwd=`apps/<name>`, hence the explicit root path.
 `scripts/*` run with cwd = root under Bun. Never commit `.env` (gitignored).
 The gateway reads `APPLICATIONS_URL`/`REVIEW_URL`/`LOANS_URL`/`PORTFOLIO_URL`
 (defaulting to `http://127.0.0.1:4001`?`:4004`) plus `INTERNAL_SECRET` for
-signing downstream requests; `compose.services.yml` overrides the URLs for
+signing downstream requests; review additionally reads `RESEARCH_URL`
+(default `http://127.0.0.1:4005`); `compose.services.yml` overrides the URLs for
 container networking (`http://applications:4001`, ?).
 a crashed run can leave a stale server behind. Find it with
-`Get-NetTCPConnection -LocalPort 3000,3001,4001,4002,4003,4004 -State Listen` and stop that
+`Get-NetTCPConnection -LocalPort 3000,3001,4001,4002,4003,4004,4005 -State Listen` and stop that
 PID only — never `Stop-Process -Name node` (that kills unrelated tooling).
 
 - **Full reset.** `docker compose down -v` wipes DB + Kafka, then re-run the
@@ -155,25 +161,30 @@ PID only — never `Stop-Process -Name node` (that kills unrelated tooling).
 Browser → TanStack Start (3000) → /api proxy → Gateway (3001, cookie auth)
                                                   ├─ credit_auth (session users, db probe)
                                                   ├─ applications (4001) + review (4002, stateless, Temporal client → Temporal (7233) ← Worker)
-                                                  └─ loans (4003) + portfolio (4004, Kafka consumer); signed HMAC identity downstream, no cookies
+                                                  ├─ loans (4003) + portfolio (4004, Kafka consumer); signed HMAC identity downstream, no cookies
+                                                   └─ research (4005, Node): review only, officer-gated advisory briefs
 Worker: workflows/activities · dual outbox relay loops · reconciler · schedule bootstrap
 Kafka (9092) ← relays → portfolio consumer → activity_feed
 ```
 
-Postgres 18 is the system of record (one cluster, four databases — see
+Postgres 18 is the system of record (one cluster, five databases — see
 above); Kafka is an integration/read-model bus; Temporal owns long-running
 state; officer decisions arrive via Temporal update sent by the stateless
 review service (booking itself is a worker saga across the applications +
 loans DBs: decision → loan → booked flip, each step idempotent); the
 gateway never mutates decisions. The application detail `loan`
 block is composed by the gateway from the loans service. Outbox prevents
-dual-write loss. Package boundaries: core pure; db per-service
+dual-write loss. Advisory research never decides: the officer accepts cited
+findings, the decision carries only the selection (`agentRunId` +
+`acceptedFindingIds`), review freezes exactly the used findings into the
+decision snapshot, and the bundle's `viewedAt` is the deciding officer's
+latest view. Package boundaries: core pure; db per-service
 schemas/client/seed; service-kit shared internals; gateway auth+proxy;
 services core+db+kit; worker core+db; web HTTP + core types. Full detail: [docs/explanation/architecture.md](docs/explanation/architecture.md).
 
 ## Service decomposition (P1a + P1b, monolith removed)
 
-Five independently runnable Bun apps plus a shared kit. The old monolith is
+Six independently runnable backend apps plus a shared kit. The old monolith is
 deleted — the gateway owns `/api/*` on :3001 and the UI contract is
 unchanged (paths, envelopes, cookie session, health shape + `services`).
 
@@ -191,16 +202,22 @@ unchanged (paths, envelopes, cookie session, health shape + `services`).
 - `apps/applications` (4001), `apps/review` (4002, stateless — no DB),
   `apps/loans` (4003), `apps/portfolio` (4004, owns the Kafka consumer).
   Each validates its own `*_DATABASE_URL` (review: none — it takes
-  `APPLICATIONS_URL`/`LOANS_URL` instead), `PORT` (own
+  `APPLICATIONS_URL`/`LOANS_URL`/`RESEARCH_URL` instead), `PORT` (own
   default), `INTERNAL_SECRET` at boot (plus `TEMPORAL_ADDRESS`, and
   `DEMO_MODE` for loans). `pnpm dev:services` runs gateway + all four.
+- `apps/research` (4005, **Node — never Bun**: the Agents/Grafana SDKs are
+  Node-only): advisory cited briefs on `pending_review` cases with AI
+  research consent. Owns `credit_research`; runs only when `AGENTS_ENABLED` +
+  `AGENT_CASE_BRIEF_ENABLED`. Served by stdlib `node:http` + `app.fetch`
+  (no extra server dep). Grafana observability is best-effort: a degraded
+  pipeline never fails readiness, a run, or a decision.
 
 **Internal auth.** The P1b gateway authenticates the end user, then signs
-`HMAC-SHA256(method\npath\nuserId\nemail(lowercased)\nrole\nts)` with `INTERNAL_SECRET`
+`HMAC-SHA256(method\npath\nuserId\nemail(lowercased)\nrole\nts\nbodyHash\nrequestId)` with `INTERNAL_SECRET`
 (`x-user-id`, `x-user-role`, `x-user-email`, `x-internal-ts`,
-`x-internal-signature`, `x-request-id`; 5-minute skew; constant-time
+`x-internal-signature`, `x-body-sha256`, `x-request-id`; 5-minute skew; constant-time
 compare). `path` is the exact pathname the target sees in `c.req.path`.
-Services trust the signed identity — no cookies. Unsigned → 401,
+Services trust the signed identity — no cookies. Unsigned, body-swapped, or replayed → 401,
 role-mismatched → 403. Application detail omits `loan`; the gateway
 composes it via `GET /internal/loans/by-application/:id` (loan summary +
 paid/overdue counts).
@@ -212,7 +229,7 @@ greps every service for cross-domain imports): gateway → `credit_auth`
 audit/outbox); loans → `credit_loans` (ledger + audit/outbox, with
 denormalised `application_reference`/`applicant_user_id`/`product` so it
 never joins applications); portfolio → `credit_portfolio` (Kafka read
-model). No cross-database foreign keys — references are plain uuids.
+model); research → `credit_research` (agent runs, evidence, findings, reviews, views). No cross-database foreign keys — references are plain uuids.
 Review is **stateless** (queue/decision state via the applications/loans
 internal APIs + Temporal); the worker orchestrates across the two writer
 DBs (booking saga + one outbox relay each) and never touches
@@ -232,12 +249,12 @@ What it starts: a one-shot `deps` installer (`node:26-slim`, Linux-native
 `pnpm install --frozen-lockfile` into a `svc-node-modules` volume shadowing
 `/app/node_modules`), then gateway + applications + review + loans +
 portfolio (`oven/bun:1.4.3` — the newest numeric tag on Docker Hub; 1.4.4
-exists only as a local canary) and the worker (`node:26-slim`,
+exists only as a local canary), research + worker (`node:26-slim`, research via
 `node --import tsx`). Container networking is wired via `environment:`
 (`AUTH/APPLICATIONS/LOANS/PORTFOLIO_DATABASE_URL=@postgres`, `TEMPORAL_ADDRESS=temporal:7233`,
-`KAFKA_BROKERS=kafka:29092`, `APPLICATIONS_URL=http://applications:4001`,
-…); secrets interpolate from the root `.env`. Ports 3001/4001–4004 are
-published, each Bun service has a `bun -e` fetch healthcheck, and everything
+`KAFKA_BROKERS=kafka:29092`, `APPLICATIONS_URL=http://applications:4001`, `RESEARCH_URL=http://research:4005`,
+…); secrets interpolate from the root `.env`. Ports 3001/4001–4005 are
+published, each service has a fetch healthcheck (`bun -e` for Bun, `node -e` for research), and everything
 waits on `deps` + healthy infra. The web app stays local (`pnpm
 --filter @credit/web dev`). Note: `down` stops the base infra too; and a
 container `pnpm install` over the bind mount can leave a stale Windows
@@ -261,7 +278,7 @@ Docker: `postgres:18-alpine` · `apache/kafka:3.9.0` ·
 ## Notes
 
 - **Worker runs on Node 26; Temporal officially supports 20/22/24.**
-  26 passes our full suite (109 unit + 35 integration + 4 E2E) but is outside
+  26 passes our full suite (216 unit + 103 integration + 5 E2E) but is outside
   the support matrix — if the worker ever acts up, Node 24 LTS is the first
   thing to try (`.nvmrc` pins the 26 we test on).
 - **TS 7 kept (7.0.2).** It needed two small fixes, both correct anyway:

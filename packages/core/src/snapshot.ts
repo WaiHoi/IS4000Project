@@ -4,6 +4,7 @@ import { hashCanonical } from "./canonical.js";
 import { type Grade, POLICY_VERSION, SCORECARD_VERSION } from "./constants.js";
 import type { Factor } from "./factors.js";
 import type { PolicyReason } from "./reasons.js";
+import type { ResearchBundle } from "./schemas.js";
 
 export interface CreditSnapshotInputs {
 	inputs: unknown;
@@ -14,6 +15,8 @@ export interface CreditSnapshotInputs {
 	monthlyPaymentCents: number;
 	reasons: PolicyReason[];
 	actor: string;
+	/** Frozen research bundle, copied at decision time (optional). */
+	research?: ResearchBundle;
 	/** ISO-8601 UTC timestamp of the decision (not part of inputHash). */
 	decidedAt: string;
 }
@@ -39,6 +42,7 @@ export interface CheckOnlySnapshotInputs {
 	checks: { type: string; status: "passed" | "failed" }[];
 	reasons: PolicyReason[];
 	actor: string;
+	research?: ResearchBundle;
 	decidedAt: string;
 }
 

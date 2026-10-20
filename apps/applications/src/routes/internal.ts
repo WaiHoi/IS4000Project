@@ -10,6 +10,7 @@ import {
 	type Db,
 } from "@credit/db/applications";
 import { HttpError, type ServiceApp, type ServiceVariables } from "@credit/service-kit";
+import { caseFactsSchema } from "@credit/core";
 import { asc, count, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
@@ -105,6 +106,48 @@ export function internalRoutes(deps: InternalRouteDeps): ServiceApp {
 				? { id: decision.id, outcome: decision.outcome, requestId: decision.requestId }
 				: null,
 		});
+	});
+
+	// Allowlisted case facts for the officer-triggered research service
+	// (Phase 2). Never expose DOB, national ID, address, bureau, or documents.
+	app.get("/internal/applications/:id/case-facts", officer, async (c) => {
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		const rows = await db.select().from(applications).where(eq(applications.id, id));
+		const row = rows[0];
+		if (!row) throw new HttpError(404, "NOT_FOUND", "not found");
+		const identity = row.identity as { fullName?: string; city?: string };
+		const business = row.business as {
+			companyName?: string;
+			registrationNumber?: string;
+			industry?: string;
+			yearsTrading?: number;
+		} | null;
+		const submittedAt = row.submittedAt.toISOString();
+		// Single 16-key schema: the public response shape lives in core.
+		// Fail typed (no PII, no raw ZodError 500) on legacy/corrupt rows.
+		const parsed = caseFactsSchema.safeParse({
+			applicationId: row.id,
+			reference: row.reference,
+			type: row.type,
+			product: row.product,
+			amountCents: row.amountCents,
+			termMonths: row.termMonths,
+			submittedAt,
+			asOf: submittedAt,
+			applicantName: identity.fullName ?? "",
+			companyName: business?.companyName ?? null,
+			registrationNumber: business?.registrationNumber ?? null,
+			industry: business?.industry ?? null,
+			yearsTrading: business?.yearsTrading ?? null,
+			city: identity.city ?? null,
+			aiResearchConsent: row.aiResearchConsent,
+			status: row.status,
+		});
+		if (!parsed.success) {
+			throw new HttpError(502, "CASE_FACTS_INVALID", "case facts are unavailable");
+		}
+		return c.json(parsed.data);
 	});
 
 	// Dashboard counts for the portfolio service (FR-9.2): application

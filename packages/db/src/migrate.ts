@@ -17,10 +17,20 @@ const TARGETS = [
 	{ name: "applications", env: "APPLICATIONS_DATABASE_URL", folder: "drizzle/applications" },
 	{ name: "loans", env: "LOANS_DATABASE_URL", folder: "drizzle/loans" },
 	{ name: "portfolio", env: "PORTFOLIO_DATABASE_URL", folder: "drizzle/portfolio" },
+	{ name: "research", env: "RESEARCH_DATABASE_URL", folder: "drizzle/research" },
 ] as const;
 
 for (const target of TARGETS) {
 	const url = process.env[target.env];
+	// Phase 1 checkout without research configured: the research database is
+	// optional until Phase 2 is enabled (see docs/getting-started.md). Skip
+	// it with a clear log; the other four databases still fail fast.
+	if (!url && target.name === "research") {
+		console.log(
+			`db:migrate: skipping research (${target.env} is not set) — set it to enable Phase 2 agentic research`,
+		);
+		continue;
+	}
 	if (!url) throw new Error(`db:migrate: ${target.env} is not set (root .env?)`);
 	const sql = postgres(url, { max: 1 });
 	try {

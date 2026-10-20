@@ -10,14 +10,15 @@ This page is a lookup surface. Audience: developers who change storage or read e
 | `credit_applications` | Applications service, worker | `applications`, `kyc_checks`, `external_reports`, `documents`, `scores`, `policy_evaluations`, `decisions`, `idempotency_keys`, `audit_log`, `outbox_events` | Pipeline state, decisions, audit, outbox                                                           |
 | `credit_loans`        | Loans service, worker        | `loans`, `installments`, `payments`, `ews_alerts`, `audit_log`, `outbox_events`                                                                              | Ledger plus audit and outbox; denormalized `application_reference`, `applicant_user_id`, `product` |
 | `credit_portfolio`    | Portfolio service            | `processed_events`, `activity_feed`, `dead_letter_events`                                                                                                    | Kafka read model; application and loan ids are opaque                                              |
+| `credit_research`     | Research service             | `agent_runs`, `agent_evidence`, `agent_findings`, `finding_evidence`, `agent_finding_reviews`, `agent_run_views`                                             | Advisory briefs; runs token-claimed, evidence/findings persist atomically with success             |
 
-Sources: `packages/db/src/auth.ts`, `packages/db/src/applications.ts`, `packages/db/src/loans.ts`, `packages/db/src/portfolio.ts`, `packages/db/src/shared.ts`.
+Sources: `packages/db/src/auth.ts`, `packages/db/src/applications.ts`, `packages/db/src/loans.ts`, `packages/db/src/portfolio.ts`, `packages/db/src/research.ts`, `packages/db/src/shared.ts`.
 
 Rules:
 
 - No cross-database foreign keys. Cross-service references are plain UUIDs.
-- Each service imports only its own `@credit/db/*` subpath (`./auth`, `./applications`, `./loans`, `./portfolio`, `./shared`).
-- The worker is the only component that writes both `credit_applications` and `credit_loans`. It never touches `credit_auth` or `credit_portfolio`.
+- Each service imports only its own `@credit/db/*` subpath (`./auth`, `./applications`, `./loans`, `./portfolio`, `./research`, `./shared`).
+- The worker is the only component that writes both `credit_applications` and `credit_loans`. It never touches `credit_auth`, `credit_portfolio`, or `credit_research`.
 - Review is stateless and owns no tables.
 
 Key uniqueness:
@@ -32,9 +33,9 @@ Key uniqueness:
 
 ## Migrations and seed
 
-- `pnpm db:init` creates the four service databases plus the Temporal pair if missing. Source: `scripts/db-init.ts`.
-- `pnpm db:migrate` applies each service folder in `packages/db/drizzle/*` to its own database, tracked per database. Source: `packages/db/src/migrate.ts`.
-- `pnpm db:generate` regenerates migrations from the four configs: `drizzle.config.auth.ts`, `drizzle.config.applications.ts`, `drizzle.config.loans.ts`, `drizzle.config.portfolio.ts`. Never hand-edit files under `packages/db/drizzle/`.
+- `pnpm db:init` creates the five service databases plus the Temporal pair if missing. Source: `scripts/db-init.ts`.
+- `pnpm db:migrate` applies each service folder in `packages/db/drizzle/*` to its own database, tracked per database. Source: `packages/db/src/migrate.ts`. When `RESEARCH_DATABASE_URL` is unset (Phase 1 checkout), research is skipped with a clear log and the other four still fail fast — set it (see `getting-started.md` §9) to enable Phase 2.
+- `pnpm db:generate` regenerates migrations from the five configs: `drizzle.config.auth.ts`, `drizzle.config.applications.ts`, `drizzle.config.loans.ts`, `drizzle.config.portfolio.ts`, `drizzle.config.research.ts`. Never hand-edit files under `packages/db/drizzle/`.
 - `pnpm db:seed` inserts the 7 demo users idempotently (`ON CONFLICT DO NOTHING` on email). Source: `packages/db/src/seed.ts`.
 - `pnpm setup` runs `db:wait && db:init && kafka:init && db:migrate && db:seed`.
 - `pnpm kafka:init` creates the 7 topics (3 partitions, replication factor 1), idempotently. Source: `scripts/kafka-init.ts`.
@@ -89,6 +90,15 @@ Group `credit-activity`, subscribes from the beginning to all seven topics, manu
 - Transient database errors: thrown without resolving, so Kafka redelivers.
 - Feed text uses only allowlisted payload fields plus the core reason-text map. It never includes identity fields. Allowlisted events may include documented financial amounts (`principalCents`, `termMonths`, `rateBps`, `amountCents`).
 - Portfolio health reports `consumer: ok` only while connected.
+
+## Advisory research data
+
+Phase 2 research state lives entirely in `credit_research`; no events are emitted for it.
+
+- Case facts are the single 16-key strict schema (`caseFactsSchema` in `packages/core/src/schemas.ts`): `applicationId`, `reference`, `type`, `product`, `amountCents`, `termMonths`, `submittedAt`, `asOf` (must equal `submittedAt`), `applicantName`, `companyName`, `registrationNumber`, `industry`, `yearsTrading`, `city`, `aiResearchConsent`, `status`. Stored minus consent; consent rides the request only.
+- `agent_runs` rows carry the frozen case facts, `asOf`, model/agent/prompt versions, usage, and the Grafana conversation id (the run id — not PII). Evidence rows carry the server-built snapshot, offsets, hashes, tiers, and the verified date basis; findings carry only judge-supported claims with derived confidence (never the model's self-reported confidence).
+- Finding reviews are append-only (`agent_finding_reviews`); the latest action per finding wins. Views are per officer/run/minute (`agent_run_views`); the decision bundle's `viewedAt` is the deciding officer's latest view.
+- The frozen bundle (`researchBundleSchema`) is built server-side at decision time, narrowed to exactly the accepted finding ids, and copied into the officer decision snapshot (approve via `bookLoan`, decline via `persistOfficerDecline`). The public selection (`agentRunId` + `acceptedFindingIds`) never reaches the workflow.
 
 ## PII allowlist
 

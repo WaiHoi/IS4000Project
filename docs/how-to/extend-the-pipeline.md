@@ -11,7 +11,7 @@ Pattern: the gateway authenticates and proxies; the service owns the logic.
 1. Add the route to the owning service with `Hono`, under `/api/...`. Enforce the role inside the service (applicant or officer check), not only in the gateway.
 2. Build the app with `createService({name, routes, health})` from `@credit/service-kit`. `/health` stays public; `/api/*` and `/internal/*` get HMAC auth automatically.
 3. Add the gateway route in `apps/gateway/src/app.ts`. Use `proxyTo` for plain proxying. For composed reads, follow the `GET /api/applications/:id` pattern: fetch upstream, then the second lookup; loan-style 404 becomes null, other failures become 502 `BAD_GATEWAY`.
-4. Sign internal calls with `signInternalHeaders` from `@credit/service-kit`. The canonical message is `METHOD\nPATH\nUSER_ID\nEMAIL(lowercased)\nROLE\nTS`; `PATH` is the exact pathname the target sees. Keep the 5-minute skew in mind for tests: pass an explicit `ts`.
+4. Sign internal calls with `signInternalHeaders` from `@credit/service-kit` (or `internalFetch`, which signs the body for you). The canonical message is `METHOD\nPATH\nUSER_ID\nEMAIL(lowercased)\nROLE\nTS\nBODY_SHA256\nREQUEST_ID`; `PATH` is the exact pathname the target sees, `BODY_SHA256` is hex SHA-256 over the exact request bytes (empty-body hash for GET/HEAD). Keep the 5-minute skew in mind for tests: pass an explicit `ts`. Replayed `(requestId, signature)` pairs are rejected — never reuse signed headers across requests.
 5. Add tests with the `stubGateway` fake from `@credit/service-kit/test` and a `fetchImpl` fake for the gateway. Do not start real services in unit tests.
 
 Verify:

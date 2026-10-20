@@ -1,0 +1,36 @@
+{
+	"name": "@credit/research",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "tsx src/server.ts",
+		"typecheck": "tsc --noEmit",
+		"build": "tsc --noEmit",
+		"test": "vitest run",
+		"test:integration": "vitest run --config vitest.integration.config.ts"
+	},
+	"dependencies": {
+		"@credit/core": "workspace:*",
+		"@credit/db": "workspace:*",
+		"@credit/service-kit": "workspace:*",
+		"@grafana/agento11y": "catalog:",
+		"@openai/agents": "catalog:",
+		"@opentelemetry/exporter-metrics-otlp-http": "catalog:",
+		"@opentelemetry/exporter-trace-otlp-http": "catalog:",
+		"@opentelemetry/sdk-metrics": "catalog:",
+		"@opentelemetry/sdk-node": "catalog:",
+		"@t3-oss/env-core": "catalog:",
+		"dotenv": "catalog:",
+		"drizzle-orm": "catalog:",
+		"hono": "catalog:",
+		"openai": "catalog:",
+		"postgres": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

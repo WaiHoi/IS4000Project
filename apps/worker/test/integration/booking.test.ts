@@ -11,6 +11,7 @@ import { auditLog, outboxEvents } from "@credit/db/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { bookLoan, resumeBooking } from "../../src/activities/booking.js";
+import { persistOfficerDecline } from "../../src/activities/decisions.js";
 import { closeDb } from "../../src/db.js";
 import { drizzleReconcilerStore } from "../../src/reconciler.js";
 import { testDb, testLoansDb } from "./helpers.js";
@@ -245,6 +246,83 @@ describe("bookLoan (integration)", () => {
 			.from(applications)
 			.where(eq(applications.id, applicationId));
 		expect(reflipped?.status).toBe("booked");
+	});
+
+	it("officer booking copies the frozen research bundle into decision.snapshot.research", async () => {
+		const applicationId = await fixture("pending_review");
+		// Officer-route booking validates DTI against the stored finances.
+		await appsDb
+			.update(applications)
+			.set({ financial: { monthlyIncomeCents: 420000, existingDebtCents: 61000 } })
+			.where(eq(applications.id, applicationId));
+		const research = {
+			agentRunId: randomUUID(),
+			applicationId,
+			briefHash: "sha256:test",
+			viewedAt: null,
+			acceptedFindings: [
+				{
+					findingId: randomUUID(),
+					claim: "Cited claim.",
+					category: "registry",
+					entityMatch: { identifierType: "registration_number", value: "X", confidence: "high" },
+					evidence: [
+						{ url: "https://example.com/r", quote: "exact quote", snapshotHash: "sha256:q" },
+					],
+				},
+			],
+		};
+		const booked = await bookLoan({
+			applicationId,
+			route: "officer",
+			requestId: randomUUID(),
+			officerUserId: randomUUID(),
+			research,
+		});
+		expect(booked.replayed).toBe(false);
+		const rows = await appsDb
+			.select()
+			.from(decisions)
+			.where(eq(decisions.applicationId, applicationId));
+		expect(rows).toHaveLength(1);
+		expect((rows[0].snapshot as { research: unknown }).research).toEqual(research);
+	});
+
+	it("officer decline copies the frozen research bundle into decision.snapshot.research", async () => {
+		const applicationId = await fixture("pending_review");
+		const research = {
+			agentRunId: randomUUID(),
+			applicationId,
+			briefHash: "sha256:test",
+			viewedAt: null,
+			acceptedFindings: [
+				{
+					findingId: randomUUID(),
+					claim: "Cited claim.",
+					category: "registry",
+					entityMatch: { identifierType: "registration_number", value: "X", confidence: "high" },
+					evidence: [
+						{ url: "https://example.com/r", quote: "exact quote", snapshotHash: "sha256:q" },
+					],
+				},
+			],
+		};
+		const declined = await persistOfficerDecline({
+			applicationId,
+			requestId: randomUUID(),
+			officerUserId: randomUUID(),
+			reasonCode: "OFFICER_JUDGEMENT",
+			notes: "weighed the cited filing",
+			research,
+		});
+		expect(declined.replayed).toBe(false);
+		expect(declined.status).toBe("declined");
+		const rows = await appsDb
+			.select()
+			.from(decisions)
+			.where(eq(decisions.applicationId, applicationId));
+		expect(rows).toHaveLength(1);
+		expect((rows[0].snapshot as { research: unknown }).research).toEqual(research);
 	});
 
 	it("reconciler store repairs an approved decision with no loan", async () => {

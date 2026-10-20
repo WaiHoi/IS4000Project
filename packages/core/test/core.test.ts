@@ -30,6 +30,7 @@ const VALID_INDIVIDUAL = {
 		email: "maria@example.com",
 		phone: "+1-555-0100",
 		address: "123 Main St",
+		city: "Demo City",
 	},
 	individual: {
 		employmentStatus: "employed",
@@ -55,6 +56,7 @@ const VALID_SME = {
 		email: "tomas@cafe-aurora.example",
 		phone: "+1-555-0200",
 		address: "5 Market Sq",
+		city: "Demo City",
 	},
 	sme: {
 		companyName: "Cafe Aurora",

@@ -8,7 +8,14 @@ import {
 	TERM_MIN_MONTHS,
 } from "@credit/core/browser";
 import { useState } from "react";
-import { ApiError, api, apiErrorMessage, formatMoney, toast } from "../lib/api";
+import {
+	ApiError,
+	api,
+	apiErrorMessage,
+	formatMoney,
+	toast,
+	type ResearchSelection,
+} from "../lib/api";
 import { ErrorBox, Field, inputCls, Money } from "./ui";
 
 const DECLINE_CODES = ["OFFICER_JUDGEMENT", "INSUFFICIENT_EVIDENCE", "POLICY_EXCEPTION"] as const;
@@ -19,6 +26,8 @@ export function DecisionPanel({
 	requestedTermMonths,
 	maxAmountCents,
 	product,
+	researchSelection,
+	onResearchStale,
 	onDecided,
 }: {
 	applicationId: string;
@@ -26,6 +35,10 @@ export function DecisionPanel({
 	requestedTermMonths: number;
 	maxAmountCents: number;
 	product: string;
+	/** Accepted research selection; sent as IDs only — review freezes the bundle. */
+	researchSelection?: ResearchSelection | null;
+	/** Fired when the server reports the selection stale, so the parent clears it. */
+	onResearchStale?: () => void;
 	onDecided: () => void;
 }) {
 	const [mode, setMode] = useState<"approve" | "decline">("approve");
@@ -40,8 +53,15 @@ export function DecisionPanel({
 	const [errors, setErrors] = useState<Record<string, string>>({});
 	const [serverError, setServerError] = useState("");
 	const [busy, setBusy] = useState(false);
+	// 503 RESEARCH_UNAVAILABLE: the research-selected decision cannot
+	// resolve its bundle right now — offer retry or decide-without.
+	const [researchDown, setResearchDown] = useState(false);
+	// 409 RESEARCH_SELECTION_STALE: the accepted findings no longer resolve
+	// (reaped run, re-rejected findings). Non-retryable with research — the
+	// selection is cleared via onResearchStale; decide-without remains.
+	const [researchStale, setResearchStale] = useState(false);
 
-	async function submit() {
+	async function submit(useResearch = true) {
 		const next: Record<string, string> = {};
 		let amountCents = 0;
 		let termMonths = 0;
@@ -68,6 +88,17 @@ export function DecisionPanel({
 		if (Object.keys(next).length > 0) return;
 		setBusy(true);
 		setServerError("");
+		setResearchDown(false);
+		setResearchStale(false);
+		// Advisory research rides the decision as IDs only; the server
+		// freezes the bundle. Never send claim/evidence text from here.
+		const research =
+			useResearch && researchSelection && researchSelection.acceptedFindingIds.length > 0
+				? {
+						agentRunId: researchSelection.agentRunId,
+						acceptedFindingIds: researchSelection.acceptedFindingIds,
+					}
+				: {};
 		try {
 			await api(`/api/review/${applicationId}/decision`, {
 				method: "POST",
@@ -79,12 +110,14 @@ export function DecisionPanel({
 								approvedAmountCents: amountCents,
 								termMonths,
 								...(notes.trim() ? { notes: notes.trim() } : {}),
+								...research,
 							}
 						: {
 								requestId,
 								outcome: "decline",
 								reasonCode,
 								notes: notes.trim(),
+								...research,
 							},
 			});
 			onDecided();
@@ -94,9 +127,24 @@ export function DecisionPanel({
 				for (const [k, v] of Object.entries(err.fields)) flat[k] = v.join(" ");
 				setErrors(flat);
 			}
+			if (err instanceof ApiError && err.status === 503 && err.code === "RESEARCH_UNAVAILABLE") {
+				setResearchDown(true);
+			}
+			if (
+				err instanceof ApiError &&
+				err.status === 409 &&
+				err.code === "RESEARCH_SELECTION_STALE"
+			) {
+				setResearchStale(true);
+				onResearchStale?.();
+			}
 			const msg = apiErrorMessage(err);
 			setServerError(err instanceof ApiError ? `${err.code}: ${msg}` : msg);
-			if (!(err instanceof ApiError) || (err.status !== 409 && err.status !== 422)) toast(msg);
+			if (
+				!(err instanceof ApiError) ||
+				(err.status !== 409 && err.status !== 422 && err.status !== 503)
+			)
+				toast(msg);
 		} finally {
 			setBusy(false);
 		}
@@ -189,9 +237,59 @@ export function DecisionPanel({
 					<ErrorBox message={serverError} />
 				</div>
 			)}
+			{researchSelection && researchSelection.acceptedFindingIds.length > 0 && (
+				<p className="mt-3 text-xs text-gray-600">
+					Using research: {researchSelection.acceptedFindingIds.length} accepted finding
+					{researchSelection.acceptedFindingIds.length === 1 ? "" : "s"} (run{" "}
+					{researchSelection.agentRunId.slice(0, 8)}…). Advisory only — the decision is yours, and
+					the cited evidence is frozen into the audit.
+				</p>
+			)}
+			{researchStale && (
+				<div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+					<p>
+						The accepted research no longer matches the frozen brief (the run was superseded or the
+						findings were re-reviewed). The selection was cleared — re-review the brief, or decide
+						without research.
+					</p>
+					<div className="mt-2 flex gap-2">
+						<button
+							type="button"
+							onClick={() => void submit(false)}
+							disabled={busy}
+							className="rounded bg-amber-700 px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+						>
+							Decide without research
+						</button>
+					</div>
+				</div>
+			)}
+			{researchDown && (
+				<div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+					<p>Research is temporarily unavailable. You can retry, or decide without research.</p>
+					<div className="mt-2 flex gap-2">
+						<button
+							type="button"
+							onClick={() => void submit(true)}
+							disabled={busy}
+							className="rounded border border-amber-600 px-3 py-1 text-sm disabled:opacity-50"
+						>
+							Retry with research
+						</button>
+						<button
+							type="button"
+							onClick={() => void submit(false)}
+							disabled={busy}
+							className="rounded bg-amber-700 px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+						>
+							Decide without research
+						</button>
+					</div>
+				</div>
+			)}
 			<button
 				type="button"
-				onClick={submit}
+				onClick={() => void submit(true)}
 				disabled={busy}
 				className="mt-4 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
 			>

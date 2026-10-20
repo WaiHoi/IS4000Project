@@ -21,6 +21,9 @@ export function createApp(deps: ReviewDeps): ServiceApp {
 		gateway: deps.gateway,
 		applicationsUrl: deps.env.applicationsUrl,
 		loansUrl: deps.env.loansUrl,
+		researchUrl: deps.env.researchUrl,
+		agentsEnabled: deps.env.agentsEnabled,
+		caseBriefEnabled: deps.env.caseBriefEnabled,
 		internalSecret: deps.env.internalSecret,
 		fetchImpl: deps.fetchImpl,
 	});

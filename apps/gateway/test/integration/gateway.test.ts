@@ -2,7 +2,8 @@
 // downstream services via the injected `fetchImpl`): auth + me/demoMode,
 // role gating without touching downstream, proxy signing/forwarding,
 // application detail composition, upstream failure → 502, health shape.
-import { createLogger } from "@credit/service-kit";
+import { randomUUID } from "node:crypto";
+import { bodySha256Hex, createLogger, type Logger } from "@credit/service-kit";
 import { createApp } from "../../src/app.js";
 import { createRateLimiter } from "../../src/auth.js";
 import { loadEnv } from "../../src/env.js";
@@ -194,16 +195,37 @@ describe("proxy signing and forwarding", () => {
 		const { email } = await createUser(ctx);
 		const cookie = await loginCookie(ctx, email);
 		ctx.captured.length = 0;
+		const sent = JSON.stringify({ hello: "world" });
 		ctx.downstream = (req) => {
 			expect(req.headers["content-type"]).toContain("application/json");
 			expect(req.headers["idempotency-key"]).toBe("key-123");
 			expect(JSON.parse(req.body ?? "")).toEqual({ hello: "world" });
+			// The forwarded hash covers the exact bytes, and the signature
+			// binds that hash: resolving with the body proves both.
+			expect(req.headers["x-body-sha256"]).toBe(bodySha256Hex(req.body ?? ""));
+			expect(
+				resolveInternalHeadersForTest(ctx.secret, {
+					method: "POST",
+					path: "/api/applications",
+					headers: req.headers,
+					body: req.body,
+				})?.role,
+			).toBe("applicant");
+			// A swapped body no longer resolves against the same headers.
+			expect(
+				resolveInternalHeadersForTest(ctx.secret, {
+					method: "POST",
+					path: "/api/applications",
+					headers: req.headers,
+					body: JSON.stringify({ hello: "mallory" }),
+				}),
+			).toBeNull();
 			return jsonResponse(201, { id: "app-1", reference: "APP-2026-ABCDEF" });
 		};
 		const res = await ctx.app.request("/api/applications", {
 			method: "POST",
 			headers: { cookie, "content-type": "application/json", "Idempotency-Key": "key-123" },
-			body: JSON.stringify({ hello: "world" }),
+			body: sent,
 		});
 		expect(res.status).toBe(201);
 		expect(await jsonBody<unknown>(res)).toEqual({ id: "app-1", reference: "APP-2026-ABCDEF" });
@@ -309,6 +331,35 @@ describe("application detail composition", () => {
 		const down = await ctx.app.request("/api/loans", { headers: { cookie } });
 		expect(down.status).toBe(502);
 		expect((await jsonBody<{ error: { code: string } }>(down)).error.code).toBe("BAD_GATEWAY");
+	});
+});
+
+describe("request logging", () => {
+	it("redacts UUID path segments (e.g. /api/review/<uuid>/research)", async () => {
+		const entries: Array<Record<string, unknown>> = [];
+		const logged = setupApp({
+			logger: {
+				info: (obj: unknown) => {
+					entries.push(obj as Record<string, unknown>);
+				},
+				error: () => {},
+			} as unknown as Logger,
+		});
+		try {
+			logged.downstream = () => jsonResponse(200, { run: null });
+			const { email } = await createUser(logged, "officer");
+			const cookie = await loginCookie(logged, email);
+			const appId = randomUUID();
+			const res = await logged.app.request(`/api/review/${appId}/research`, {
+				headers: { cookie },
+			});
+			expect(res.status).toBe(200);
+			const hit = entries.find((e) => e["method"] === "GET" && e["status"] === 200);
+			expect(hit?.["path"]).toBe("/api/review/:id/research");
+			expect(JSON.stringify(entries)).not.toContain(appId);
+		} finally {
+			await teardown(logged);
+		}
 	});
 });
 

@@ -283,6 +283,7 @@ export async function persistOfficerDecline(
 		monthlyPaymentCents: ctx.newPaymentCents,
 		reasons,
 		actor: input.officerUserId ?? "officer",
+		...(input.research !== undefined ? { research: input.research } : {}),
 		decidedAt: new Date().toISOString(),
 	});
 	const { decisionId, replayed } = await persistDecision(input.applicationId, ["pending_review"], {

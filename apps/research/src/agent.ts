@@ -1,0 +1,279 @@
+// case_brief agent execution (§6.2). Real path: Runner + Agent + explicit
+// OpenAIChatCompletionsModel against OpenRouter; OpenAI tracing disabled.
+// Fake path: deterministic stub (tests + local runs without keys).
+import {
+	Agent,
+	OpenAIChatCompletionsModel,
+	Runner,
+	setTracingDisabled,
+	tool,
+} from "@openai/agents";
+import OpenAI from "openai";
+import { z } from "zod";
+import type { ResearchEnv } from "./env.js";
+import type { Observability } from "./observability.js";
+import { buildUserPrompt, SYSTEM_TEMPLATE, type PromptCaseFacts } from "./prompt.js";
+import {
+	buildSearchQuery,
+	TavilyError,
+	type QueryEntity,
+	type SearchCategory,
+	type TavilyClient,
+} from "./tavily.js";
+import { validateFinalUrl } from "./urls.js";
+import { modelBriefSchema } from "./validator.js";
+
+// The Agents SDK's CJS typings load openai's `client.d.ts` while ESM
+// importers load `client.d.mts`: same runtime API, distinct `#private`
+// identities. The SDK duck-types the client (no instanceof on this path),
+// so one boundary cast is safe and honest.
+type AgentsOpenAIClient = ConstructorParameters<typeof OpenAIChatCompletionsModel>[0];
+
+setTracingDisabled(true);
+
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const MAX_TOOL_CALLS = 8;
+
+export interface FetchedEvidence {
+	requestedUrl: string;
+	returnedUrl: string;
+	title: string | null;
+	searchPublishedDate: string | null;
+	rawContent: string;
+}
+
+export interface BriefUsage {
+	inputTokens: number;
+	outputTokens: number;
+	toolCalls: number;
+	searches: number;
+	extracts: number;
+}
+
+export interface AgentResult {
+	brief: unknown;
+	fetched: FetchedEvidence[];
+	usage: BriefUsage;
+	model: string;
+}
+
+export interface AgentRunner {
+	runBrief(input: {
+		caseFacts: PromptCaseFacts;
+		entity: QueryEntity;
+		asOfDate: string;
+		signal: AbortSignal;
+		hooksFor?: (runner: Runner) => { detach: () => void };
+		/** Direct tool wrapping joins the run conversation when present. */
+		observability?: Observability;
+		runId?: string;
+	}): Promise<AgentResult>;
+}
+
+export class ModelUnavailableError extends Error {}
+export class AgentTimeoutError extends Error {}
+
+// ponytail: ceiling rates ~1000x above the POC's ~$0.00016/run; a generous
+// backstop only. Replace with billed usage if OpenRouter exposes it.
+const COST_CEILING_PER_MTOK = { input: 5, output: 10 };
+
+export function projectCostUsd(inputTokens: number, outputTokens: number): number {
+	return (
+		(inputTokens / 1_000_000) * COST_CEILING_PER_MTOK.input +
+		(outputTokens / 1_000_000) * COST_CEILING_PER_MTOK.output
+	);
+}
+
+const searchParams = z
+	.object({
+		entity: z.string().min(1).max(200),
+		category: z.enum(["adverse_media", "reputation", "registry", "market", "other"]),
+	})
+	.strict();
+
+const fetchParams = z.object({ url: z.string().min(1).max(2000) }).strict();
+
+export function createRealRunner(opts: {
+	env: ResearchEnv;
+	tavily: TavilyClient;
+	openai: OpenAI;
+}): AgentRunner {
+	const env = opts.env;
+	return {
+		async runBrief(input) {
+			if (!env.openrouterApiKey) throw new ModelUnavailableError("model is not configured");
+			const tavily = opts.tavily;
+			const openai = opts.openai;
+			const model = new OpenAIChatCompletionsModel(
+				openai as unknown as AgentsOpenAIClient,
+				env.agentModel,
+			);
+
+			let toolCalls = 0;
+			let searches = 0;
+			let extracts = 0;
+			const fetched: FetchedEvidence[] = [];
+			const seen = new Map<string, TavilySearchHitLite>();
+
+			const budget = (): void => {
+				toolCalls += 1;
+				if (toolCalls > MAX_TOOL_CALLS) throw new TavilyError("tool budget exceeded");
+			};
+
+			// The Runner hooks do not surface tool spans for these calls, so
+			// each is tracked directly: name/timing/errors only, never
+			// arguments or results. Untracked without a run id.
+			const trackTool = <T>(
+				toolName: "search_sources" | "fetch_source",
+				fn: () => Promise<T>,
+			): Promise<T> => {
+				const obs = input.observability;
+				if (!obs || !input.runId) return fn();
+				return obs.trackToolExecution({ runId: input.runId, toolName, model: env.agentModel }, fn);
+			};
+
+			const searchTool = tool({
+				name: "search_sources",
+				description:
+					"Search approved public sources for an entity and category. Returns up to N results with url, title, and publication date.",
+				parameters: searchParams,
+				execute: async ({ entity, category }: { entity: string; category: SearchCategory }) =>
+					trackTool("search_sources", async () => {
+						budget();
+						if (!env.tavilyApiKey) throw new TavilyError("search is not configured");
+						searches += 1;
+						// The server builds the query from a fixed template; the
+						// model supplies only the entity name and category.
+						const name = entity.slice(0, 200);
+						const query = buildSearchQuery(
+							{
+								name,
+								city: input.entity.city,
+								registrationNumber: input.entity.registrationNumber,
+							},
+							category,
+						);
+						const hits = await tavily.search(query, {
+							maxResults: env.maxSources,
+							endDate: input.asOfDate,
+						});
+						for (const hit of hits) seen.set(hit.url, hit);
+						return JSON.stringify(
+							hits.map((h) => ({ url: h.url, title: h.title, publishedDate: h.publishedDate })),
+						);
+					}),
+			});
+
+			const fetchTool = tool({
+				name: "fetch_source",
+				description:
+					"Extract the text of one search-result URL via the extraction service. Returns the page text.",
+				parameters: fetchParams,
+				execute: async ({ url }: { url: string }) =>
+					trackTool("fetch_source", async () => {
+						budget();
+						if (!env.tavilyApiKey) throw new TavilyError("extract is not configured");
+						if (extracts >= env.maxFetches) throw new TavilyError("extract budget exceeded");
+						const verdict = validateFinalUrl(url);
+						if (!verdict.ok) throw new TavilyError(`unsafe URL: ${verdict.error}`);
+						extracts += 1;
+						const hits = await tavily.extract([verdict.finalUrl]);
+						const hit = hits[0];
+						if (!hit || !hit.rawContent) throw new TavilyError("extract returned no content");
+						const prior = seen.get(url);
+						fetched.push({
+							requestedUrl: url,
+							returnedUrl: hit.url,
+							title: prior?.title ?? null,
+							searchPublishedDate: prior?.publishedDate ?? null,
+							rawContent: hit.rawContent,
+						});
+						return hit.rawContent.slice(0, 8000);
+					}),
+			});
+
+			const agent = new Agent({
+				name: "case-brief",
+				instructions: SYSTEM_TEMPLATE,
+				model,
+				tools: [searchTool, fetchTool],
+				outputType: modelBriefSchema,
+			});
+			const runner = new Runner();
+			const hooks = (input.hooksFor ?? (() => ({ detach: () => {} })))(runner);
+			try {
+				// The run's deadline signal goes straight into the SDK —
+				// one abort path, no parallel timer to leak or double-fire.
+				// Hooks detach in `finally`, including on abort.
+				const result = await runner.run(agent, buildUserPrompt(input.caseFacts), {
+					maxTurns: 10,
+					signal: input.signal,
+				});
+				if (result.finalOutput === null || result.finalOutput === undefined) {
+					throw new Error("model returned no structured brief");
+				}
+				return {
+					brief: result.finalOutput,
+					fetched,
+					usage: { ...readUsage(result), toolCalls, searches, extracts },
+					model: env.agentModel,
+				};
+			} catch (err) {
+				if (err instanceof AgentTimeoutError || err instanceof TavilyError) throw err;
+				if (input.signal.aborted) throw new AgentTimeoutError("agent wall clock exceeded");
+				throw new ModelUnavailableError(err instanceof Error ? err.message : "model call failed");
+			} finally {
+				hooks.detach();
+			}
+		},
+	};
+}
+
+interface TavilySearchHitLite {
+	title: string | null;
+	publishedDate: string | null;
+}
+
+function readUsage(result: unknown): { inputTokens: number; outputTokens: number } {
+	const r = result as {
+		state?: { usage?: { inputTokens?: number; outputTokens?: number } };
+		usage?: { inputTokens?: number; outputTokens?: number };
+	};
+	const usage = r?.state?.usage ?? r?.usage;
+	return {
+		inputTokens: usage?.inputTokens ?? 0,
+		outputTokens: usage?.outputTokens ?? 0,
+	};
+}
+
+/** Deterministic test double: canned brief + fetched evidence, no network. */
+export function stubAgentRunner(scenario: {
+	brief: unknown;
+	fetched: FetchedEvidence[];
+	usage?: Partial<BriefUsage>;
+	throw?: Error;
+}): AgentRunner & { calls: number } {
+	let calls = 0;
+	return {
+		get calls() {
+			return calls;
+		},
+		async runBrief() {
+			calls += 1;
+			if (scenario.throw) throw scenario.throw;
+			return {
+				brief: scenario.brief,
+				fetched: scenario.fetched,
+				usage: {
+					inputTokens: 100,
+					outputTokens: 100,
+					toolCalls: 2,
+					searches: 1,
+					extracts: 1,
+					...scenario.usage,
+				},
+				model: "deepseek/deepseek-v4.1-flash-1017",
+			};
+		},
+	};
+}

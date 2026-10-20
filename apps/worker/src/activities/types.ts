@@ -7,6 +7,7 @@ import type {
 	OfficerReasonCode,
 	PolicyReason,
 	Product,
+	ResearchBundle,
 } from "@credit/core";
 
 export interface ApplicationWorkflowInput {
@@ -74,6 +75,8 @@ export interface OfficerDecisionInput {
 	reasonCode?: OfficerReasonCode;
 	notes?: string;
 	officerUserId?: string;
+	/** Server-built frozen bundle, copied into the snapshot (optional). */
+	research?: ResearchBundle;
 }
 
 export interface OfficerDecisionResult {
@@ -90,6 +93,7 @@ export interface BookLoanInput {
 	requestId?: string | null;
 	officerUserId?: string | null;
 	notes?: string | null;
+	research?: ResearchBundle;
 }
 
 export interface BookLoanResult {
@@ -112,6 +116,7 @@ export interface PersistOfficerDeclineInput {
 	officerUserId?: string | null;
 	reasonCode: OfficerReasonCode;
 	notes: string;
+	research?: ResearchBundle;
 }
 
 export interface PersistDecisionResult {

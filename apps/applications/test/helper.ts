@@ -61,6 +61,7 @@ export function signed(
 	method: string,
 	path: string,
 	extra: Record<string, string> = {},
+	body?: string,
 ): Record<string, string> {
 	return {
 		...signInternalHeaders(ctx.secret, {
@@ -69,6 +70,7 @@ export function signed(
 			email: user.email,
 			method,
 			path,
+			body,
 		}),
 		...extra,
 	};
@@ -90,6 +92,7 @@ export function individualPayload(email: string, amountCents = 1200000): Record<
 			email,
 			phone: "+1-555-0100",
 			address: "1 Test Street",
+			city: "Demo City",
 		},
 		individual: {
 			employmentStatus: "employed",

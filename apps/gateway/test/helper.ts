@@ -11,7 +11,7 @@ dotenv.config({
 import { randomUUID } from "node:crypto";
 import { createDb, hashPassword } from "@credit/db";
 import { users } from "@credit/db/auth";
-import { createLogger } from "@credit/service-kit";
+import { createLogger, type Logger } from "@credit/service-kit";
 import { createApp } from "../src/app.js";
 import { createRateLimiter } from "../src/auth.js";
 import { loadEnv } from "../src/env.js";
@@ -41,7 +41,7 @@ function headerRecord(headers: Headers): Record<string, string> {
 	return out;
 }
 
-export function setupApp(): TestContext {
+export function setupApp(opts: { logger?: Logger } = {}): TestContext {
 	const env = loadEnv();
 	const { db, sql } = createDb(env.databaseUrl);
 	const ctx: TestContext = {
@@ -70,7 +70,7 @@ export function setupApp(): TestContext {
 		db,
 		sql,
 		env,
-		logger: createLogger("gateway-test"),
+		logger: opts.logger ?? createLogger("gateway-test"),
 		loginLimiter: createRateLimiter(1000, 60_000),
 		loginEmailLimiter: createRateLimiter(1000, 60_000),
 		submitLimiter: createRateLimiter(1000, 60_000),

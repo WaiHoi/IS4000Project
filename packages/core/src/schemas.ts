@@ -37,6 +37,7 @@ export const identitySchema = z
 		email: z.string().email().max(320),
 		phone: z.string().min(1).max(40),
 		address: z.string().min(1).max(500),
+		city: z.string().min(2).max(80),
 	})
 	.strict();
 
@@ -113,6 +114,7 @@ export const applicationCreateSchema = z
 		termMonths: z.number().int().min(TERM_MIN_MONTHS).max(TERM_MAX_MONTHS),
 		purpose: z.string().min(1).max(500),
 		consents: consentsSchema,
+		aiResearchConsent: z.boolean().default(false),
 		identity: identitySchema,
 		individual: individualBlockSchema.optional(),
 		sme: smeBlockSchema.optional(),
@@ -160,7 +162,7 @@ export const applicationCreateSchema = z
 		}
 	});
 
-export const officerDecisionSchema = z
+const officerDecisionBase = z
 	.object({
 		requestId: z.uuid(),
 		outcome: z.enum(["approve", "decline"]),
@@ -171,25 +173,86 @@ export const officerDecisionSchema = z
 			.optional(),
 		notes: z.string().max(2000).optional(),
 	})
+	.strict();
+
+function refineDeclineFields(d: z.infer<typeof officerDecisionBase>, ctx: z.RefinementCtx): void {
+	if (d.outcome === "decline") {
+		if (!d.reasonCode) {
+			ctx.addIssue({
+				code: "custom",
+				message: "reasonCode is required to decline",
+				path: ["reasonCode"],
+			});
+		}
+		if (!d.notes || d.notes.trim().length === 0) {
+			ctx.addIssue({
+				code: "custom",
+				message: "notes are required to decline",
+				path: ["notes"],
+			});
+		}
+	}
+}
+
+/** Public officer-decision payload. The research selection (`agentRunId` +
+ * `acceptedFindingIds`) lives only here: review resolves it server-side to
+ * the frozen bundle and forwards internal `research`. Frozen research is
+ * deliberately rejected. */
+export const officerDecisionSchema = officerDecisionBase
+	.extend({
+		agentRunId: z.uuid().optional(),
+		acceptedFindingIds: z.array(z.uuid()).min(1).max(50).optional(),
+	})
 	.strict()
 	.superRefine((d, ctx) => {
-		if (d.outcome === "decline") {
-			if (!d.reasonCode) {
-				ctx.addIssue({
-					code: "custom",
-					message: "reasonCode is required to decline",
-					path: ["reasonCode"],
-				});
-			}
-			if (!d.notes || d.notes.trim().length === 0) {
-				ctx.addIssue({
-					code: "custom",
-					message: "notes are required to decline",
-					path: ["notes"],
-				});
-			}
+		if ((d.agentRunId === undefined) !== (d.acceptedFindingIds === undefined)) {
+			ctx.addIssue({
+				code: "custom",
+				message: "agentRunId and acceptedFindingIds must be provided together",
+				path: ["agentRunId"],
+			});
 		}
+		refineDeclineFields(d, ctx);
 	});
+
+/** Server-built research bundle copied into the decision snapshot. */
+export const researchEvidenceSchema = z
+	.object({
+		url: z.string().url(),
+		quote: z.string().min(1),
+		snapshotHash: z.string().min(1),
+	})
+	.strict();
+
+export const researchFindingSchema = z
+	.object({
+		findingId: z.uuid(),
+		claim: z.string().min(1),
+		category: z.string().min(1),
+		entityMatch: z.unknown(),
+		evidence: z.array(researchEvidenceSchema).min(1),
+	})
+	.strict();
+
+export const researchBundleSchema = z
+	.object({
+		agentRunId: z.uuid(),
+		applicationId: z.uuid(),
+		briefHash: z.string().min(1),
+		viewedAt: z.string().nullable(),
+		acceptedFindings: z.array(researchFindingSchema).min(1),
+	})
+	.strict();
+
+export type ResearchBundle = z.infer<typeof researchBundleSchema>;
+
+/** Internal workflow update: public fields plus the server-built bundle.
+ * The research selection never travels here — review strips it after
+ * resolving the frozen bundle. */
+export const internalOfficerDecisionSchema = officerDecisionBase
+	.extend({ research: researchBundleSchema.optional() })
+	.strict()
+	.superRefine(refineDeclineFields);
 
 export const apiErrorSchema = z
 	.object({
@@ -202,6 +265,33 @@ export const apiErrorSchema = z
 			.strict(),
 	})
 	.strict();
+
+// --- Case facts (SPEC §3.1): single source of truth (16 keys). ---
+// Applications builds it, review allowlists it, research validates + stores
+// it (minus consent). Strict: new keys fail loudly, never silently dropped.
+
+export const caseFactsSchema = z
+	.object({
+		applicationId: z.uuid(),
+		reference: z.string().min(1).max(100),
+		type: z.string().min(1).max(100),
+		product: z.string().min(1).max(100),
+		amountCents: z.number().int().nonnegative(),
+		termMonths: z.number().int().positive(),
+		submittedAt: z.string().min(1),
+		asOf: z.string().min(1),
+		applicantName: z.string().min(1).max(300),
+		companyName: z.string().max(300).nullable(),
+		registrationNumber: z.string().max(100).nullable(),
+		industry: z.string().max(200).nullable(),
+		yearsTrading: z.number().nullable(),
+		city: z.string().max(80).nullable(),
+		aiResearchConsent: z.boolean(),
+		status: z.string().min(1).max(100),
+	})
+	.strict();
+
+export type CaseFacts = z.infer<typeof caseFactsSchema>;
 
 // --- Events (SPEC FR-10.1/10.2): payload allowlist only. ---
 

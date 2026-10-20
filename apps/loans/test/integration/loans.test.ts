@@ -104,7 +104,10 @@ describe("demo controls", () => {
 
 		const paid = await ctx.app.request(path, {
 			method: "POST",
-			headers: { "content-type": "application/json", ...signed(ctx, officer, "POST", path) },
+			headers: {
+				"content-type": "application/json",
+				...signed(ctx, officer, "POST", path, {}, body),
+			},
 			body,
 		});
 		expect(paid.status).toBe(200);
@@ -112,7 +115,7 @@ describe("demo controls", () => {
 
 		const applicant = await ctx.app.request(path, {
 			method: "POST",
-			headers: { "content-type": "application/json", ...signed(ctx, a, "POST", path) },
+			headers: { "content-type": "application/json", ...signed(ctx, a, "POST", path, {}, body) },
 			body,
 		});
 		expect(applicant.status).toBe(403);
@@ -130,7 +133,7 @@ describe("demo controls", () => {
 				method: "POST",
 				headers: {
 					"content-type": "application/json",
-					...signed(disabled, officer, "POST", path),
+					...signed(disabled, officer, "POST", path, {}, body),
 				},
 				body,
 			});
@@ -151,10 +154,14 @@ describe("demo controls", () => {
 
 		const agePath = `/api/demo/loans/${loanId}/age`;
 		ctx.gateway.monitoringResult = { markedOverdue: 1, alertsCreated: 1, loansUpdated: 1 };
+		const ageBody = JSON.stringify({ days: 40 });
 		const aged = await ctx.app.request(agePath, {
 			method: "POST",
-			headers: { "content-type": "application/json", ...signed(ctx, officer, "POST", agePath) },
-			body: JSON.stringify({ days: 40 }),
+			headers: {
+				"content-type": "application/json",
+				...signed(ctx, officer, "POST", agePath, {}, ageBody),
+			},
+			body: ageBody,
 		});
 		expect(aged.status).toBe(200);
 		expect(await jsonBody<unknown>(aged)).toMatchObject({ aged: 1, markedOverdue: 1 });

@@ -14,6 +14,9 @@ const parsed = createEnv({
 	server: {
 		APPLICATIONS_URL: z.string().url().default("http://127.0.0.1:4001"),
 		LOANS_URL: z.string().url().default("http://127.0.0.1:4003"),
+		RESEARCH_URL: z.string().url().default("http://127.0.0.1:4005"),
+		AGENTS_ENABLED: z.string().default("false"),
+		AGENT_CASE_BRIEF_ENABLED: z.string().default("false"),
 		TEMPORAL_ADDRESS: z.string().min(1).default("localhost:7233"),
 		INTERNAL_SECRET: z.string().min(1),
 		PORT: z.coerce.number().int().min(1).max(65_535).default(4002),
@@ -24,9 +27,14 @@ const parsed = createEnv({
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
 });
 
+const flag = (v: string): boolean => v.trim().toLowerCase() === "true";
+
 export const env = {
 	applicationsUrl: parsed.APPLICATIONS_URL,
 	loansUrl: parsed.LOANS_URL,
+	researchUrl: parsed.RESEARCH_URL,
+	agentsEnabled: flag(parsed.AGENTS_ENABLED),
+	caseBriefEnabled: flag(parsed.AGENT_CASE_BRIEF_ENABLED),
 	temporalAddress: parsed.TEMPORAL_ADDRESS,
 	internalSecret: parsed.INTERNAL_SECRET,
 	port: parsed.PORT,

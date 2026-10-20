@@ -11,9 +11,9 @@ import {
 	DTI_DECLINE_MAX_PCT_X100,
 	dscrGte,
 	dtiLte,
+	internalOfficerDecisionSchema,
 	monthlyPaymentCents,
 	OFFICER_DECISION_UPDATE,
-	officerDecisionSchema,
 	PERSONAL_MIN_CENTS,
 	rateBps,
 	SME_MIN_CENTS,
@@ -128,6 +128,7 @@ async function runApplication(applicationId: string): Promise<ApplicationWorkflo
 						requestId: update.requestId,
 						officerUserId: update.officerUserId ?? null,
 						notes: update.notes ?? null,
+						...(update.research !== undefined ? { research: update.research } : {}),
 					});
 					const result: OfficerDecisionResult = {
 						outcome: "booked",
@@ -142,6 +143,7 @@ async function runApplication(applicationId: string): Promise<ApplicationWorkflo
 					officerUserId: update.officerUserId ?? null,
 					reasonCode: update.reasonCode ?? "OFFICER_JUDGEMENT",
 					notes: update.notes ?? "",
+					...(update.research !== undefined ? { research: update.research } : {}),
 				});
 				const result: OfficerDecisionResult = {
 					outcome: "declined",
@@ -165,7 +167,9 @@ async function runApplication(applicationId: string): Promise<ApplicationWorkflo
 		},
 		{
 			validator: (update) => {
-				const parsed = officerDecisionSchema.safeParse({
+				// Internal updates carry only the server-built `research`
+				// bundle: the public selection never reaches the workflow.
+				const parsed = internalOfficerDecisionSchema.safeParse({
 					requestId: update.requestId,
 					outcome: update.outcome,
 					...(update.approvedAmountCents !== undefined
@@ -174,6 +178,7 @@ async function runApplication(applicationId: string): Promise<ApplicationWorkflo
 					...(update.termMonths !== undefined ? { termMonths: update.termMonths } : {}),
 					...(update.reasonCode !== undefined ? { reasonCode: update.reasonCode } : {}),
 					...(update.notes !== undefined ? { notes: update.notes } : {}),
+					...(update.research !== undefined ? { research: update.research } : {}),
 				});
 				if (!parsed.success) {
 					throw rejected(

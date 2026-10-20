@@ -98,6 +98,9 @@ services:
       LOANS_URL: http://loans:4003
       TEMPORAL_ADDRESS: temporal:7233
       INTERNAL_SECRET: ${INTERNAL_SECRET}
+      RESEARCH_URL: http://research:4005
+      AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
+      AGENT_CASE_BRIEF_ENABLED: ${AGENT_CASE_BRIEF_ENABLED:-false}
       PORT: "4002"
       HOST: 0.0.0.0
     depends_on:
@@ -263,6 +266,52 @@ services:
         condition: service_healthy
       temporal:
         condition: service_started
+
+  research:
+    <<: *svc-base
+    # Node 22+ is required by the Agents and Grafana SDKs — never Bun.
+    image: node:26-slim
+    working_dir: /app
+    # tsx resolves from the deps-populated /app/node_modules.
+    command: ["node", "--import", "tsx", "apps/research/src/server.ts"]
+    ports: ["4005:4005"]
+    environment:
+      RESEARCH_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_research
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
+      AGENT_MODEL: ${AGENT_MODEL:-deepseek/deepseek-v4.1-flash-1017}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+      AGENT_MAX_SOURCES: ${AGENT_MAX_SOURCES:-6}
+      AGENT_MAX_FETCHES: ${AGENT_MAX_FETCHES:-4}
+      AGENT_TIMEOUT_MS: ${AGENT_TIMEOUT_MS:-90000}
+      AGENT_MAX_COST_USD: ${AGENT_MAX_COST_USD:-0.15}
+      AGENTO11Y_ENDPOINT: ${AGENTO11Y_ENDPOINT}
+      AGENTO11Y_PROTOCOL: ${AGENTO11Y_PROTOCOL}
+      AGENTO11Y_AUTH_MODE: ${AGENTO11Y_AUTH_MODE}
+      AGENTO11Y_AUTH_TENANT_ID: ${AGENTO11Y_AUTH_TENANT_ID}
+      AGENTO11Y_AUTH_TOKEN: ${AGENTO11Y_AUTH_TOKEN}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS}
+      PORT: "4005"
+      HOST: 0.0.0.0
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:4005/health'); if (!r.ok) throw new Error(String(r.status)); const j = await r.json(); if (j.status !== 'ok') throw new Error(j.status);",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
 volumes:
   svc-node-modules:

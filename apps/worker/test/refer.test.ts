@@ -312,6 +312,54 @@ describe("applicationWorkflow: refer path", () => {
 		}
 	}, 90_000);
 
+	it("officer decline freezes the server-built research bundle into the snapshot", async () => {
+		const mocks = referMocks();
+		const { handle, stop } = await startRun(mocks);
+		try {
+			await waitPending(mocks);
+			const findingId = randomUUID();
+			const research = {
+				agentRunId: randomUUID(),
+				applicationId: APP_ID,
+				briefHash: "sha256:test",
+				viewedAt: null,
+				acceptedFindings: [
+					{
+						findingId,
+						claim: "Cited claim.",
+						category: "registry",
+						entityMatch: { identifierType: "registration_number", value: "X", confidence: "high" },
+						evidence: [
+							{ url: "https://example.com/r", quote: "exact quote", snapshotHash: "sha256:q" },
+						],
+					},
+				],
+			};
+			const update = await decide(handle, {
+				requestId: REQUEST_A,
+				outcome: "decline",
+				reasonCode: "OFFICER_JUDGEMENT",
+				notes: "weighed the cited filing",
+				officerUserId: "officer-1",
+				research,
+			});
+			expect(update).toMatchObject({ outcome: "declined" });
+			// Only the frozen bundle travels — never the public selection.
+			expect(mocks.persistOfficerDecline).toHaveBeenCalledWith({
+				applicationId: APP_ID,
+				requestId: REQUEST_A,
+				officerUserId: "officer-1",
+				reasonCode: "OFFICER_JUDGEMENT",
+				notes: "weighed the cited filing",
+				research,
+			});
+			const result = await handle.result();
+			expect(result).toMatchObject({ outcome: "declined", kind: "officer" });
+		} finally {
+			await stop();
+		}
+	}, 90_000);
+
 	it("72h without a decision expires with review.expired and no decision/loan", async () => {
 		const mocks = referMocks();
 		const { handle, stop } = await startRun(mocks);

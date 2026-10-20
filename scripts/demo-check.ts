@@ -160,6 +160,7 @@ async function main(): Promise<void> {
 			email: "maria@example.com",
 			phone: "+1-555-0100",
 			address: "1 Demo Street",
+			city: "Demo City",
 		},
 		individual: {
 			employmentStatus: "employed",
@@ -200,6 +201,7 @@ async function main(): Promise<void> {
 			email: "sam@example.com",
 			phone: "+1-555-0300",
 			address: "3 Demo Street",
+			city: "Demo City",
 		},
 		individual: {
 			employmentStatus: "employed",
@@ -238,6 +240,7 @@ async function main(): Promise<void> {
 			email: "tomas@cafe-aurora.example",
 			phone: "+1-555-0200",
 			address: "2 Café Street",
+			city: "Demo City",
 		},
 		sme: {
 			companyName: "Café Aurora",

@@ -93,7 +93,8 @@ Submit body:
 		"nationalId": "MARIA42C1",
 		"email": "maria@example.com",
 		"phone": "+1-555-0100",
-		"address": "1 Demo Street"
+		"address": "1 Demo Street",
+		"city": "Demo City"
 	},
 	"individual": {
 		"employmentStatus": "employed",
@@ -189,7 +190,7 @@ The gateway adds `loan`:
 
 ## Review
 
-Officer only. Both endpoints proxy to the review service.
+Officer only. All endpoints proxy to the review service. Applicants get 403 on every `/api/review/*` route.
 
 | Method and path                 | Access  | Purpose                           |
 | ------------------------------- | ------- | --------------------------------- |
@@ -247,6 +248,26 @@ Replay rules:
 - A different decision on a decided case returns 409 `DECISION_CONFLICT`.
 - A case that is not `pending_review` returns 409 `CASE_NOT_PENDING`.
 - Workflow errors map to 409 `CASE_NOT_RUNNING`, 422 `DECISION_REJECTED`, or 500 `DECISION_FAILED`.
+
+### Advisory research (Phase 2)
+
+Officer only. Cited public-source briefs on `pending_review` cases with AI research consent. There are no `/api/research/*` routes; everything lives under `/api/review/*`.
+
+| Method and path                                     | Purpose                                                        |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| `POST /api/review/:id/research`                     | Ensure a run; `202` `{ "runId", "status" }`, idempotent        |
+| `GET /api/review/:id/research`                      | Latest run + brief + evidence + findings; never records a view |
+| `POST /api/review/:id/research/view`                | `{ "runId" }`; records one view after the panel opens          |
+| `POST /api/review/:id/research/findings/:findingId` | `{ "action": "accepted"\|"rejected", "note?" }`; append-only   |
+
+Rules:
+
+- Feature disabled (`AGENTS_ENABLED` or `AGENT_CASE_BRIEF_ENABLED` false): every research route returns 404 `RESEARCH_DISABLED` and the UI panel hides. Applicants still get 403 first.
+- `POST .../research` without AI research consent returns 403 `CONSENT_REQUIRED`; on a case that is not `pending_review` it returns 409 `CASE_NOT_PENDING`.
+- `GET .../research` returns 404 when no run exists yet. Finding reviews return 409 `RUN_NOT_SUCCEEDED` unless the run succeeded, and 404 when the run/finding does not belong to the application.
+- Using research in a decision: send only the selection (`agentRunId` plus non-empty `acceptedFindingIds`) in the decision body. Review fetches the app-scoped frozen bundle, verifies the selection is covered, narrows the forwarded bundle to exactly the accepted ids (§8.6), and forwards the server-built `research` object to the workflow; the selection itself is stripped. A client-supplied `research` object is rejected with 422.
+
+Advisory boundary: research never approves, declines, scores, prices, or sets terms. Only `verified` (supported, cited) findings render; acceptance only freezes cited evidence into the decision snapshot and never changes the decision by itself. Bundle failures map precisely: transport/5xx → 503 `RESEARCH_UNAVAILABLE` (retryable: `error.fields.retryable == ["true"]`, retry or decide without research); missing/non-succeeded run, uncovered selection, or empty accepted set → 409 `RESEARCH_SELECTION_STALE` (non-retryable: re-review or decide without). Decisions without a selection never touch research and are never blocked by it.
 
 ## Loans
 
@@ -362,32 +383,37 @@ Response `200`:
 
 ## Error codes
 
-| Code                      | Status   | Meaning                                                       |
-| ------------------------- | -------- | ------------------------------------------------------------- |
-| `UNAUTHENTICATED`         | 401      | Missing or invalid session; bad internal signature            |
-| `INVALID_CREDENTIALS`     | 401      | Wrong email or password                                       |
-| `FORBIDDEN`               | 403      | Wrong role for this endpoint                                  |
-| `ORIGIN_FORBIDDEN`        | 403      | Production origin check failed                                |
-| `DEMO_MODE_DISABLED`      | 403      | Demo endpoint called with `DEMO_MODE=false`                   |
-| `NOT_FOUND`               | 404      | Missing row, bad uuid, or cross-applicant read                |
-| `VALIDATION_ERROR`        | 400, 422 | Bad body: 400 on auth/submit/pay/age, 422 on review decisions |
-| `INVALID_JSON`            | 400      | Body is not JSON                                              |
-| `MISSING_IDEMPOTENCY_KEY` | 400      | Submit without `Idempotency-Key`                              |
-| `INVALID_CURSOR`          | 400      | Cursor is not `<ISO-8601>,<uuid>`                             |
-| `BODY_TOO_LARGE`          | 413      | Body over 100,000 bytes                                       |
-| `RATE_LIMITED`            | 429      | Login or submit limit hit                                     |
-| `IDEMPOTENCY_CONFLICT`    | 409      | Key reused with a different payload                           |
-| `TOO_MANY_APPLICATIONS`   | 409      | 3 non-terminal applications already                           |
-| `DECISION_CONFLICT`       | 409      | Case already decided with another request                     |
-| `BOOKING_INCOMPLETE`      | 409      | Approved decision not yet booked; saga still converging       |
-| `CASE_NOT_PENDING`        | 409      | Case is not awaiting a decision                               |
-| `CASE_NOT_RUNNING`        | 409      | Workflow is not running                                       |
-| `DECISION_REJECTED`       | 422      | Workflow rejected the decision terms                          |
-| `ALREADY_PAID`            | 409      | Installment is already paid                                   |
-| `ALERT_NOT_OPEN`          | 409      | Alert is not open                                             |
-| `BAD_GATEWAY`             | 502      | Downstream service or lookup failed                           |
-| `DECISION_FAILED`         | 500      | Officer decision failed                                       |
-| `INTERNAL_ERROR`          | 500      | Unhandled error                                               |
+| Code                       | Status   | Meaning                                                       |
+| -------------------------- | -------- | ------------------------------------------------------------- |
+| `UNAUTHENTICATED`          | 401      | Missing or invalid session; bad internal signature            |
+| `INVALID_CREDENTIALS`      | 401      | Wrong email or password                                       |
+| `FORBIDDEN`                | 403      | Wrong role for this endpoint                                  |
+| `ORIGIN_FORBIDDEN`         | 403      | Production origin check failed                                |
+| `DEMO_MODE_DISABLED`       | 403      | Demo endpoint called with `DEMO_MODE=false`                   |
+| `NOT_FOUND`                | 404      | Missing row, bad uuid, or cross-applicant read                |
+| `VALIDATION_ERROR`         | 400, 422 | Bad body: 400 on auth/submit/pay/age, 422 on review decisions |
+| `INVALID_JSON`             | 400      | Body is not JSON                                              |
+| `MISSING_IDEMPOTENCY_KEY`  | 400      | Submit without `Idempotency-Key`                              |
+| `INVALID_CURSOR`           | 400      | Cursor is not `<ISO-8601>,<uuid>`                             |
+| `BODY_TOO_LARGE`           | 413      | Body over 100,000 bytes                                       |
+| `RATE_LIMITED`             | 429      | Login or submit limit hit                                     |
+| `IDEMPOTENCY_CONFLICT`     | 409      | Key reused with a different payload                           |
+| `TOO_MANY_APPLICATIONS`    | 409      | 3 non-terminal applications already                           |
+| `DECISION_CONFLICT`        | 409      | Case already decided with another request                     |
+| `BOOKING_INCOMPLETE`       | 409      | Approved decision not yet booked; saga still converging       |
+| `CASE_NOT_PENDING`         | 409      | Case is not awaiting a decision                               |
+| `CASE_NOT_RUNNING`         | 409      | Workflow is not running                                       |
+| `DECISION_REJECTED`        | 422      | Workflow rejected the decision terms                          |
+| `CONSENT_REQUIRED`         | 403      | AI research consent missing                                   |
+| `RESEARCH_DISABLED`        | 404      | Agentic research feature flag off                             |
+| `RUN_NOT_SUCCEEDED`        | 409      | Finding reviewed before its run succeeded                     |
+| `RESEARCH_UNAVAILABLE`     | 503      | Research bundle unfetchable; retry or decide without research |
+| `RESEARCH_SELECTION_STALE` | 409      | Selection no longer resolves; re-review or decide without     |
+| `ALREADY_PAID`             | 409      | Installment is already paid                                   |
+| `ALERT_NOT_OPEN`           | 409      | Alert is not open                                             |
+| `BAD_GATEWAY`              | 502      | Downstream service or lookup failed                           |
+| `DECISION_FAILED`          | 500      | Officer decision failed                                       |
+| `INTERNAL_ERROR`           | 500      | Unhandled error                                               |
 
 ## Curl examples
 
@@ -406,7 +432,7 @@ Submit an application:
 ```bash
 curl -s -b jar.txt -H 'content-type: application/json' \
   -H "Idempotency-Key: <uuid>" \
-  -d '{"type":"individual","product":"personal_loan","amountCents":1200000,"termMonths":48,"purpose":"Home renovation","consents":[true,true,true],"identity":{"fullName":"Maria Demo","dob":"1990-05-14","nationalId":"MARIA42C1","email":"maria@example.com","phone":"+1-555-0100","address":"1 Demo Street"},"individual":{"employmentStatus":"employed","employerName":"Acme Corp","employmentYears":6,"monthlyIncomeCents":420000,"existingDebtCents":61000,"bankRelationshipYears":3}}' \
+  -d '{"type":"individual","product":"personal_loan","amountCents":1200000,"termMonths":48,"purpose":"Home renovation","consents":[true,true,true],"identity":{"fullName":"Maria Demo","dob":"1990-05-14","nationalId":"MARIA42C1","email":"maria@example.com","phone":"+1-555-0100","address":"1 Demo Street","city":"Demo City"},"individual":{"employmentStatus":"employed","employerName":"Acme Corp","employmentYears":6,"monthlyIncomeCents":420000,"existingDebtCents":61000,"bankRelationshipYears":3}}' \
   $BASE/api/applications
 ```
 

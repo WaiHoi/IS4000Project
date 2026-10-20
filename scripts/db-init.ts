@@ -18,6 +18,7 @@ const DATABASES = [
 	"credit_applications",
 	"credit_loans",
 	"credit_portfolio",
+	"credit_research",
 	"temporal",
 	"temporal_visibility",
 ];

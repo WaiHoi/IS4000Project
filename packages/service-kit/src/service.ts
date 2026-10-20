@@ -17,6 +17,9 @@ export type ServiceApp = Hono<{ Variables: ServiceVariables }>;
 
 const MAX_JSON_BYTES = 100_000;
 
+/** UUID path segments (application/run/officer ids) — redacted in logs. */
+const UUID_SEGMENT_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
 export interface ServiceOptions {
 	name: string;
 	secret: string;
@@ -40,7 +43,9 @@ export function createService(opts: ServiceOptions): ServiceApp {
 				{
 					requestId,
 					method: c.req.method,
-					path: c.req.path,
+					// AC-11: paths carry application/run/officer UUIDs —
+					// log the shape, never the ids.
+					path: c.req.path.replace(UUID_SEGMENT_RE, ":id"),
 					status: c.res.status,
 					ms: Date.now() - start,
 				},

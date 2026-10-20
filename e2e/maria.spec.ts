@@ -24,6 +24,7 @@ test("Maria auto path: apply → booked, 777/A, 48 installments", async ({ page 
 	await page.locator("#field-national-id").fill("MARIA42X1");
 	await page.locator("#field-phone").fill("+1-555-0100");
 	await page.locator("#field-address").fill("1 Demo Street");
+	await page.locator("#field-city").fill("Demo City");
 	await page.locator("#field-employment-status").selectOption("employed");
 	await page.locator("#field-employer-name").fill("Acme Corp");
 	await page.locator("#field-employment-years").fill("6");

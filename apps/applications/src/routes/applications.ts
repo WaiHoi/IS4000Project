@@ -192,6 +192,7 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 								financial: data.individual ?? null,
 								business: data.sme ?? null,
 								consents: data.consents,
+								aiResearchConsent: data.aiResearchConsent,
 								submittedAt: now,
 							})
 							.returning({
@@ -347,6 +348,7 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 				financial: row.financial,
 				business: row.business,
 				consents: row.consents,
+				aiResearchConsent: row.aiResearchConsent,
 				purpose: row.purpose,
 				workflowStartedAt: row.workflowStartedAt?.toISOString() ?? null,
 				failedReason: row.failedReason,

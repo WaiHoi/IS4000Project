@@ -2,7 +2,7 @@
 // officer review page. Renders everything the API delivers; null-safe for
 // check-only decisions (null amounts render as "—").
 import { REASON_TEXT } from "@credit/core/browser";
-import { type CaseDetail, formatDate, formatDateTime, formatMoney } from "../lib/api";
+import { type CaseDetail, formatDateOnly, formatDateTime, formatMoney } from "../lib/api";
 import { Card, MockBadge, Money, StatusBadge } from "./ui";
 
 function reasonText(code: string): string {
@@ -265,7 +265,7 @@ export function CaseView({ data }: { data: CaseDetail }) {
 						<Kv k="Rate" v={`${(loan.rateBps / 100).toFixed(2)}%`} />
 						<Kv k="Monthly" v={formatMoney(loan.monthlyPaymentCents)} />
 						<Kv k="Outstanding" v={formatMoney(loan.outstandingCents)} />
-						<Kv k="Next due" v={formatDate(loan.nextDueDate)} />
+						<Kv k="Next due" v={formatDateOnly(loan.nextDueDate)} />
 						<Kv
 							k="Installments"
 							v={`${loan.installments.paid}/${loan.installments.total} paid, ${loan.installments.overdue} overdue`}

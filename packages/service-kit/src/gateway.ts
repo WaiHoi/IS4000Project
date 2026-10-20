@@ -8,6 +8,7 @@ import {
 	monitoringWorkflowName,
 	OFFICER_DECISION_UPDATE,
 	TASK_QUEUE,
+	type ResearchBundle,
 } from "@credit/core";
 import {
 	Client,
@@ -25,6 +26,9 @@ export interface OfficerDecisionInput {
 	reasonCode?: "OFFICER_JUDGEMENT" | "INSUFFICIENT_EVIDENCE" | "POLICY_EXCEPTION";
 	notes?: string;
 	officerUserId?: string;
+	/** Server-built frozen bundle (review resolves the public selection to
+	 * this; the selection itself never travels here). */
+	research?: ResearchBundle;
 }
 
 export interface OfficerDecisionResult {

@@ -15,7 +15,7 @@ pnpm setup
 pnpm dev
 ```
 
-`pnpm setup` waits for Postgres, creates databases, creates Kafka topics, migrates, and seeds demo users. `pnpm dev` starts the gateway (`:3001`), four services (`:4001`-`:4004`), the worker, and the web app (`:3000`).
+`pnpm setup` waits for Postgres, creates databases, creates Kafka topics, migrates, and seeds demo users. `pnpm dev` starts the gateway (`:3001`), five services (`:4001`-`:4005`), the worker, and the web app (`:3000`).
 
 ## 2. Check health
 
@@ -71,7 +71,7 @@ pnpm demo:check
 pnpm demo:monitor
 ```
 
-`pnpm test:e2e` runs four Playwright specs (`maria`, `tomas`, `sam`, `monitoring`) against `http://127.0.0.1:3000`. Its global setup always starts a worker, reuses a healthy gateway, services, and web when up (it starts only what is down), and stops only the processes it started. It needs Docker Compose running. Install the browser once with `pnpm exec playwright install chromium`.
+`pnpm test:e2e` runs five Playwright specs (`maria`, `tomas`, `sam`, `monitoring`, `research`) against `http://127.0.0.1:3000`. Its global setup always starts a worker, reuses a healthy gateway, services, and web when up (it starts only what is down), and stops only the processes it started. It needs Docker Compose running. Install the browser once with `pnpm exec playwright install chromium`.
 
 ## 6. Recover a half-run demo
 
@@ -85,7 +85,7 @@ pnpm setup
 
 This wipes databases and Kafka. If you upgrade Postgres 17 data to Postgres 18, stop the stack (`docker compose down`), delete the volume (`docker volume rm project_pgdata`), then `up` and `pnpm setup`. Warning: this deletes all local database and Temporal data.
 
-If a crashed run leaves a stale dev server, find the listener on ports 3000, 3001, or 4001-4004 and stop that process only. Never stop all Node processes. Full symptom tables live in `operations/troubleshooting.md`.
+If a crashed run leaves a stale dev server, find the listener on ports 3000, 3001, or 4001-4005 and stop that process only. Never stop all Node processes. Full symptom tables live in `operations/troubleshooting.md`.
 
 ## 7. Demo users
 
@@ -104,6 +104,20 @@ Password is `demo1234` for all users. There is no signup route.
 ## 8. Demo-only warnings
 
 Do not use real personal data. Passwords are published. There is no CSRF token (cookie uses `SameSite=Lax`, JSON bodies, and a production origin check). Rate limits are in-memory per process. Bureau, bank, and verification data are deterministic mocks. The verification and external-data cards carry "Mock data" badges in the UI.
+
+## 9. Phase 2 advisory research (optional)
+
+Research is off by default and the demo never needs it. To enable it, set in the root `.env`:
+
+```dotenv
+RESEARCH_DATABASE_URL=postgres://credit:credit@localhost:5432/credit_research
+AGENTS_ENABLED=true
+AGENT_CASE_BRIEF_ENABLED=true
+OPENROUTER_API_KEY=<key>
+TAVILY_API_KEY=<key>
+```
+
+then `pnpm db:migrate` (creates the `credit_research` tables) and `pnpm dev` (starts research on `:4005`). Without `RESEARCH_DATABASE_URL`, `pnpm db:migrate` skips the research database with a clear log and Phase 1 setup still passes. With the flags off, every research route returns 404 `RESEARCH_DISABLED` and the UI panel hides; research needs `pending_review` status plus AI research consent, and it never decides a case. Detail: `reference/api.md` (research section) and `reference/configuration.md` (research variables).
 
 ## Related
 

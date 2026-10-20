@@ -31,6 +31,10 @@ export async function internalFetch(
 	const secret = init.secret ?? process.env.INTERNAL_SECRET;
 	if (!secret) throw new Error("internalFetch: INTERNAL_SECRET is not set");
 	const method = (init.method ?? "GET").toUpperCase();
+	let body: string | undefined;
+	if (init.body !== undefined) {
+		body = typeof init.body === "string" ? init.body : JSON.stringify(init.body);
+	}
 	const headers: Record<string, string> = {
 		...init.headers,
 		...signInternalHeaders(secret, {
@@ -39,12 +43,11 @@ export async function internalFetch(
 			email: user.email,
 			method,
 			path,
+			body,
 			...(init.requestId !== undefined ? { requestId: init.requestId } : {}),
 		}),
 	};
-	let body: string | undefined;
-	if (init.body !== undefined) {
-		body = typeof init.body === "string" ? init.body : JSON.stringify(init.body);
+	if (body !== undefined) {
 		headers["content-type"] ??= "application/json";
 	}
 	try {

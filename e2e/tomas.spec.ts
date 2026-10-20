@@ -33,6 +33,7 @@ test("Tomás refer path: SME submit → queue → approve $50k → booked", asyn
 	await page.locator("#field-national-id").fill("TOMAS42X1");
 	await page.locator("#field-phone").fill("+1-555-0200");
 	await page.locator("#field-address").fill("2 Café Street");
+	await page.locator("#field-city").fill("Demo City");
 	await page.locator("#field-company-name").fill("Café Aurora");
 	await page.locator("#field-registration-no").fill("CAFEAUR1");
 	await page.locator("#field-industry").selectOption("hospitality");

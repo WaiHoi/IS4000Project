@@ -157,6 +157,7 @@ export async function bookLoan(input: BookLoanInput): Promise<BookLoanResult> {
 		monthlyPaymentCents: payment,
 		reasons: policyRow.reasons as PolicyReason[],
 		actor,
+		...(input.research !== undefined ? { research: input.research } : {}),
 		decidedAt: now.toISOString(),
 	});
 	const reasonCodes = (policyRow.reasons as PolicyReason[]).map((r) => r.code);

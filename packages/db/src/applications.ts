@@ -5,6 +5,7 @@
 // uuids — no FK to users (cross-database references must never be FKs).
 import {
 	bigint,
+	boolean,
 	index,
 	integer,
 	jsonb,
@@ -67,6 +68,7 @@ export const applications = pgTable(
 		financial: jsonb("financial"),
 		business: jsonb("business"),
 		consents: jsonb("consents").notNull(),
+		aiResearchConsent: boolean("ai_research_consent").notNull().default(false),
 		submittedAt: timestamp("submitted_at", {
 			withTimezone: true,
 			mode: "date",

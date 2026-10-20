@@ -9,13 +9,15 @@
 		"./applications": "./src/applications.ts",
 		"./loans": "./src/loans.ts",
 		"./portfolio": "./src/portfolio.ts",
+		"./research": "./src/research.ts",
 		"./shared": "./src/shared.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"build": "tsc --noEmit",
 		"test": "vitest run",
-		"db:generate": "drizzle-kit generate --config=drizzle.config.auth.ts && drizzle-kit generate --config=drizzle.config.applications.ts && drizzle-kit generate --config=drizzle.config.loans.ts && drizzle-kit generate --config=drizzle.config.portfolio.ts"
+		"db:generate": "drizzle-kit generate --config=drizzle.config.auth.ts && drizzle-kit generate --config=drizzle.config.applications.ts && drizzle-kit generate --config=drizzle.config.loans.ts && drizzle-kit generate --config=drizzle.config.portfolio.ts && drizzle-kit generate --config=drizzle.config.research.ts",
+		"db:generate:research": "drizzle-kit generate --config=drizzle.config.research.ts"
 	},
 	"dependencies": {
 		"dotenv": "catalog:",

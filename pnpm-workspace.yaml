@@ -7,6 +7,12 @@ packages:
 # (`workspace:*` is kept for the internal @credit/* links.)
 catalog:
   "@t3-oss/env-core": 0.13.11
+  "@grafana/agento11y": 0.14.0
+  "@openai/agents": 0.8.0
+  "@opentelemetry/exporter-metrics-otlp-http": 0.223.0
+  "@opentelemetry/exporter-trace-otlp-http": 0.223.0
+  "@opentelemetry/sdk-metrics": 2.12.0
+  "@opentelemetry/sdk-node": 0.223.0
   "@playwright/test": 1.64.1
   "@tailwindcss/vite": 4.3.3
   "@tanstack/react-query": 5.104.4
@@ -26,6 +32,7 @@ catalog:
   drizzle-orm: 0.45.4
   hono: 4.13.13
   kafkajs: 2.2.4
+  openai: 6.27.0
   nitro: 3.0.260903-beta
   oxfmt: 0.73.0
   oxlint: 1.88.0
@@ -47,3 +54,6 @@ allowBuilds:
   esbuild: true
   protobufjs: true
   "@swc/core": true
+  "@google/genai": true
+  sqlite3: true
+  tree-sitter: true

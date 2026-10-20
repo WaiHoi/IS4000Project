@@ -29,6 +29,7 @@ function signedHeaders(
 	method: string,
 	path: string,
 	requestId: string,
+	body?: ArrayBuffer,
 ): Record<string, string> {
 	return signInternalHeaders(deps.env.internalSecret, {
 		userId: user.id,
@@ -37,6 +38,7 @@ function signedHeaders(
 		method,
 		path,
 		requestId,
+		body,
 	});
 }
 
@@ -52,18 +54,18 @@ export async function fetchUpstream(
 	timeoutMs: number = UPSTREAM_TIMEOUT_MS,
 ): Promise<Response> {
 	const fetchImpl: FetchImpl = deps.fetchImpl ?? fetch;
-	const headers: Record<string, string> = {
-		...signedHeaders(deps, user, method, target.path, requestId),
-	};
-	const contentType = c.req.header("content-type");
-	if (contentType) headers["content-type"] = contentType;
-	const idempotencyKey = c.req.header("Idempotency-Key");
-	if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
 	let body: ArrayBuffer | undefined;
 	if (method !== "GET" && method !== "HEAD") {
 		const buf = await c.req.arrayBuffer().catch(() => null);
 		if (buf && buf.byteLength > 0) body = buf;
 	}
+	const headers: Record<string, string> = {
+		...signedHeaders(deps, user, method, target.path, requestId, body),
+	};
+	const contentType = c.req.header("content-type");
+	if (contentType) headers["content-type"] = contentType;
+	const idempotencyKey = c.req.header("Idempotency-Key");
+	if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
 	try {
 		return await fetchImpl(`${target.baseUrl.replace(/\/$/, "")}${target.path}${query}`, {
 			method,

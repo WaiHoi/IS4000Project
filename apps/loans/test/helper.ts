@@ -64,6 +64,7 @@ export function signed(
 	method: string,
 	path: string,
 	extra: Record<string, string> = {},
+	body?: string,
 ): Record<string, string> {
 	return {
 		...signInternalHeaders(ctx.secret, {
@@ -72,6 +73,7 @@ export function signed(
 			email: user.email,
 			method,
 			path,
+			body,
 		}),
 		...extra,
 	};

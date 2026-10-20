@@ -17,6 +17,24 @@ async function jsonBody<T>(res: Response): Promise<T> {
 	return (await res.json()) as T;
 }
 
+/** Signed decision POST with the exact body bytes covered by the signature. */
+async function postDecision(
+	c: TestContext,
+	path: string,
+	user: { id: string; email: string; role: "applicant" | "officer" },
+	payload: unknown,
+): Promise<Response> {
+	const body = JSON.stringify(payload);
+	return c.app.request(path, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			...signed(c, user, "POST", path, {}, body),
+		},
+		body,
+	});
+}
+
 describe("GET /api/review/queue", () => {
 	it("requires the officer role; unsigned is 401; passes the queue through", async () => {
 		const c = fresh();
@@ -53,14 +71,8 @@ describe("POST /api/review/:id/decision", () => {
 		c.gateway.decisionResult = { outcome: "booked", decisionId: "d-book", loanId: "l-book" };
 		c.gateway.decisionError = null;
 
-		const res = await c.app.request(path, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, officer, "POST", path),
-			},
-			body: JSON.stringify({ requestId: randomUUID(), outcome: "approve" }),
-		});
+		const approveBody = { requestId: randomUUID(), outcome: "approve" };
+		const res = await postDecision(c, path, officer, approveBody);
 		expect(res.status).toBe(200);
 		expect(await jsonBody<unknown>(res)).toEqual({
 			outcome: "booked",
@@ -72,14 +84,8 @@ describe("POST /api/review/:id/decision", () => {
 		c.gateway.decisionError = new GatewayError(409, "DECISION_CONFLICT", "already decided");
 		const appId2 = randomUUID();
 		const path2 = `/api/review/${appId2}/decision`;
-		const conflict = await c.app.request(path2, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, officer, "POST", path2),
-			},
-			body: JSON.stringify({ requestId: randomUUID(), outcome: "approve" }),
-		});
+		const conflictBody = { requestId: randomUUID(), outcome: "approve" };
+		const conflict = await postDecision(c, path2, officer, conflictBody);
 		expect(conflict.status).toBe(409);
 		c.gateway.decisionError = null;
 	});
@@ -96,19 +102,13 @@ describe("POST /api/review/:id/decision", () => {
 		});
 		const path = `/api/review/${appId}/decision`;
 
-		const replay = await c.app.request(path, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, officer, "POST", path),
-			},
-			body: JSON.stringify({
-				requestId,
-				outcome: "decline",
-				reasonCode: "OFFICER_JUDGEMENT",
-				notes: "retry",
-			}),
-		});
+		const retryBody = {
+			requestId,
+			outcome: "decline",
+			reasonCode: "OFFICER_JUDGEMENT",
+			notes: "retry",
+		};
+		const replay = await postDecision(c, path, officer, retryBody);
 		expect(replay.status).toBe(200);
 		expect(await jsonBody<unknown>(replay)).toEqual({
 			outcome: "declined",
@@ -125,19 +125,7 @@ describe("POST /api/review/:id/decision", () => {
 		});
 		c.internal.loans.set(bookedId, { loan: { id: "loan-2" } });
 		const bookedPath = `/api/review/${bookedId}/decision`;
-		const replayBooked = await c.app.request(bookedPath, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, officer, "POST", bookedPath),
-			},
-			body: JSON.stringify({
-				requestId,
-				outcome: "decline",
-				reasonCode: "OFFICER_JUDGEMENT",
-				notes: "retry",
-			}),
-		});
+		const replayBooked = await postDecision(c, bookedPath, officer, retryBody);
 		expect(replayBooked.status).toBe(200);
 		expect(await jsonBody<unknown>(replayBooked)).toEqual({
 			outcome: "booked",
@@ -153,53 +141,82 @@ describe("POST /api/review/:id/decision", () => {
 			decision: { id: "dec-3", outcome: "approved", requestId },
 		});
 		const convergingPath = `/api/review/${convergingId}/decision`;
-		const converging = await c.app.request(convergingPath, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, officer, "POST", convergingPath),
-			},
-			body: JSON.stringify({
-				requestId,
-				outcome: "decline",
-				reasonCode: "OFFICER_JUDGEMENT",
-				notes: "retry",
-			}),
-		});
+		const converging = await postDecision(c, convergingPath, officer, retryBody);
 		expect(converging.status).toBe(409);
 		expect((await jsonBody<{ error: { code: string } }>(converging)).error.code).toBe(
 			"BOOKING_INCOMPLETE",
 		);
 
-		const conflict = await c.app.request(path, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, officer, "POST", path),
-			},
-			body: JSON.stringify({
-				requestId: randomUUID(),
-				outcome: "decline",
-				reasonCode: "OFFICER_JUDGEMENT",
-				notes: "late",
-			}),
+		const conflict = await postDecision(c, path, officer, {
+			requestId: randomUUID(),
+			outcome: "decline",
+			reasonCode: "OFFICER_JUDGEMENT",
+			notes: "late",
 		});
 		expect(conflict.status).toBe(409);
 
-		const applicantCall = await c.app.request(path, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, applicant, "POST", path),
-			},
-			body: JSON.stringify({
-				requestId: randomUUID(),
-				outcome: "decline",
-				reasonCode: "OFFICER_JUDGEMENT",
-				notes: "nope",
-			}),
+		const applicantCall = await postDecision(c, path, applicant, {
+			requestId: randomUUID(),
+			outcome: "decline",
+			reasonCode: "OFFICER_JUDGEMENT",
+			notes: "nope",
 		});
 		expect(applicantCall.status).toBe(403);
+	});
+
+	it("resolves the research selection to the frozen bundle; a research object is 422", async () => {
+		const c = fresh();
+		const officer = createUser("officer");
+		const appId = randomUUID();
+		const path = `/api/review/${appId}/decision`;
+		const agentRunId = randomUUID();
+		const findingId = randomUUID();
+		c.research.runs.set(agentRunId, { applicationId: appId, status: "succeeded" });
+		const frozen = {
+			agentRunId,
+			applicationId: appId,
+			briefHash: "sha256:test",
+			viewedAt: null,
+			acceptedFindings: [
+				{
+					findingId,
+					claim: "Cited claim.",
+					category: "registry",
+					entityMatch: { identifierType: "registration_number", value: "X", confidence: "high" },
+					evidence: [
+						{ url: "https://example.com/r", quote: "exact quote", snapshotHash: "sha256:q" },
+					],
+				},
+			],
+		};
+		c.research.bundles.set(agentRunId, frozen);
+
+		const res = await postDecision(c, path, officer, {
+			requestId: randomUUID(),
+			outcome: "approve",
+			agentRunId,
+			acceptedFindingIds: [findingId],
+		});
+		expect(res.status).toBe(200);
+		// Server-built bundle forwarded verbatim; client selection stripped.
+		const sent = c.gateway.decisionCalls.at(-1)?.input;
+		expect(sent?.research).toEqual(frozen);
+		expect(sent).not.toHaveProperty("agentRunId");
+		expect(sent).not.toHaveProperty("acceptedFindingIds");
+
+		const appId2 = randomUUID();
+		const bad = await postDecision(c, `/api/review/${appId2}/decision`, officer, {
+			requestId: randomUUID(),
+			outcome: "approve",
+			research: {
+				agentRunId,
+				applicationId: appId2,
+				briefHash: "sha256:x",
+				viewedAt: null,
+				acceptedFindings: [],
+			},
+		});
+		expect(bad.status).toBe(422);
 	});
 
 	it("409s when the case is not pending and 404s unknown applications", async () => {
@@ -208,26 +225,18 @@ describe("POST /api/review/:id/decision", () => {
 		const processingId = randomUUID();
 		c.internal.decisions.set(processingId, { status: "processing", decision: null });
 		const processingPath = `/api/review/${processingId}/decision`;
-		const notPending = await c.app.request(processingPath, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, officer, "POST", processingPath),
-			},
-			body: JSON.stringify({ requestId: randomUUID(), outcome: "approve" }),
+		const notPending = await postDecision(c, processingPath, officer, {
+			requestId: randomUUID(),
+			outcome: "approve",
 		});
 		expect(notPending.status).toBe(409);
 
 		const missingId = randomUUID();
 		c.internal.missing.add(missingId);
 		const missingPath = `/api/review/${missingId}/decision`;
-		const missing = await c.app.request(missingPath, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...signed(c, officer, "POST", missingPath),
-			},
-			body: JSON.stringify({ requestId: randomUUID(), outcome: "approve" }),
+		const missing = await postDecision(c, missingPath, officer, {
+			requestId: randomUUID(),
+			outcome: "approve",
 		});
 		expect(missing.status).toBe(404);
 	});

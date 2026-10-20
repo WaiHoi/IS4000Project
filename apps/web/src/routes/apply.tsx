@@ -48,6 +48,7 @@ function Wizard() {
 		email: me.data?.user.email ?? "",
 		phone: "",
 		address: "",
+		city: "",
 	});
 	const [ind, setInd] = useState({
 		employmentStatus: "employed",
@@ -68,6 +69,7 @@ function Wizard() {
 		existingDebtService: "0",
 	});
 	const [consents, setConsents] = useState([false, false, false]);
+	const [aiResearchConsent, setAiResearchConsent] = useState(false);
 	// ONE key per submission intent — retries reuse it (SPEC FR-1.7/1.9).
 	const [idemKey] = useState(() => crypto.randomUUID());
 	const [errors, setErrors] = useState<Errors>({});
@@ -105,6 +107,8 @@ function Wizard() {
 			if (!identity.email.includes("@")) next["identity.email"] = "valid email required";
 			if (!identity.phone.trim()) next["identity.phone"] = "phone is required";
 			if (!identity.address.trim()) next["identity.address"] = "address is required";
+			if (identity.city.trim().length < 2 || identity.city.trim().length > 80)
+				next["identity.city"] = "city must be 2–80 characters";
 			if (borrowerType === "individual") {
 				if (
 					(ind.employmentStatus === "employed" || ind.employmentStatus === "self_employed") &&
@@ -134,6 +138,7 @@ function Wizard() {
 			termMonths: Number(term),
 			purpose: purpose.trim(),
 			consents,
+			aiResearchConsent,
 			identity: { ...identity, fullName: identity.fullName.trim() },
 		};
 		return borrowerType === "individual"
@@ -310,6 +315,14 @@ function Wizard() {
 									id="field-address"
 									value={identity.address}
 									onChange={(e) => setI("address", e.target.value)}
+									className={inputCls}
+								/>
+							</Field>
+							<Field label="City" error={errors["identity.city"]}>
+								<input
+									id="field-city"
+									value={identity.city}
+									onChange={(e) => setI("city", e.target.value)}
 									className={inputCls}
 								/>
 							</Field>
@@ -503,6 +516,15 @@ function Wizard() {
 							),
 						)}
 					</fieldset>
+					<label className="mt-2 flex items-center gap-2 py-1 text-sm">
+						<input
+							type="checkbox"
+							checked={aiResearchConsent}
+							onChange={(e) => setAiResearchConsent(e.target.checked)}
+							aria-label="AI research consent"
+						/>
+						AI research consent (optional)
+					</label>
 					{errors.consents && (
 						<p role="alert" className="mt-1 text-sm text-red-600">
 							{errors.consents}

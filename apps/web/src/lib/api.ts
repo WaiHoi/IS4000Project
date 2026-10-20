@@ -99,6 +99,8 @@ export interface CaseDetail {
 		financial: Record<string, unknown> | null;
 		business: Record<string, unknown> | null;
 		consents: unknown;
+		/** Officer-visible flag gating the research Run button. */
+		aiResearchConsent: boolean | null;
 		purpose: string;
 		workflowStartedAt: string | null;
 		failedReason: string | null;
@@ -230,6 +232,119 @@ export interface DashboardSummary {
 	}>;
 }
 
+// --- Advisory agentic research (Phase 2, SPEC §5/§8). Officer-only.
+// The browser never sends a frozen bundle: decisions carry only the
+// selection ({agentRunId, acceptedFindingIds}); review resolves the
+// server-built bundle. Unverified findings are never rendered.
+
+export type ResearchRunStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface ResearchRunSummary {
+	id: string;
+	applicationId: string;
+	feature: string;
+	status: ResearchRunStatus;
+	model?: string;
+	agentVersion?: string;
+	promptVersion?: string;
+	asOf?: string;
+	observability?: string;
+	errorCode?: string | null;
+	createdAt?: string;
+	startedAt?: string | null;
+	finishedAt?: string | null;
+}
+
+export interface ResearchEvidenceItem {
+	id: string;
+	url: string;
+	finalUrl?: string;
+	title?: string | null;
+	publisher: string;
+	publishedAt?: string | null;
+	dateBasis?: string;
+	retrievedAt?: string | null;
+	quote: string;
+	sourceTier?: string;
+}
+
+export interface ResearchFindingItem {
+	id: string;
+	claim: string;
+	category: string;
+	whyItMatters?: string;
+	allegationStatus?: string;
+	support: string;
+	confidence?: string;
+	confidenceBasis?: unknown;
+	entityMatch?: unknown;
+	evidence: ResearchEvidenceItem[];
+	evidenceIds?: string[];
+	reviewStatus?: string;
+	reviewedAt?: string | null;
+}
+
+export interface ResearchBrief {
+	summary?: string;
+	contradictions?: Array<{ description: string; evidenceIds?: string[] }>;
+	unknowns?: string[];
+	questionsForOfficer?: string[];
+}
+
+export interface ResearchUsage {
+	toolCalls?: number;
+	searches?: number;
+	extracts?: number;
+	costUsd?: number;
+}
+
+export interface ResearchAggregate {
+	run: ResearchRunSummary;
+	brief?: ResearchBrief | null;
+	validation?: unknown;
+	usage?: ResearchUsage | null;
+	evidence?: ResearchEvidenceItem[];
+	findings?: ResearchFindingItem[];
+	viewedAt?: string | null;
+}
+
+export interface ResearchSelection {
+	agentRunId: string;
+	acceptedFindingIds: string[];
+}
+
+export function ensureResearch(applicationId: string): Promise<{ runId: string; status: string }> {
+	return api<{ runId: string; status: string }>(`/api/review/${applicationId}/research`, {
+		method: "POST",
+	});
+}
+
+export function fetchResearch(applicationId: string): Promise<ResearchAggregate> {
+	return api<ResearchAggregate>(`/api/review/${applicationId}/research`);
+}
+
+export function viewResearch(
+	applicationId: string,
+	runId: string,
+): Promise<{ runId: string; viewedAt: string; deduped: boolean }> {
+	return api<{ runId: string; viewedAt: string; deduped: boolean }>(
+		`/api/review/${applicationId}/research/view`,
+		{ method: "POST", body: { runId } },
+	);
+}
+
+export function reviewResearchFinding(
+	applicationId: string,
+	findingId: string,
+	action: "accepted" | "rejected",
+	note?: string,
+): Promise<{ id: string; findingId: string; action: string }> {
+	return api<{ id: string; findingId: string; action: string }>(
+		`/api/review/${applicationId}/research/findings/${findingId}`,
+		{ method: "POST", body: note === undefined ? { action } : { action, note } },
+	);
+}
+
 // --- Formatting / status helpers. ---
 
 const usd = new Intl.NumberFormat("en-US", {
@@ -246,6 +361,17 @@ export function formatDate(iso: string | null | undefined): string {
 	if (!iso) return "—";
 	const d = new Date(iso);
 	return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
+}
+
+/** Date-only values (YYYY-MM-DD or date-only ISO) render in UTC: parsing
+ * them as local midnight shifts the day for negative offsets. */
+export function formatDateOnly(iso: string | null | undefined): string {
+	if (!iso) return "—";
+	const datePart = iso.length >= 10 ? iso.slice(0, 10) : iso;
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return formatDate(iso);
+	const d = new Date(`${datePart}T00:00:00Z`);
+	if (Number.isNaN(d.getTime())) return iso;
+	return d.toLocaleDateString("en-US", { timeZone: "UTC" });
 }
 
 export function formatDateTime(iso: string | null | undefined): string {
