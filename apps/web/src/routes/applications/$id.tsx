@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CaseView } from "../../components/CaseView";
+import { DocumentPanel } from "../../components/DocumentPanel";
 import { EmptyState, ErrorBox, Page, Skeleton } from "../../components/ui";
 import { ApiError, api, apiErrorMessage, type CaseDetail, isTerminal } from "../../lib/api";
 import { RequireAuth } from "../../lib/auth";
@@ -51,6 +52,12 @@ function Detail() {
 						</p>
 					)}
 					<CaseView data={detail.data} />
+					<DocumentPanel
+						applicationId={id}
+						mode="applicant"
+						documentsEnabled={detail.data.application.documentsEnabled ?? false}
+						documentProcessingConsent={detail.data.application.documentProcessingConsent}
+					/>
 				</>
 			)}
 		</Page>

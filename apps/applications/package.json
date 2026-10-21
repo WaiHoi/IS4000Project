@@ -18,7 +18,9 @@
 		"dotenv": "catalog:",
 		"drizzle-orm": "catalog:",
 		"hono": "catalog:",
+		"pdfjs-dist": "catalog:",
 		"postgres": "catalog:",
+		"tesseract.js": "catalog:",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

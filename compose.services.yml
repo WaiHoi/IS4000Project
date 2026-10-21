@@ -65,6 +65,23 @@ services:
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       PORT: "4001"
       HOST: 0.0.0.0
+      # T01 document workflow (SPEC-t01-t02 §10): encrypted blobs land on
+      # the `documents` volume (outside the repo in the container); the
+      # scanner resolves via container networking. Feature flag stays off
+      # until D1 lands, so these are inert until then.
+      DOCUMENT_STORAGE_DIR: /data/documents
+      DOCUMENT_FEATURE_ENABLED: ${DOCUMENT_FEATURE_ENABLED:-false}
+      DOCUMENT_ENCRYPTION_KEY: ${DOCUMENT_ENCRYPTION_KEY:-}
+      DOCUMENT_KEY_ID: ${DOCUMENT_KEY_ID:-v1}
+      DOCUMENT_PREVIOUS_KEYS: ${DOCUMENT_PREVIOUS_KEYS:-}
+      DOCUMENT_SCANNER: ${DOCUMENT_SCANNER:-clamd}
+      DOCUMENT_OCR_DATA_DIR: ${DOCUMENT_OCR_DATA_DIR:-}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+    volumes:
+      - .:/app
+      - svc-node-modules:/app/node_modules
+      - documents:/data/documents
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -324,5 +341,16 @@ services:
       retries: 12
       start_period: 60s
 
+  # T01 malware scanner (SPEC-t01-t02 §10): ClamAV daemon on the standard
+  # 3310 port. Best-effort in v1 — nothing depends on it (applications
+  # stays healthy without it; uploads fail closed with 503 until D1), and
+  # the gateway never routes here.
+  clamav:
+    image: clamav/clamav:latest
+    restart: unless-stopped
+    profiles: ["microservices"]
+    ports: ["3310:3310"]
+
 volumes:
   svc-node-modules:
+  documents:

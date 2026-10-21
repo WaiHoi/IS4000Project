@@ -22,6 +22,9 @@ export const UPSTREAM_TIMEOUT_MS = 5_000;
  * age/monitoring (the server waits up to 30s) and officer decisions
  * (Temporal update + booking). */
 export const LONG_UPSTREAM_TIMEOUT_MS = 45_000;
+/** Document uploads run scan+OCR synchronously (≤35s server-side); the
+ * proxy bound stays above it with headroom for the encrypted download. */
+export const DOCUMENT_UPSTREAM_TIMEOUT_MS = 50_000;
 
 function signedHeaders(
 	deps: GatewayDeps,
@@ -80,16 +83,34 @@ export async function fetchUpstream(
 	}
 }
 
-/** Forwards the upstream status/body (content-type preserved). */
+/** Headers a downstream service may set on a proxied response. Anything
+ * else (cookies, internal tracing) stays behind the gateway. */
+const FORWARDED_HEADERS = [
+	"content-type",
+	"content-length",
+	"content-disposition",
+	"cache-control",
+	"x-content-type-options",
+] as const;
+
+/** Forwards the upstream status/body byte-for-byte: binary-safe
+ * (`arrayBuffer`, no text decoding) so PDF/image downloads survive, with
+ * only the allowlisted headers preserved. JSON bodies pass through as the
+ * same bytes they arrived as. */
 export async function forwardResponse(c: Context, upstream: Response): Promise<Response> {
-	let text: string;
+	let bytes: ArrayBuffer;
 	try {
-		text = await upstream.text();
+		bytes = await upstream.arrayBuffer();
 	} catch {
 		throw new HttpError(502, "BAD_GATEWAY", "upstream service unavailable");
 	}
-	const contentType = upstream.headers.get("content-type") ?? "application/json";
-	return c.body(text, upstream.status as 200, { "content-type": contentType });
+	const headers: Record<string, string> = {};
+	for (const name of FORWARDED_HEADERS) {
+		const value = upstream.headers.get(name);
+		if (value !== null) headers[name] = value;
+	}
+	if (headers["content-type"] === undefined) headers["content-type"] = "application/json";
+	return c.body(bytes, upstream.status as 200, headers);
 }
 
 /** One-shot signed proxy for routes that need no composition. */

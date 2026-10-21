@@ -12,7 +12,7 @@
 //   /api/loans* + /api/demo* → loans service (demo officer-only + DEMO_MODE)
 //   /api/dashboard*     → portfolio service (officer only)
 import { randomUUID } from "node:crypto";
-import { errorBody, HttpError, signInternalHeaders } from "@credit/service-kit";
+import { errorBody, HttpError, MAX_UPLOAD_BYTES, signInternalHeaders } from "@credit/service-kit";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
@@ -20,6 +20,7 @@ import { authRoutes, requireOfficer, requireUser } from "./auth.js";
 import type { GatewayDeps, GatewayVariables } from "./deps.js";
 import { healthRoutes } from "./health.js";
 import {
+	DOCUMENT_UPSTREAM_TIMEOUT_MS,
 	fetchUpstream,
 	forwardResponse,
 	LONG_UPSTREAM_TIMEOUT_MS,
@@ -28,6 +29,11 @@ import {
 } from "./proxy.js";
 
 const MAX_JSON_BYTES = 100_000;
+
+/** T01 document upload: 10 MB file + multipart overhead (SPEC-t01-t02 §3).
+ * Every other /api/* route keeps the 100 KB JSON bound. */
+const isDocumentUpload = (method: string, path: string): boolean =>
+	method === "POST" && /^\/api\/applications\/[^/]+\/documents$/.test(path);
 
 /** UUID path segments (application/run/officer ids) — redacted in logs. */
 const UUID_SEGMENT_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -79,13 +85,13 @@ export function createApp(deps: GatewayDeps): Hono<{ Variables: Variables }> {
 		await next();
 	});
 
-	app.use(
-		"/api/*",
-		bodyLimit({
-			maxSize: MAX_JSON_BYTES,
-			onError: (c) => c.json(errorBody("BODY_TOO_LARGE", "request body too large"), 413),
-		}),
-	);
+	app.use("/api/*", async (c, next) => {
+		const maxSize = isDocumentUpload(c.req.method, c.req.path) ? MAX_UPLOAD_BYTES : MAX_JSON_BYTES;
+		return bodyLimit({
+			maxSize,
+			onError: (ctx) => ctx.json(errorBody("BODY_TOO_LARGE", "request body too large"), 413),
+		})(c, next);
+	});
 
 	app.route("/api/auth", authRoutes(deps));
 	app.route("/api/health", healthRoutes(deps));
@@ -178,6 +184,27 @@ export function createApp(deps: GatewayDeps): Hono<{ Variables: Variables }> {
 		}
 		return c.json(data);
 	});
+
+	app.patch("/api/applications/:id/document-consent", user, async (c) => {
+		const path = new URL(c.req.url).pathname;
+		return proxyTo(c, deps, c.var.user, { baseUrl: deps.env.applicationsUrl, path });
+	});
+
+	// T01 document workflow (SPEC-t01-t02 §3/§5): collection + file/pages/
+	// download/retry/crosscheck/chase under one wildcard. Scan+OCR run
+	// synchronously downstream, so these ride the 50s document timeout.
+	for (const pattern of ["/api/applications/:id/documents", "/api/applications/:id/documents/*"]) {
+		app.all(pattern, user, async (c) => {
+			const path = new URL(c.req.url).pathname;
+			return proxyTo(
+				c,
+				deps,
+				c.var.user,
+				{ baseUrl: deps.env.applicationsUrl, path },
+				DOCUMENT_UPSTREAM_TIMEOUT_MS,
+			);
+		});
+	}
 
 	app.all("/api/review/*", officer, async (c) => {
 		const path = new URL(c.req.url).pathname;

@@ -61,7 +61,7 @@ export function signed(
 	method: string,
 	path: string,
 	extra: Record<string, string> = {},
-	body?: string,
+	body?: string | Uint8Array,
 ): Record<string, string> {
 	return {
 		...signInternalHeaders(ctx.secret, {

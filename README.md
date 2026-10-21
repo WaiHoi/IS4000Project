@@ -76,6 +76,43 @@ Headless equivalents: `pnpm demo:check` (full three-scenario HTTP smoke),
 `pnpm demo:monitor` (one monitoring run), `pnpm test:e2e` (Playwright,
 starts its own worker/gateway/services/web and stops them afterwards).
 
+## Document workflow (T01/T02, behind a flag)
+
+Applicant or assigned-officer PDF/PNG/JPEG uploads are malware-scanned
+(ClamAV), encrypted at rest (AES-256-GCM), and text-extracted (PDF text layer
+or image OCR) with page/offset citations. An officer-only deterministic
+cross-check cites name/registration mismatches; chase requests are
+**draft-only** (created after opening the original, never sent). Documents
+never affect the credit decision and never appear in logs or Grafana.
+
+Enable locally (restart the applications service afterwards):
+
+```powershell
+# .env
+DOCUMENT_FEATURE_ENABLED=true
+DOCUMENT_ENCRYPTION_KEY=<base64-32-bytes>  # node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+DOCUMENT_STORAGE_DIR=.data/documents
+CLAMAV_HOST=127.0.0.1
+CLAMAV_PORT=3310
+```
+
+The scanner needs a ClamAV daemon: run one locally on `:3310`, or start the
+`microservices` overlay (`compose.services.yml` runs `clamav:3310` with
+`CLAMAV_HOST=clamav` plus the encrypted `documents` volume). Image OCR needs
+`DOCUMENT_OCR_DATA_DIR` with vendored tesseract data (no runtime CDN); text
+PDFs need no OCR assets. Missing key/scanner fails uploads closed (503)
+without affecting readiness or decisions; the UI panel hides while the flag
+is off and the mock Verification checklist is untouched.
+
+v1 limitations: scanned/image-only PDFs yield `needs_chase` (no PDF-image
+OCR); ID files store bytes only (no page text, always needs-chase);
+assigned-officer only (no specialist access — claim the case first, other
+officers see a non-leaking "not available"); chase drafts are never sent;
+retention is 90 days with legal-hold blocking (full DSAR automation stays
+T16). E2E: `e2e/documents.spec.ts` (+ `e2e/fixtures/mismatch.pdf`) runs the
+full path when the stack above is configured, otherwise it skips with the
+required env.
+
 ## Command reference
 
 | Command                                           | What it does                                                                                                                              |

@@ -10,6 +10,7 @@
 import {
 	applicationCreateSchema,
 	dedupeApplicationSubmitted,
+	DOCUMENT_CONSENT_VERSION,
 	generateReference,
 	hashCanonical,
 	isAdult,
@@ -18,6 +19,7 @@ import {
 	applications,
 	auditLog,
 	decisions,
+	documentFiles,
 	documents,
 	externalReports,
 	idempotencyKeys,
@@ -39,8 +41,11 @@ import {
 } from "@credit/service-kit";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
+import { z } from "zod";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const documentConsentSchema = z.object({ consent: z.boolean() }).strict();
 
 function isUniqueViolation(err: unknown): boolean {
 	return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "23505";
@@ -82,11 +87,14 @@ export interface ApplicationsRouteDeps {
 	db: Db;
 	gateway: WorkflowGateway;
 	logger: Logger;
+	/** T01 feature flag (SPEC-t01-t02 §10): exposed as `documentsEnabled`
+	 * in the case detail so the UI can hide the panel when off. */
+	documentsEnabled: boolean;
 }
 
 export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 	const app: ServiceApp = new Hono();
-	const { db, gateway, logger } = deps;
+	const { db, gateway, logger, documentsEnabled } = deps;
 
 	app.post("/api/applications", async (c) => {
 		const me = c.var.user;
@@ -193,6 +201,11 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 								business: data.sme ?? null,
 								consents: data.consents,
 								aiResearchConsent: data.aiResearchConsent,
+								documentProcessingConsent: data.documentProcessingConsent,
+								documentConsentAt: data.documentProcessingConsent ? now : null,
+								documentConsentVersion: data.documentProcessingConsent
+									? DOCUMENT_CONSENT_VERSION
+									: null,
 								submittedAt: now,
 							})
 							.returning({
@@ -349,6 +362,12 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 				business: row.business,
 				consents: row.consents,
 				aiResearchConsent: row.aiResearchConsent,
+				documentProcessingConsent: row.documentProcessingConsent,
+				documentConsentAt: row.documentConsentAt?.toISOString() ?? null,
+				documentConsentVersion: row.documentConsentVersion,
+				/** T01 feature flag (SPEC-t01-t02 §10): the panel hides when
+				 * false; the mock `documents` checklist above is unaffected. */
+				documentsEnabled,
 				purpose: row.purpose,
 				workflowStartedAt: row.workflowStartedAt?.toISOString() ?? null,
 				failedReason: row.failedReason,
@@ -360,6 +379,62 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 			policyEvaluation: policyRows[0] ?? null,
 			decision: decisionRows[0] ? presentDecision(decisionRows[0], me.role) : null,
 			timeline,
+		});
+	});
+
+	// Document-processing consent opt-in/out for legacy applications (T01).
+	// Owner-only: officers and other applicants get the same 404 as a
+	// missing case (FR-11.2 non-leaking). Withdrawal schedules deletion of
+	// every non-deleted file through the retention path; D1 rechecks
+	// consent under this same per-application lock before finalizing.
+	app.patch("/api/applications/:id/document-consent", async (c) => {
+		const me = c.var.user;
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		const parsed = documentConsentSchema.safeParse(await readJson(c));
+		if (!parsed.success) {
+			throw new HttpError(400, "VALIDATION_ERROR", "invalid consent", zodFields(parsed.error));
+		}
+		const now = new Date();
+		const updated = await withTx(db, async (tx) => {
+			await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${id}))`);
+			const rows = await tx.select().from(applications).where(eq(applications.id, id));
+			const row = rows[0];
+			if (!row || me.role !== "applicant" || row.applicantUserId !== me.id) {
+				throw new HttpError(404, "NOT_FOUND", "not found");
+			}
+			await tx
+				.update(applications)
+				.set({
+					documentProcessingConsent: parsed.data.consent,
+					documentConsentAt: now,
+					documentConsentVersion: DOCUMENT_CONSENT_VERSION,
+				})
+				.where(eq(applications.id, id));
+			if (!parsed.data.consent) {
+				await tx
+					.update(documentFiles)
+					.set({ retentionUntil: now })
+					.where(
+						and(
+							eq(documentFiles.applicationId, id),
+							sql`CAST(${documentFiles.status} AS text) != 'deleted'`,
+						),
+					);
+			}
+			await writeAudit(tx, {
+				applicationId: id,
+				actor: me.id,
+				action: "document.consent_updated",
+				entity: "application",
+				payload: { consent: parsed.data.consent },
+			});
+			return parsed.data.consent;
+		});
+		return c.json({
+			documentProcessingConsent: updated,
+			documentConsentAt: now.toISOString(),
+			documentConsentVersion: DOCUMENT_CONSENT_VERSION,
 		});
 	});
 

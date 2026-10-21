@@ -11,7 +11,9 @@ import {
 } from "@credit/db/applications";
 import {
 	HttpError,
+	readJson,
 	requireService,
+	zodFields,
 	type ServiceApp,
 	type ServiceVariables,
 } from "@credit/service-kit";
@@ -20,12 +22,41 @@ import { asc, count, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { Sql } from "postgres";
+import { z } from "zod";
+import {
+	createLegalHold,
+	grantAssignedOfficer,
+	releaseLegalHold,
+	revokeAssignedOfficer,
+	runDocumentRetention,
+	LockTimeout,
+} from "../documents/index.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface InternalRouteDeps {
 	db: Db;
 	sql: Sql;
+	/** Document retention/hold storage + lock bound (D1b). */
+	documents: { storageDir: string; lockTimeoutMs: number };
+}
+
+const UUID_SCHEMA = z.string().regex(UUID_RE);
+
+const grantSchema = z.object({ userId: UUID_SCHEMA, role: z.literal("assigned_officer") }).strict();
+const revokeSchema = z.object({ userId: UUID_SCHEMA }).strict();
+const holdSchema = z.object({ reason: z.string().min(1).max(500) }).strict();
+
+/** Bounded advisory-lock failures surface as 409, never 500. */
+async function withLockTimeout<T>(fn: () => Promise<T>): Promise<T> {
+	try {
+		return await fn();
+	} catch (err) {
+		if (err instanceof LockTimeout) {
+			throw new HttpError(409, "LOCK_TIMEOUT", "the case is busy; retry the request");
+		}
+		throw err;
+	}
 }
 
 const officer = createMiddleware<{ Variables: ServiceVariables }>(async (c, next) => {
@@ -74,6 +105,9 @@ function buildCaseFacts(row: typeof applications.$inferSelect): CaseFacts {
 export function internalRoutes(deps: InternalRouteDeps): ServiceApp {
 	const app: ServiceApp = new Hono();
 	const { db, sql } = deps;
+	const documents = deps.documents;
+	const docLockMs = documents?.lockTimeoutMs ?? 5000;
+	const storageDir = documents?.storageDir ?? ".data/documents";
 
 	// Shared review queue (SPEC FR-7.1): pending oldest first, with
 	// score/grade + top reasons. Shape matches the former review-service
@@ -193,6 +227,144 @@ export function internalRoutes(deps: InternalRouteDeps): ServiceApp {
 					: Number(timing[0].avg_seconds),
 			decidedApplications: timing[0]?.decided ?? 0,
 		});
+	});
+
+	// --- D1b document assignment + retention (SPEC-t01-t02 §5/§6). All
+	// service-only (signed service role); never exposed via the gateway.
+	// Responses carry ids/counts only — no document content, filenames,
+	// quotes, or expected/observed values.
+
+	app.post("/internal/applications/:id/document-access/grant", requireService, async (c) => {
+		const me = c.var.user;
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		const parsed = grantSchema.safeParse(await readJson(c));
+		if (!parsed.success) {
+			throw new HttpError(400, "VALIDATION_ERROR", "invalid grant", zodFields(parsed.error));
+		}
+		const { assignment, idempotent } = await withLockTimeout(() =>
+			grantAssignedOfficer(db, {
+				applicationId: id,
+				userId: parsed.data.userId,
+				grantedBy: me.id,
+				lockTimeoutMs: docLockMs,
+			}),
+		);
+		return c.json(
+			{
+				assignment: {
+					applicationId: assignment.applicationId,
+					userId: assignment.userId,
+					accessRole: assignment.accessRole,
+					grantedAt: assignment.grantedAt.toISOString(),
+				},
+				idempotent,
+			},
+			200,
+		);
+	});
+
+	app.post("/internal/applications/:id/document-access/revoke", requireService, async (c) => {
+		const me = c.var.user;
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		const parsed = revokeSchema.safeParse(await readJson(c));
+		if (!parsed.success) {
+			throw new HttpError(400, "VALIDATION_ERROR", "invalid revoke", zodFields(parsed.error));
+		}
+		const { assignment } = await withLockTimeout(() =>
+			revokeAssignedOfficer(db, {
+				applicationId: id,
+				userId: parsed.data.userId,
+				actor: me.id,
+				lockTimeoutMs: docLockMs,
+			}),
+		);
+		return c.json({ applicationId: assignment.applicationId, userId: assignment.userId }, 200);
+	});
+
+	app.post("/internal/applications/:id/documents/legal-hold", requireService, async (c) => {
+		const me = c.var.user;
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		const parsed = holdSchema.safeParse(await readJson(c));
+		if (!parsed.success) {
+			throw new HttpError(400, "VALIDATION_ERROR", "invalid hold", zodFields(parsed.error));
+		}
+		const hold = await withLockTimeout(() =>
+			createLegalHold(db, {
+				applicationId: id,
+				documentFileId: null,
+				reason: parsed.data.reason,
+				createdBy: me.id,
+				lockTimeoutMs: docLockMs,
+			}),
+		);
+		return c.json({ holdId: hold.id, applicationId: hold.applicationId }, 201);
+	});
+
+	app.post("/internal/applications/:id/documents/:fileId/legal-hold", requireService, async (c) => {
+		const me = c.var.user;
+		const id = c.req.param("id");
+		const fileId = c.req.param("fileId");
+		if (!UUID_RE.test(id) || !UUID_RE.test(fileId)) {
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
+		const parsed = holdSchema.safeParse(await readJson(c));
+		if (!parsed.success) {
+			throw new HttpError(400, "VALIDATION_ERROR", "invalid hold", zodFields(parsed.error));
+		}
+		const hold = await withLockTimeout(() =>
+			createLegalHold(db, {
+				applicationId: id,
+				documentFileId: fileId,
+				reason: parsed.data.reason,
+				createdBy: me.id,
+				lockTimeoutMs: docLockMs,
+			}),
+		);
+		return c.json(
+			{ holdId: hold.id, applicationId: hold.applicationId, documentFileId: hold.documentFileId },
+			201,
+		);
+	});
+
+	app.post(
+		"/internal/applications/:id/documents/legal-holds/:holdId/release",
+		requireService,
+		async (c) => {
+			const me = c.var.user;
+			const id = c.req.param("id");
+			const holdId = c.req.param("holdId");
+			if (!UUID_RE.test(id) || !UUID_RE.test(holdId)) {
+				throw new HttpError(404, "NOT_FOUND", "not found");
+			}
+			const hold = await withLockTimeout(() =>
+				releaseLegalHold(db, {
+					applicationId: id,
+					holdId,
+					actor: me.id,
+					lockTimeoutMs: docLockMs,
+				}),
+			);
+			return c.json({ holdId: hold.id, applicationId: hold.applicationId }, 200);
+		},
+	);
+
+	app.post("/internal/applications/:id/documents/retention/run", requireService, async (c) => {
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		const rows = await db.select().from(applications).where(eq(applications.id, id));
+		if (!rows[0]) throw new HttpError(404, "NOT_FOUND", "not found");
+		const counts = await withLockTimeout(() =>
+			runDocumentRetention({
+				db,
+				lockTimeoutMs: docLockMs,
+				storageDir,
+				applicationId: id,
+			}),
+		);
+		return c.json(counts, 200);
 	});
 
 	return app;

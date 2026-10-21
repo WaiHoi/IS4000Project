@@ -201,7 +201,9 @@ export function createRealRunner(opts: {
 							}
 						}
 						return JSON.stringify(
-							results.filter((row) => typeof row.content === "string" && row.content.length > 0).slice(0, 1),
+							results
+								.filter((row) => typeof row.content === "string" && row.content.length > 0)
+								.slice(0, 1),
 						);
 					}),
 			});
@@ -213,9 +215,7 @@ export function createRealRunner(opts: {
 				parameters: fetchParams,
 				execute: async ({ url }: { url: string }) =>
 					trackTool("fetch_source", async () => {
-						const cached = fetched.find(
-							(f) => f.requestedUrl === url || f.returnedUrl === url,
-						);
+						const cached = fetched.find((f) => f.requestedUrl === url || f.returnedUrl === url);
 						if (cached) return cached.rawContent.slice(0, 2500);
 						budget();
 						if (!env.tavilyApiKey) throw new TavilyError("extract is not configured");

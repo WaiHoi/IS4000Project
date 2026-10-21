@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { CaseView } from "../../../components/CaseView";
 import { DecisionPanel } from "../../../components/DecisionPanel";
+import { DocumentPanel } from "../../../components/DocumentPanel";
 import { ResearchPanel } from "../../../components/ResearchPanel";
 import { EmptyState, ErrorBox, Page, Skeleton } from "../../../components/ui";
 import {
@@ -52,6 +53,12 @@ function ReviewCase() {
 			) : (
 				<div className="space-y-4">
 					<CaseView data={detail.data} />
+					<DocumentPanel
+						applicationId={id}
+						mode="officer"
+						documentsEnabled={detail.data.application.documentsEnabled ?? false}
+						documentProcessingConsent={detail.data.application.documentProcessingConsent}
+					/>
 					<ResearchPanel
 						applicationId={id}
 						caseStatus={detail.data.application.status}

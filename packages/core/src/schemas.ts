@@ -106,6 +106,9 @@ export const consentsSchema = z
 	.length(3)
 	.refine((c) => c.every(Boolean), { message: "all 3 consents are required" });
 
+/** Document-processing policy version recorded with consent (T01/D0). */
+export const DOCUMENT_CONSENT_VERSION = "document-consent-v1";
+
 export const applicationCreateSchema = z
 	.object({
 		type: applicationTypeSchema,
@@ -115,6 +118,7 @@ export const applicationCreateSchema = z
 		purpose: z.string().min(1).max(500),
 		consents: consentsSchema,
 		aiResearchConsent: z.boolean().default(false),
+		documentProcessingConsent: z.boolean().default(false),
 		identity: identitySchema,
 		individual: individualBlockSchema.optional(),
 		sme: smeBlockSchema.optional(),

@@ -37,10 +37,12 @@ catalog:
   oxfmt: 0.73.0
   oxlint: 1.88.0
   pino: 10.4.0
+  pdfjs-dist: 6.4.299
   postgres: 3.4.9
   react: 19.3.1
   react-dom: 19.3.1
   tailwindcss: 4.3.3
+  tesseract.js: 7.0.0
   tsx: 4.23.15
   typescript: 7.0.2
   vite: 8.3.4
@@ -52,6 +54,8 @@ catalog:
 # the needed scripts (esbuild, protobufjs) are pre-approved — do not remove.
 allowBuilds:
   esbuild: true
+  pdfjs-dist: true
+  tesseract.js: true
   protobufjs: true
   "@swc/core": true
   "@google/genai": true

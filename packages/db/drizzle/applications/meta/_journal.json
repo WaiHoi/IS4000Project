@@ -15,6 +15,13 @@
       "when": 1792486105486,
       "tag": "0001_keen_mystique",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792568176978,
+      "tag": "0002_nifty_sprite",
+      "breakpoints": true
     }
   ]
 }

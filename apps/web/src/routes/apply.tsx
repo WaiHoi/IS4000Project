@@ -70,6 +70,7 @@ function Wizard() {
 	});
 	const [consents, setConsents] = useState([false, false, false]);
 	const [aiResearchConsent, setAiResearchConsent] = useState(false);
+	const [documentProcessingConsent, setDocumentProcessingConsent] = useState(false);
 	// ONE key per submission intent — retries reuse it (SPEC FR-1.7/1.9).
 	const [idemKey] = useState(() => crypto.randomUUID());
 	const [errors, setErrors] = useState<Errors>({});
@@ -139,6 +140,7 @@ function Wizard() {
 			purpose: purpose.trim(),
 			consents,
 			aiResearchConsent,
+			documentProcessingConsent,
 			identity: { ...identity, fullName: identity.fullName.trim() },
 		};
 		return borrowerType === "individual"
@@ -524,6 +526,15 @@ function Wizard() {
 							aria-label="AI research consent"
 						/>
 						AI research consent (optional)
+					</label>
+					<label className="mt-2 flex items-center gap-2 py-1 text-sm">
+						<input
+							type="checkbox"
+							checked={documentProcessingConsent}
+							onChange={(e) => setDocumentProcessingConsent(e.target.checked)}
+							aria-label="Document processing consent"
+						/>
+						Document processing consent (optional for now)
 					</label>
 					{errors.consents && (
 						<p role="alert" className="mt-1 text-sm text-red-600">

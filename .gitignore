@@ -9,10 +9,12 @@ test-results/
 e2e/logs/
 e2e/.e2e-pids.json
 .tanstack/
+.data/
+.scratch/
+artifacts/
+pipeline.html
 .DS_Store
 Thumbs.db
-
-.scratch/
 
 .venv/
 __pycache__/

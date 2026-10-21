@@ -28,6 +28,17 @@ export function createLogger(service: string): Logger {
 				"*.identity",
 				"*.financial",
 				"*.business",
+				// T01 document content (SPEC-t01-t02 §8): page text, quotes,
+				// filenames, and crosscheck expected/observed values must
+				// never reach logs/traces. Document failures log
+				// {documentFileId, errorCode} only.
+				"*.text",
+				"*.quote",
+				"*.originalFilename",
+				"*.original_filename",
+				"*.body",
+				"*.observed",
+				"*.expected",
 				"req.headers.cookie",
 				"req.headers.authorization",
 			],

@@ -17,6 +17,18 @@ export type ServiceApp = Hono<{ Variables: ServiceVariables }>;
 
 const MAX_JSON_BYTES = 100_000;
 
+/** 10 MB file + multipart overhead (T01 document uploads). Services opt
+ * into it per-path via `bodyLimitOverrides`; it is never the default. */
+export const MAX_UPLOAD_BYTES = 11_000_000;
+
+export interface BodyLimitOverride {
+	/** Exact HTTP method, or every method when omitted. */
+	method?: string;
+	/** Tested against `c.req.path` (no query string). */
+	pathPattern: RegExp;
+	maxBytes: number;
+}
+
 /** UUID path segments (application/run/officer ids) — redacted in logs. */
 const UUID_SEGMENT_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
@@ -26,6 +38,9 @@ export interface ServiceOptions {
 	logger: Logger;
 	routes: ServiceApp;
 	health: () => Promise<HealthChecks>;
+	/** Route-specific body limits (first match wins); default 100 KB. The
+	 * service passes its own paths — service-kit hardcodes no domain routes. */
+	bodyLimitOverrides?: BodyLimitOverride[];
 }
 
 export function createService(opts: ServiceOptions): ServiceApp {
@@ -55,13 +70,22 @@ export function createService(opts: ServiceOptions): ServiceApp {
 	});
 
 	for (const pattern of ["/api/*", "/internal/*"]) {
-		app.use(
-			pattern,
-			bodyLimit({
-				maxSize: MAX_JSON_BYTES,
-				onError: (c) => c.json(errorBody("BODY_TOO_LARGE", "request body too large"), 413),
-			}),
-		);
+		app.use(pattern, async (c, next) => {
+			let maxSize = MAX_JSON_BYTES;
+			for (const override of opts.bodyLimitOverrides ?? []) {
+				if (override.method !== undefined && override.method !== c.req.method) continue;
+				// Global-flag patterns keep match state: reset per request.
+				override.pathPattern.lastIndex = 0;
+				if (override.pathPattern.test(c.req.path)) {
+					maxSize = override.maxBytes;
+					break;
+				}
+			}
+			return bodyLimit({
+				maxSize,
+				onError: (ctx) => ctx.json(errorBody("BODY_TOO_LARGE", "request body too large"), 413),
+			})(c, next);
+		});
 	}
 
 	// Public — bypasses internal auth so orchestrators can probe readiness.
