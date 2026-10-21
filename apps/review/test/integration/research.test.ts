@@ -570,3 +570,70 @@ describe("POST /api/review/:id/decision with research", () => {
 		expect(c.research.calls).toHaveLength(0);
 	});
 });
+
+describe("GET /api/review/:id/research/audit", () => {
+	it("returns skip entries with no run; 200s empty with no run; 404s cross-officer and unknown cases", async () => {
+		const c = fresh();
+		const officer = createUser("officer");
+		const applicant = createUser();
+		const appId = randomUUID();
+		const path = `/api/review/${appId}/research/audit`;
+
+		expect((await get(c, path, applicant)).status).toBe(403);
+
+		// No run, but an auto skip is recorded: skip reasons stay visible.
+		const eventId = randomUUID();
+		c.research.audits.set(appId, [
+			{
+				action: "auto.skip",
+				actorRole: "service",
+				runId: null,
+				metadata: { triggerEventId: eventId, reason: "consent_required" },
+				createdAt: new Date().toISOString(),
+			},
+		]);
+		const ok = await get(c, path, officer);
+		expect(ok.status).toBe(200);
+		const body = await jsonBody<{
+			applicationId: string;
+			entries: Array<{ action: string; metadata: Record<string, unknown> }>;
+		}>(ok);
+		expect(body.applicationId).toBe(appId);
+		expect(body.entries).toHaveLength(1);
+		expect(body.entries[0]).toMatchObject({
+			action: "auto.skip",
+			metadata: { triggerEventId: eventId, reason: "consent_required" },
+		});
+		expect(
+			c.research.calls.some(
+				(call) => call === `GET /internal/research/applications/${appId}/audit`,
+			),
+		).toBe(true);
+
+		// No history and no run at all: 200 empty, never 404.
+		const bareId = randomUUID();
+		const bare = await get(c, `/api/review/${bareId}/research/audit`, officer);
+		expect(bare.status).toBe(200);
+		expect(await jsonBody<unknown>(bare)).toEqual({ applicationId: bareId, entries: [] });
+
+		// Cross-officer read (a run exists the caller cannot see):
+		// upstream 404 passes through, never a raw error.
+		const strangerId = randomUUID();
+		c.research.runs.set(randomUUID(), { applicationId: strangerId, status: "succeeded" });
+		expect((await get(c, `/api/review/${strangerId}/research/audit`, officer)).status).toBe(404);
+
+		// Unknown case: the decision probe 404s before research is touched.
+		const missingId = randomUUID();
+		c.internal.missing.add(missingId);
+		const callsBefore = c.research.calls.length;
+		expect((await get(c, `/api/review/${missingId}/research/audit`, officer)).status).toBe(404);
+		expect(c.research.calls).toHaveLength(callsBefore);
+
+		expect((await get(c, "/api/review/not-a-uuid/research/audit", officer)).status).toBe(404);
+
+		const off = setupApp({ agentsEnabled: false });
+		const disabled = await get(off, path, createUser("officer"));
+		expect(disabled.status).toBe(404);
+		expect(await errorCode(disabled)).toBe("RESEARCH_DISABLED");
+	});
+});

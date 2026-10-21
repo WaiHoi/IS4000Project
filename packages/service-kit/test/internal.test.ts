@@ -10,6 +10,7 @@ import {
 	EMPTY_BODY_SHA256,
 	isValidRequestId,
 	requireInternal,
+	requireService,
 	resolveInternalUser,
 	type ServiceVariables,
 	signInternalHeaders,
@@ -142,7 +143,49 @@ describe("resolveInternalUser", () => {
 		expect(resolveInternalUser(SECRET, base, 1_000_000 - CLOCK_SKEW_MS - 1)).toBeNull();
 		expect(resolveInternalUser(SECRET, { ...base, ts: "not-a-number" }, 1_000_000)).toBeNull();
 	});
+
+	it("accepts the service role with the same signature semantics", () => {
+		const signed = headers(SECRET, {
+			userId: "svc-auto",
+			role: "service",
+			email: "service@example.com",
+			ts: 1_000_000,
+		});
+		const user = resolveInternalUser(
+			SECRET,
+			{
+				method: REQ.method,
+				path: REQ.path,
+				userId: "svc-auto",
+				role: "service",
+				email: "service@example.com",
+				ts: signed["x-internal-ts"],
+				signature: signed["x-internal-signature"],
+				bodyHash: signed["x-body-sha256"],
+				requestId: signed["x-request-id"],
+			},
+			1_000_000,
+		);
+		expect(user).toEqual({ id: "svc-auto", email: "service@example.com", role: "service" });
+		// An applicant signature relabelled as service fails verification.
+		const relabelled = resolveInput(headers(SECRET, { ts: 1_000_000 }));
+		expect(resolveInternalUser(SECRET, { ...relabelled, role: "service" }, 1_000_000)).toBeNull();
+	});
 });
+
+function serviceApp(secret: string = SECRET): Hono<{ Variables: ServiceVariables }> {
+	const app = new Hono<{ Variables: ServiceVariables }>();
+	app.use("/internal/*", requireInternal(secret));
+	app.use("/internal/*", requireService);
+	app.get("/internal/svc", (c) => c.json({ user: c.var.user }));
+	app.onError((err, c) => {
+		if (err instanceof HttpError) {
+			return c.json(errorBody(err.code, err.message), err.status as 400);
+		}
+		throw err;
+	});
+	return app;
+}
 
 describe("requireInternal middleware", () => {
 	it("lets signed requests through and rejects unsigned ones with 401", async () => {
@@ -251,4 +294,35 @@ describe("requireInternal middleware", () => {
 		const replay = await app.request(REQ.path, { headers: headers() });
 		expect(replay.status).toBe(200);
 	}, 20_000);
+});
+
+describe("requireService middleware", () => {
+	it("accepts service, 403s officer/applicant, 401s unsigned", async () => {
+		const app = serviceApp();
+		const svc = await app.request("/internal/svc", {
+			headers: headers(SECRET, {
+				userId: "svc-auto",
+				role: "service",
+				email: "service@example.com",
+				path: "/internal/svc",
+			}),
+		});
+		expect(svc.status).toBe(200);
+		expect(await svc.json()).toEqual({
+			user: { id: "svc-auto", email: "service@example.com", role: "service" },
+		});
+
+		const officer = await app.request("/internal/svc", {
+			headers: headers(SECRET, { role: "officer", path: "/internal/svc" }),
+		});
+		expect(officer.status).toBe(403);
+
+		const applicant = await app.request("/internal/svc", {
+			headers: headers(SECRET, { path: "/internal/svc" }),
+		});
+		expect(applicant.status).toBe(403);
+
+		const unsigned = await app.request("/internal/svc");
+		expect(unsigned.status).toBe(401);
+	});
 });

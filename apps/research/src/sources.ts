@@ -4,16 +4,21 @@ import type { evidenceSourceTier } from "@credit/db/research";
 
 export type SourceTier = (typeof evidenceSourceTier.enumValues)[number];
 
-const OFFICIAL_SUFFIX = [".gov.uk", ".gov", ".europa.eu", ".fca.org.uk"];
+const OFFICIAL_SUFFIX = [".gov.uk", ".gov", ".gov.sg", ".sgx.com", ".europa.eu", ".fca.org.uk"];
 const OFFICIAL_HOSTS = new Set([
 	"find-and-update.company-information.service.gov.uk",
 	"thegazette.co.uk",
+	"acra.gov.sg",
+	"sgx.com",
 ]);
 
 const REGISTRY_HOSTS = new Set([
 	"companieshouse.gov.uk",
 	"opencorporates.com",
 	"suite.endole.co.uk",
+	"sgpbusiness.com",
+	"companies.sg",
+	"companieshouse.sg",
 ]);
 
 const REPUTABLE_NEWS_HOSTS = new Set([
@@ -28,6 +33,10 @@ const REPUTABLE_NEWS_HOSTS = new Set([
 	"channel4.com",
 	"economist.com",
 	"bloomberg.com",
+	"straitstimes.com",
+	"businesstimes.com.sg",
+	"channelnewsasia.com",
+	"todayonline.com",
 ]);
 
 const REVIEW_PLATFORM_HOSTS = new Set([
@@ -39,7 +48,7 @@ const REVIEW_PLATFORM_HOSTS = new Set([
 ]);
 
 export function tierForHost(host: string): SourceTier {
-	const h = host.toLowerCase();
+	const h = host.toLowerCase().replace(/^www\./, "");
 	if (OFFICIAL_HOSTS.has(h) || OFFICIAL_SUFFIX.some((s) => h.endsWith(s))) return "official";
 	if (REGISTRY_HOSTS.has(h)) return "registry";
 	if (REPUTABLE_NEWS_HOSTS.has(h) || h.endsWith(".bbc.co.uk")) return "reputable_news";
@@ -47,7 +56,20 @@ export function tierForHost(host: string): SourceTier {
 	return "other";
 }
 
-const TWO_PART_SUFFIX = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "co.jp", "co.nz"]);
+const TWO_PART_SUFFIX = new Set([
+	"co.uk",
+	"org.uk",
+	"ac.uk",
+	"gov.uk",
+	"com.au",
+	"co.jp",
+	"co.nz",
+	"com.sg",
+	"gov.sg",
+	"org.sg",
+	"net.sg",
+	"edu.sg",
+]);
 
 /** Naive registrable domain (eTLD+1 for common suffixes). */
 export function registrableDomain(host: string): string {

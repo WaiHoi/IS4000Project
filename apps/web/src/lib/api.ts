@@ -244,6 +244,11 @@ export interface ResearchRunSummary {
 	applicationId: string;
 	feature: string;
 	status: ResearchRunStatus;
+	/** How the run started: officer click or automatic referral trigger. */
+	trigger?: string;
+	requestedBy?: string;
+	/** Who requested it: officer id or the service automation principal. */
+	requestedByRole?: string;
 	model?: string;
 	agentVersion?: string;
 	promptVersion?: string;
@@ -313,6 +318,22 @@ export interface ResearchSelection {
 	acceptedFindingIds: string[];
 }
 
+// --- Auto-trigger audit (T11): skip/ensure/duplicate history with ids and
+// codes only — never case facts, quotes, or applicant data. ---
+
+export interface ResearchAuditEntry {
+	action: string;
+	actorRole: string;
+	runId: string | null;
+	metadata: Record<string, unknown>;
+	createdAt: string;
+}
+
+export interface ResearchAudit {
+	applicationId: string;
+	entries: ResearchAuditEntry[];
+}
+
 export function ensureResearch(applicationId: string): Promise<{ runId: string; status: string }> {
 	return api<{ runId: string; status: string }>(`/api/review/${applicationId}/research`, {
 		method: "POST",
@@ -321,6 +342,10 @@ export function ensureResearch(applicationId: string): Promise<{ runId: string; 
 
 export function fetchResearch(applicationId: string): Promise<ResearchAggregate> {
 	return api<ResearchAggregate>(`/api/review/${applicationId}/research`);
+}
+
+export function fetchResearchAudit(applicationId: string): Promise<ResearchAudit> {
+	return api<ResearchAudit>(`/api/review/${applicationId}/research/audit`);
 }
 
 export function viewResearch(

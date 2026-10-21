@@ -117,7 +117,7 @@ OPENROUTER_API_KEY=<key>
 TAVILY_API_KEY=<key>
 ```
 
-then `pnpm db:migrate` (creates the `credit_research` tables) and `pnpm dev` (starts research on `:4005`). Without `RESEARCH_DATABASE_URL`, `pnpm db:migrate` skips the research database with a clear log and Phase 1 setup still passes. With the flags off, every research route returns 404 `RESEARCH_DISABLED` and the UI panel hides; research needs `pending_review` status plus AI research consent, and it never decides a case. Detail: `reference/api.md` (research section) and `reference/configuration.md` (research variables).
+then `pnpm db:migrate` (creates the `credit_research` tables) and `pnpm dev` (starts research on `:4005`). Without `RESEARCH_DATABASE_URL`, `pnpm db:migrate` skips the research database with a clear log and Phase 1 setup still passes. With the flags off, every research route returns 404 `RESEARCH_DISABLED` and the UI panel hides; research needs `pending_review` status plus AI research consent, and it never decides a case. Optional auto-trigger on referral (`AGENT_AUTO_TRIGGER_ENABLED=true`, group `credit-research-auto`): at most one `trigger=auto` run per referral (durable event log — redeliveries replay the original outcome even after a status/consent change), UTC-day auto-only caps/budget-guarded, first-officer-claims-on-read (empty audit history claims nothing) — skip reasons surface at `GET /api/review/:id/research/audit` and on the case page (auto badge, skip copy, assigned-to-another-officer state). Detail: `reference/api.md` (research section) and `reference/configuration.md` (research variables).
 
 ## Related
 

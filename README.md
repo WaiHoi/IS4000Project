@@ -6,7 +6,7 @@ End-to-end credit pipeline: apply → verify → gather data → score → polic
 decision → human review → price & book → monitor. The pipeline itself uses
 deterministic mocks throughout (labelled "Mock data" in the UI). Phase 2
 adds an advisory agent-research brief (approved LLM + Tavily cited sources,
-officer-triggered, never decisive) behind `AGENTS_ENABLED` +
+officer-triggered or auto-triggered on referral, never decisive) behind `AGENTS_ENABLED` +
 `AGENT_CASE_BRIEF_ENABLED`. Architecture: [docs/explanation/architecture.md](docs/explanation/architecture.md).
 
 ## Prereqs

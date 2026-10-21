@@ -29,7 +29,7 @@ async function jsonBody<T>(res: Response): Promise<T> {
 }
 
 async function postApplication(
-	user: { id: string; email: string; role: "applicant" | "officer" },
+	user: { id: string; email: string; role: "applicant" | "officer" | "service" },
 	payload: unknown,
 	key: string,
 ) {
@@ -183,10 +183,18 @@ const CASE_FACTS_KEYS = [
 ].sort();
 
 async function getCaseFacts(
-	user: { id: string; email: string; role: "applicant" | "officer" },
+	user: { id: string; email: string; role: "applicant" | "officer" | "service" },
 	id: string,
 ) {
 	const path = `/internal/applications/${id}/case-facts`;
+	return ctx.app.request(path, { headers: signed(ctx, user, "GET", path) });
+}
+
+async function getResearchContext(
+	user: { id: string; email: string; role: "applicant" | "officer" | "service" },
+	id: string,
+) {
+	const path = `/internal/applications/${id}/research-context`;
 	return ctx.app.request(path, { headers: signed(ctx, user, "GET", path) });
 }
 
@@ -291,5 +299,43 @@ describe("case facts + consent (Phase 2 R0)", () => {
 
 		const unsigned = await ctx.app.request(`/internal/applications/${row.id}/case-facts`);
 		expect(unsigned.status).toBe(401);
+	});
+});
+
+describe("research context (T00 service-only)", () => {
+	it("service gets the 16-key case facts plus applicantUserId; officer/applicant denied", async () => {
+		const user = await createUser(ctx);
+		const officer = await createUser(ctx, "officer");
+		const service = await createUser(ctx, "service");
+		const created = await postApplication(
+			user,
+			{ ...individualPayload(user.email), aiResearchConsent: true },
+			randomUUID(),
+		);
+		expect(created.status).toBe(201);
+		const { id } = await jsonBody<{ id: string }>(created);
+
+		const res = await getResearchContext(service, id);
+		expect(res.status).toBe(200);
+		const body = await jsonBody<{
+			caseFacts: Record<string, unknown>;
+			applicantUserId: string;
+		}>(res);
+		// Exactly the shared 16-key schema — plus the internal routing id
+		// beside it, never inside the facts (it must not reach the prompt).
+		expect(Object.keys(body.caseFacts).sort()).toEqual(CASE_FACTS_KEYS);
+		expect(body.caseFacts).not.toHaveProperty("applicantUserId");
+		expect(body.applicantUserId).toBe(user.id);
+		for (const leaked of ["dob", "nationalId", "address", "purpose", "consents"]) {
+			expect(body.caseFacts).not.toHaveProperty(leaked);
+		}
+
+		expect((await getResearchContext(officer, id)).status).toBe(403);
+		expect((await getResearchContext(user, id)).status).toBe(403);
+		expect((await ctx.app.request(`/internal/applications/${id}/research-context`)).status).toBe(
+			401,
+		);
+		expect((await getResearchContext(service, randomUUID())).status).toBe(404);
+		expect((await getResearchContext(service, "not-a-uuid")).status).toBe(404);
 	});
 });

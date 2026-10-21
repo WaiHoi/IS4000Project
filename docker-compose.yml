@@ -21,6 +21,12 @@ services:
 
   kafka:
     image: apache/kafka:3.9.0
+    # Trust boundary: the host-published 9092 listener is PLAINTEXT for
+    # local dev/test only (portfolio/worker integration tests and local
+    # `pnpm dev` reach Kafka at localhost:9092). Production Kafka must use
+    # SASL/ACL or a private network — the research auto-trigger consumer
+    # performs no per-envelope auth and relies on the broker network plus
+    # topic allowlisting and service-HMAC context revalidation.
     ports:
       - "9092:9092"
     environment:

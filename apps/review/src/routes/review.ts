@@ -302,6 +302,24 @@ export function reviewRoutes(deps: ReviewRouteDeps): ServiceApp {
 		return c.json(await readUpstream(res));
 	});
 
+	// T11 auto-trigger audit (SPEC §5): officer-only, gated, app-scoped.
+	// Proxies the research internal auto-audit so skip reasons (consent
+	// off, not pending, caps/budget) stay visible when no run exists. No
+	// consent/status gate here by design: gating on those would hide the
+	// very skips this endpoint exists to surface. Case existence is
+	// checked (404 for unknown cases, no orphan grant); cross-officer
+	// reads 404 via the research claim, passed through untouched.
+	app.get("/api/review/:id/research/audit", officer, async (c) => {
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		requireResearch();
+		const probe = await get(applicationsUrl, `/internal/applications/${id}/decision`, c.var.user);
+		if (probe.status === 404) throw new HttpError(404, "NOT_FOUND", "not found");
+		if (!probe.ok) throw new HttpError(502, "BAD_GATEWAY", "upstream service unavailable");
+		const res = await get(researchUrl, `/internal/research/applications/${id}/audit`, c.var.user);
+		return c.json(await readUpstream(res));
+	});
+
 	app.post("/api/review/:id/research/view", officer, async (c) => {
 		const id = c.req.param("id");
 		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");

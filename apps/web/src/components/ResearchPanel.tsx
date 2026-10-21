@@ -1,8 +1,11 @@
-// Advisory agent research panel (Phase 2, SPEC §5/§8): officer-triggered
-// cited brief. Polls until terminal; records one view after success;
-// accept/reject is append-only. Only `verified` findings render. The panel
-// hides itself while the feature flag is off and explains consent/empty/
-// error states. It reports the accepted selection upward — the decision
+// Advisory agent research panel (Phase 2, SPEC §5/§8): officer- or
+// auto-triggered cited brief. Polls until terminal; records one view after
+// success; accept/reject is append-only. Only `verified` findings render.
+// The panel hides itself while the feature flag is off and explains
+// consent/empty/error states. Auto runs show their trigger badge; when
+// latest 404s the auto-audit endpoint surfaces skip reasons, and
+// cross-officer reads render assigned-to-another-officer (never raw
+// errors). It reports the accepted selection upward — the decision
 // sends only the selection, never a browser-built bundle.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
@@ -11,11 +14,13 @@ import {
 	apiErrorMessage,
 	ensureResearch,
 	fetchResearch,
+	fetchResearchAudit,
 	formatDateOnly,
 	formatDateTime,
 	reviewResearchFinding,
 	viewResearch,
 	type ResearchAggregate,
+	type ResearchAuditEntry,
 	type ResearchEvidenceItem,
 	type ResearchFindingItem,
 	type ResearchSelection,
@@ -123,6 +128,82 @@ function entityLabel(entityMatch: unknown): string {
 	const value = typeof m.value === "string" ? m.value : "?";
 	const conf = typeof m.confidence === "string" ? ` (${m.confidence})` : "";
 	return `${idType}: ${value}${conf}`;
+}
+
+/** Machine skip reason → officer copy. Ids/codes only in, sentences out. */
+function skipReasonLabel(reason: unknown): string {
+	switch (reason) {
+		case "consent_required":
+			return "AI research consent was not given for this case.";
+		case "not_pending":
+			return "The case was not awaiting review when the referral fired.";
+		case "application_not_found":
+			return "The case was not found when the referral fired.";
+		case "applicant_daily_cap":
+			return "Automatic research reached the per-applicant daily limit.";
+		case "global_daily_cap":
+			return "Automatic research reached the daily limit.";
+		case "daily_cost_budget":
+			return "Automatic research reached the daily cost budget.";
+		case "invalid_application_id":
+			return "Automatic research skipped an invalid referral.";
+		case "context_invalid":
+			return "Automatic research could not read the case when the referral fired.";
+		case "context_mismatch":
+			return "Automatic research got case details for a different case and stopped.";
+		case "invalid_applicant":
+			return "Automatic research got an invalid applicant reference and stopped.";
+		default:
+			return typeof reason === "string" && reason.length > 0
+				? `Automatic research skipped: ${reason}.`
+				: "Automatic research did not run for this referral.";
+	}
+}
+
+function auditActionLabel(action: string): string {
+	switch (action) {
+		case "auto.skip":
+			return "Skipped";
+		case "auto.ensure":
+			return "Started automatically";
+		case "auto.duplicate":
+			return "Duplicate referral — reused the existing run";
+		default:
+			return action;
+	}
+}
+
+/** Auto-trigger history: ids and codes only, never case facts or quotes. */
+function AuditEntries({ entries }: { entries: ResearchAuditEntry[] }) {
+	if (entries.length === 0) {
+		return <p className="text-sm text-gray-600">No automatic-research history for this case.</p>;
+	}
+	return (
+		<ul className="space-y-1.5">
+			{entries.map((e) => {
+				const meta =
+					e.metadata !== null && typeof e.metadata === "object"
+						? (e.metadata as Record<string, unknown>)
+						: undefined;
+				const reason = meta?.reason;
+				const eventId = typeof meta?.triggerEventId === "string" ? meta.triggerEventId : null;
+				return (
+					<li
+						key={`${e.action}-${e.createdAt}-${e.runId ?? "no-run"}-${eventId ?? "no-event"}`}
+						className="text-sm text-gray-700"
+					>
+						{" "}
+						<span className="font-medium">{auditActionLabel(e.action)}</span>
+						{e.action === "auto.skip" && reason !== undefined
+							? ` — ${skipReasonLabel(reason)}`
+							: ""}
+						{e.runId ? ` · run ${shortId(e.runId)}` : ""}{" "}
+						<span className="text-xs text-gray-500">· {formatDateTime(e.createdAt)}</span>
+					</li>
+				);
+			})}
+		</ul>
+	);
 }
 
 function FindingCard({
@@ -249,6 +330,7 @@ export function ResearchPanel({
 	const [running, setRunning] = useState(false);
 	const [viewError, setViewError] = useState("");
 	const [viewRetrying, setViewRetrying] = useState(false);
+	const [auditOpen, setAuditOpen] = useState(false);
 
 	const research = useQuery({
 		queryKey: ["research", applicationId],
@@ -259,6 +341,24 @@ export function ResearchPanel({
 	const data: ResearchAggregate | undefined = research.data;
 	const status = data?.run.status;
 	const { refetch } = research;
+
+	// Feature-disabled hides the panel (see below); the audit query stays
+	// off there so a disabled deployment makes no research calls at all.
+	const featureDisabled =
+		research.isError &&
+		research.error instanceof ApiError &&
+		research.error.status === 404 &&
+		research.error.code === "RESEARCH_DISABLED";
+
+	// Auto-trigger audit: fetched automatically when latest fails (404 or
+	// unavailable) so skip reasons surface, or on demand via the audit
+	// <details> below. Read-only — it never starts a run.
+	const audit = useQuery({
+		queryKey: ["research-audit", applicationId],
+		queryFn: () => fetchResearchAudit(applicationId),
+		retry: false,
+		enabled: !featureDisabled && (research.isError || auditOpen),
+	});
 
 	// Run is offered only for undecided, consented cases: a decided case or
 	// a missing consent shows explanatory copy instead of the button.
@@ -323,6 +423,22 @@ export function ResearchPanel({
 		);
 	}, [data, status, onSelectionChange]);
 
+	// Latest raced an auto run: the audit already records an ensured run
+	// while latest still 404s — re-read once (bounded: only while latest
+	// errors) so the auto run appears without the officer clicking Run.
+	// Read-only: this never starts an officer run.
+	const auditRunIds = (audit.data?.entries ?? [])
+		.map((e) => e.runId)
+		.filter((id): id is string => id !== null)
+		.join(",");
+	const autoRecovered = useRef<string | null>(null);
+	useEffect(() => {
+		if (research.isError && auditRunIds && autoRecovered.current !== auditRunIds) {
+			autoRecovered.current = auditRunIds;
+			void refetch();
+		}
+	}, [research.isError, auditRunIds, refetch]);
+
 	async function run() {
 		setRunning(true);
 		setRunError("");
@@ -340,12 +456,7 @@ export function ResearchPanel({
 
 	// Feature disabled → hidden (SPEC AC-1). Applicants never reach here (403
 	// at the gateway), so any other 404 means "no run yet".
-	if (
-		research.isError &&
-		research.error instanceof ApiError &&
-		research.error.status === 404 &&
-		research.error.code === "RESEARCH_DISABLED"
-	) {
+	if (featureDisabled) {
 		return null;
 	}
 
@@ -376,7 +487,69 @@ export function ResearchPanel({
 			) : research.isError ? (
 				<div className="mt-3 space-y-3">
 					{research.error instanceof ApiError && research.error.status === 404 ? (
-						!runAllowed ? (
+						audit.isError && audit.error instanceof ApiError && audit.error.status === 404 ? (
+							// Non-leaking: identical copy whether the case is
+							// unknown or owned by another officer — never a raw
+							// error, code, or id.
+							<p className="mt-3 text-sm text-gray-600" aria-live="polite">
+								Research is not available for this case — it may be assigned to another officer.
+							</p>
+						) : audit.data && audit.data.entries.length > 0 ? (
+							<div className="space-y-3">
+								<output className="block text-sm text-gray-600" aria-live="polite">
+									No research run yet — automatic research did not start one.
+								</output>
+								<AuditEntries entries={audit.data.entries} />
+								<div className="flex flex-wrap gap-2">
+									{runAllowed && (
+										<button
+											type="button"
+											onClick={() => void run()}
+											disabled={running}
+											className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+										>
+											{running ? "Starting…" : "Run research"}
+										</button>
+									)}
+									<button
+										type="button"
+										onClick={() => void audit.refetch()}
+										disabled={audit.isFetching}
+										aria-label="Refresh automatic-research status"
+										className="rounded border border-gray-300 px-4 py-2 text-sm disabled:opacity-50"
+									>
+										{audit.isFetching ? "Refreshing…" : "Refresh status"}
+									</button>
+								</div>
+							</div>
+						) : audit.isPending || audit.isFetching ? (
+							<p className="text-sm text-gray-600" aria-live="polite">
+								Checking automatic-research status…
+							</p>
+						) : audit.isError ? (
+							<div className="space-y-3">
+								<ErrorBox
+									message={apiErrorMessage(audit.error)}
+									onRetry={() => void audit.refetch()}
+								/>
+								{!runAllowed ? (
+									<p className="text-sm text-gray-600">
+										{consentMissing
+											? "Research is unavailable — AI research consent was not given for this case."
+											: `This case is ${caseStatus} — research runs only while a case awaits review.`}
+									</p>
+								) : (
+									<button
+										type="button"
+										onClick={() => void run()}
+										disabled={running}
+										className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+									>
+										{running ? "Starting…" : "Run research"}
+									</button>
+								)}
+							</div>
+						) : !runAllowed ? (
 							<p className="mt-3 text-sm text-gray-600">
 								{consentMissing
 									? "Research is unavailable — AI research consent was not given for this case."
@@ -399,18 +572,43 @@ export function ResearchPanel({
 							/>
 						)
 					) : (
-						<ErrorBox
-							message={apiErrorMessage(research.error)}
-							onRetry={() => void research.refetch()}
-						/>
+						<div className="space-y-3">
+							<ErrorBox
+								message={apiErrorMessage(research.error)}
+								onRetry={() => void research.refetch()}
+							/>
+							{audit.data && audit.data.entries.length > 0 && (
+								<div>
+									<h3 className="text-sm font-semibold">Auto-trigger status</h3>
+									<div className="mt-1">
+										<AuditEntries entries={audit.data.entries} />
+									</div>
+								</div>
+							)}
+							{audit.isError &&
+								!(audit.error instanceof ApiError && audit.error.status === 404) && (
+									<ErrorBox
+										message={apiErrorMessage(audit.error)}
+										onRetry={() => void audit.refetch()}
+									/>
+								)}
+						</div>
 					)}
 					{runError && <ErrorBox message={runError} />}
 				</div>
 			) : status === "queued" || status === "running" ? (
 				<div className="mt-3">
-					<output className="block text-sm text-gray-600">
+					<output className="block text-sm text-gray-600" aria-live="polite">
 						Research {status}… checking cited public sources. This panel updates automatically.
 					</output>
+					{data?.run.trigger === "auto" && (
+						<p className="mt-1 text-xs text-gray-500">
+							<span className="rounded bg-blue-100 px-1.5 py-0.5 font-medium text-blue-800">
+								auto
+							</span>{" "}
+							Started automatically on referral.
+						</p>
+					)}
 				</div>
 			) : status === "failed" ? (
 				<div className="mt-3 space-y-3">
@@ -496,6 +694,54 @@ export function ResearchPanel({
 						run {shortId(data?.run.id ?? "")}
 						{data?.run.observability === "degraded" ? " · observability degraded" : ""}.
 					</p>
+					<p className="text-xs text-gray-500" aria-live="polite">
+						{data?.run.trigger === "auto" ? (
+							<span>
+								<span className="rounded bg-blue-100 px-1.5 py-0.5 font-medium text-blue-800">
+									auto
+								</span>{" "}
+								Started automatically on referral · requested by{" "}
+								{data?.run.requestedByRole ?? "service"}.
+							</span>
+						) : (
+							<span>
+								Started by an officer
+								{data?.run.requestedByRole ? ` · requested by ${data.run.requestedByRole}` : ""}.
+							</span>
+						)}
+					</p>
+					<details
+						onToggle={(e) => {
+							if (e.currentTarget.open) setAuditOpen(true);
+						}}
+					>
+						<summary className="cursor-pointer text-sm text-blue-700 hover:underline">
+							View auto-trigger audit
+						</summary>
+						<div className="mt-2 space-y-2">
+							{audit.isPending || audit.isFetching ? (
+								<p className="text-sm text-gray-600">Loading automatic-research status…</p>
+							) : audit.isError ? (
+								<ErrorBox
+									message={apiErrorMessage(audit.error)}
+									onRetry={() => void audit.refetch()}
+								/>
+							) : (
+								<>
+									<AuditEntries entries={audit.data?.entries ?? []} />
+									<button
+										type="button"
+										onClick={() => void audit.refetch()}
+										disabled={audit.isFetching}
+										aria-label="Refresh automatic-research status"
+										className="text-sm text-blue-700 hover:underline disabled:opacity-50"
+									>
+										{audit.isFetching ? "Refreshing…" : "Refresh status"}
+									</button>
+								</>
+							)}
+						</div>
+					</details>
 					{viewError && (
 						<p className="text-xs text-gray-500">
 							{viewError}{" "}

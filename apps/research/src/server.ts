@@ -3,6 +3,12 @@
 import { createDb } from "@credit/db/research";
 import { createLogger } from "@credit/service-kit";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+	bootRecovery,
+	recoverQueuedRuns,
+	startAutoTrigger,
+	type ConsumerHandle,
+} from "./auto-trigger.js";
 import { createLlmSupportJudge } from "./support.js";
 import { createLlmLanguageRepair } from "./repair.js";
 import { createRealRunner, OPENROUTER_BASE_URL } from "./agent.js";
@@ -25,15 +31,10 @@ const openai = new OpenAI({
 // Same cached instance createApp defaults to: direct repair/judge calls join
 // the run conversation without a second pipeline.
 const observability = getObservability();
-const app = createApp({
-	db,
-	sql,
-	env,
-	logger,
-	runner: createRealRunner({ env, tavily, openai }),
-	judge: createLlmSupportJudge(openai, env.agentModel, { observability }),
-	repair: createLlmLanguageRepair(openai, env.agentModel, { observability }),
-});
+const runner = createRealRunner({ env, tavily, openai });
+const judge = createLlmSupportJudge(openai, env.agentModel, { observability });
+const repair = createLlmLanguageRepair(openai, env.agentModel, { observability });
+const app = createApp({ db, sql, env, logger, runner, judge, repair });
 
 const MAX_BODY_BYTES = 1_000_000;
 
@@ -80,11 +81,16 @@ server.listen(env.port, env.host, () => {
 });
 
 // Crash recovery on boot + periodic sweep; SKIP LOCKED, never touches live runs.
+// Recovery runs BEFORE the reaper: a crash-left queued run starts instead
+// of being failed first (see bootRecovery).
+const execDeps = { db, env, logger, runner, judge, repair, observability };
 try {
-	const ids = await reapStaleRuns(db);
-	if (ids.length > 0) logger.info({ count: ids.length }, "reaped stale runs on boot");
+	const { recovered, reaped } = await bootRecovery(execDeps);
+	if (recovered.length > 0)
+		logger.info({ count: recovered.length }, "recovered queued runs on boot");
+	if (reaped.length > 0) logger.info({ count: reaped.length }, "reaped stale runs on boot");
 } catch (err: unknown) {
-	logger.error({ err }, "boot reaper failed");
+	logger.error({ err }, "boot recovery failed");
 }
 const reaper = setInterval(() => {
 	void (async () => {
@@ -96,12 +102,45 @@ const reaper = setInterval(() => {
 	})();
 }, 30_000);
 reaper.unref();
+const recovery = setInterval(() => {
+	void (async () => {
+		try {
+			await recoverQueuedRuns(execDeps);
+		} catch (err: unknown) {
+			logger.error({ err }, "queued-run recovery failed");
+		}
+	})();
+}, 10_000);
+recovery.unref();
+
+// T11: Kafka auto-trigger starts only when enabled; Kafka down never fails
+// boot (the consumer retries in the background).
+let autoTrigger: ConsumerHandle | null = null;
+if (env.autoTriggerEnabled) {
+	try {
+		autoTrigger = await startAutoTrigger(execDeps);
+		logger.info("auto-trigger consumer starting");
+	} catch (err: unknown) {
+		logger.error({ err }, "auto-trigger consumer failed to start");
+	}
+}
 
 let shuttingDown = false;
 const shutdown = (): void => {
 	if (shuttingDown) return;
 	shuttingDown = true;
 	clearInterval(reaper);
+	clearInterval(recovery);
+	if (autoTrigger) {
+		const stopping = autoTrigger;
+		void (async () => {
+			try {
+				await stopping.stop();
+			} catch (err: unknown) {
+				logger.error({ err }, "auto-trigger stop failed");
+			}
+		})();
+	}
 	server.close(() => void sql.end());
 	setTimeout(() => process.exit(0), 2500).unref();
 };

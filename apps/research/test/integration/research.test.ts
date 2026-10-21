@@ -1,11 +1,24 @@
 // Research-service integration: real credit_research Postgres, fake
 // agent/judge (no model, Tavily, or Grafana network).
 import { randomUUID } from "node:crypto";
-import { agentEvidence, agentFindingReviews, agentFindings, agentRuns } from "@credit/db/research";
+import {
+	agentEvidence,
+	agentFindingReviews,
+	agentFindings,
+	agentRuns,
+	researchAccessGrants,
+	researchAuditLog,
+} from "@credit/db/research";
 import { createLogger } from "@credit/service-kit";
 import { eq, inArray, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { stubAgentRunner, ModelUnavailableError, type AgentResult } from "../../src/agent.js";
+import {
+	stubAgentRunner,
+	AgentTimeoutError,
+	ModelUnavailableError,
+	type AgentResult,
+} from "../../src/agent.js";
+import { checkAutoCaps } from "../../src/auto-trigger.js";
 import { loadEnv } from "../../src/env.js";
 import {
 	claimRun,
@@ -29,12 +42,14 @@ import {
 	teardown,
 	user,
 	type TestContext,
+	type TestUser,
 } from "../helper.js";
+import { claimOfficerAccess } from "../../src/access.js";
 
 async function post(
 	ctx: TestContext,
 	path: string,
-	who: { id: string; email: string; role: "applicant" | "officer" },
+	who: TestUser,
 	payload: unknown,
 ): Promise<Response> {
 	const body = JSON.stringify(payload);
@@ -45,11 +60,7 @@ async function post(
 	});
 }
 
-async function get(
-	ctx: TestContext,
-	path: string,
-	who: { id: string; email: string; role: "applicant" | "officer" },
-): Promise<Response> {
+async function get(ctx: TestContext, path: string, who: TestUser): Promise<Response> {
 	return ctx.app.request(path, { headers: signed(ctx, who, "GET", path) });
 }
 
@@ -102,11 +113,13 @@ interface LatestResponse {
 }
 
 /** Poll latest until the background execution settles. Pass the viewing
- * officer when asserting `viewedAt` — views are per officer. */
+ * officer when asserting `viewedAt` — views are per officer. Reads are
+ * access-checked (T00), so pass an officer with a grant: the one that
+ * ensured, or one granted by service. */
 async function waitLatest(
 	ctx: TestContext,
 	applicationId: string,
-	who: { id: string; email: string; role: "applicant" | "officer" } | null = null,
+	who: TestUser | null = null,
 ): Promise<LatestResponse> {
 	const officer = who ?? user("officer");
 	const deadline = Date.now() + 10_000;
@@ -123,11 +136,11 @@ async function waitLatest(
 async function settledRun(
 	ctx: TestContext,
 	facts: CaseFactsPayload,
-): Promise<{ runId: string; findings: LatestResponse["findings"] }> {
+): Promise<{ runId: string; findings: LatestResponse["findings"]; officer: TestUser }> {
 	const officer = user("officer");
 	await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-	const latest = await waitLatest(ctx, facts.applicationId);
-	return { runId: latest.run.id, findings: latest.findings };
+	const latest = await waitLatest(ctx, facts.applicationId, officer);
+	return { runId: latest.run.id, findings: latest.findings, officer };
 }
 
 describe("POST /internal/research/runs/ensure", () => {
@@ -145,7 +158,7 @@ describe("POST /internal/research/runs/ensure", () => {
 			expect(created.inserted).toBe(true);
 			expect(created.run.status).toBe("queued");
 
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.id).toBe(created.run.id);
 			// The run id doubles as the Grafana conversation id (not PII).
 			expect(latest.run.grafanaConversationId).toBe(created.run.id);
@@ -209,7 +222,7 @@ describe("POST /internal/research/runs/ensure", () => {
 				usage: { inputTokens: 100, outputTokens: 100, toolCalls: 2, searches: 1, extracts: 1 },
 				model: "deepseek/deepseek-v4.1-flash-1017",
 			});
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 		} finally {
 			await teardown(ctx);
@@ -290,7 +303,7 @@ describe("POST /internal/research/runs/ensure", () => {
 			const facts = caseFacts();
 			const res = await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
 			expect(res.status).toBe(202);
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("failed");
 			expect(latest.evidence).toHaveLength(0);
 			expect(latest.findings).toHaveLength(0);
@@ -319,7 +332,7 @@ describe("POST /internal/research/runs/ensure", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.findings).toHaveLength(0);
 			expect(latest.validation?.unsupportedClaims).toBe(2);
@@ -388,7 +401,10 @@ describe("run token + reaper (lifecycle)", () => {
 				run.id,
 				run.runToken as string,
 			);
-			const latest = await waitLatest(ctx, facts.applicationId);
+			// The route was bypassed, so claim directly before reading.
+			const reader = user("officer");
+			await claimOfficerAccess(ctx.db, facts.applicationId, reader.id);
+			const latest = await waitLatest(ctx, facts.applicationId, reader);
 			expect(latest.run.status).toBe("succeeded");
 		} finally {
 			await teardown(ctx);
@@ -443,16 +459,16 @@ describe("app-scoped views, reviews, and bundle", () => {
 	it("latest 404s when no run exists; view dedupes within the minute", async () => {
 		const ctx = setupApp();
 		try {
-			const officer = user("officer");
+			// No grant anywhere: non-disclosure 404, same as a missing run.
 			const missing = await get(
 				ctx,
 				`/internal/research/applications/${randomUUID()}/latest`,
-				officer,
+				user("officer"),
 			);
 			expect(missing.status).toBe(404);
 
 			const facts = caseFacts();
-			const { runId } = await settledRun(ctx, facts);
+			const { runId, officer } = await settledRun(ctx, facts);
 			const viewPath = `/internal/research/applications/${facts.applicationId}/runs/${runId}/view`;
 			const v1 = await post(ctx, viewPath, officer, {});
 			expect(v1.status).toBe(200);
@@ -470,9 +486,8 @@ describe("app-scoped views, reviews, and bundle", () => {
 	it("reviews are append-only; the bundle carries accepted findings only", async () => {
 		const ctx = setupApp();
 		try {
-			const officer = user("officer");
 			const facts = caseFacts();
-			const { runId, findings } = await settledRun(ctx, facts);
+			const { runId, findings, officer } = await settledRun(ctx, facts);
 			expect(findings).toHaveLength(2);
 			const reviewPath = (id: string) =>
 				`/internal/research/applications/${facts.applicationId}/findings/${id}/review`;
@@ -504,7 +519,7 @@ describe("app-scoped views, reviews, and bundle", () => {
 			expect(bundle.bundle.briefHash).toMatch(/^[0-9a-f]{64}$/);
 			// The kept finding carries its exact claim and evidence quotes,
 			// hashed against the frozen brief.
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(bundle.bundle.briefHash).toBe(sha256Hex(JSON.stringify(latest.brief)));
 			expect(bundle.bundle.acceptedFindings).toHaveLength(1);
 			const [kept] = bundle.bundle.acceptedFindings;
@@ -587,12 +602,15 @@ describe("app-scoped views, reviews, and bundle", () => {
 			const env = loadEnv();
 			const facts = caseFacts();
 			// Direct insert: no background execution, run stays queued.
+			// The route bypass is intentional — claim access directly so the
+			// test proves the 409 (not a 404) for a non-succeeded run.
 			const { run } = await ensureRun(ctx.db, env, {
 				applicationId: facts.applicationId,
 				requestedBy: randomUUID(),
 				caseFacts: facts,
 				aiResearchConsent: true,
 			});
+			await claimOfficerAccess(ctx.db, facts.applicationId, officer.id);
 			const [finding] = await ctx.db
 				.insert(agentFindings)
 				.values({
@@ -616,7 +634,6 @@ describe("app-scoped views, reviews, and bundle", () => {
 			await teardown(ctx);
 		}
 	});
-
 	it("a reaped run's old token writes nothing (stale success cannot land)", async () => {
 		const ctx = setupApp();
 		try {
@@ -777,12 +794,12 @@ describe("app-scoped views, reviews, and bundle", () => {
 			// Succeeded run with zero accepted findings: explicit stale, not
 			// a min(1) schema surprise.
 			const settledFacts = caseFacts();
-			const { runId, findings } = await settledRun(ctx, settledFacts);
+			const { runId, findings, officer: owner } = await settledRun(ctx, settledFacts);
 			expect(findings.length).toBeGreaterThan(0);
 			const empty = await get(
 				ctx,
 				`/internal/research/applications/${settledFacts.applicationId}/runs/${runId}/bundle`,
-				officer,
+				owner,
 			);
 			expect(empty.status).toBe(409);
 			const body = (await empty.json()) as { error: { code: string } };
@@ -798,13 +815,18 @@ describe("app-scoped views, reviews, and bundle", () => {
 			const officerA = user("officer");
 			const officerB = user("officer");
 			const facts = caseFacts();
-			const { runId, findings } = await settledRun(ctx, facts);
+			// Officer A ensures (claiming the case), officer B never touches
+			// it: B's reads are cross-officer non-disclosure 404s.
+			await post(ctx, "/internal/research/runs/ensure", officerA, ensurePayload(facts));
+			const latest = await waitLatest(ctx, facts.applicationId, officerA);
+			expect(latest.run.status).toBe("succeeded");
+			const findings = latest.findings;
 			const reviewPath = (id: string) =>
 				`/internal/research/applications/${facts.applicationId}/findings/${id}/review`;
 			await post(ctx, reviewPath(findings[0].id), officerA, { action: "accepted" });
 
-			const viewPath = `/internal/research/applications/${facts.applicationId}/runs/${runId}/view`;
-			const bundlePath = `/internal/research/applications/${facts.applicationId}/runs/${runId}/bundle`;
+			const viewPath = `/internal/research/applications/${facts.applicationId}/runs/${latest.run.id}/view`;
+			const bundlePath = `/internal/research/applications/${facts.applicationId}/runs/${latest.run.id}/bundle`;
 			// Only officer A views.
 			expect((await post(ctx, viewPath, officerA, {})).status).toBe(200);
 
@@ -812,12 +834,12 @@ describe("app-scoped views, reviews, and bundle", () => {
 				bundle: { viewedAt: string | null };
 			};
 			expect(bundleA.bundle.viewedAt).not.toBe(null);
-			// Officer B never viewed: their bundle carries no viewedAt, even
-			// though the run was viewed by someone.
-			const bundleB = (await (await get(ctx, bundlePath, officerB)).json()) as {
-				bundle: { viewedAt: string | null };
-			};
-			expect(bundleB.bundle.viewedAt).toBe(null);
+			// Officer B holds no grant: 404, not an empty viewedAt.
+			expect((await get(ctx, bundlePath, officerB)).status).toBe(404);
+			expect(
+				(await get(ctx, `/internal/research/applications/${facts.applicationId}/latest`, officerB))
+					.status,
+			).toBe(404);
 		} finally {
 			await teardown(ctx);
 		}
@@ -919,7 +941,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.findings).toHaveLength(1);
 			expect(latest.findings[0].claim).toContain("Alpha");
@@ -982,7 +1004,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.findings).toHaveLength(0);
 			expect(latest.brief?.summary).toBe("No supported findings remained after validation.");
@@ -1040,7 +1062,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.evidence).toHaveLength(1);
 			expect(latest.evidence[0].publishedAt).toBe(null);
@@ -1108,7 +1130,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			// One row, not a 23505 on the (run, url, hash) unique key.
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.evidence).toHaveLength(1);
@@ -1182,7 +1204,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.evidence).toHaveLength(1);
 			expect(latest.evidence[0].quote).toBe(quoteA);
@@ -1254,7 +1276,9 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 					second.run.runToken as string,
 				),
 			).resolves.toBeUndefined();
-			const latest = await waitLatest(ctx, facts2.applicationId);
+			const reader = user("officer");
+			await claimOfficerAccess(ctx.db, facts2.applicationId, reader.id);
+			const latest = await waitLatest(ctx, facts2.applicationId, reader);
 			expect(latest.run.status).toBe("failed");
 		} finally {
 			await teardown(ctx);
@@ -1291,8 +1315,146 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 				run.id,
 				run.runToken as string,
 			);
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const reader = user("officer");
+			await claimOfficerAccess(ctx.db, facts.applicationId, reader.id);
+			const latest = await waitLatest(ctx, facts.applicationId, reader);
 			expect(latest.run.status).toBe("failed");
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("a real failing run persists partial usage that counts against the auto cap", async () => {
+		const ctx = setupApp();
+		try {
+			const env = loadEnv();
+			const use = successFixture();
+			const facts = caseFacts();
+			const applicantUserId = randomUUID();
+			const { run } = await ensureRun(ctx.db, env, {
+				applicationId: facts.applicationId,
+				requestedBy: randomUUID(),
+				requestedByRole: "service",
+				trigger: "auto",
+				triggerEventId: randomUUID(),
+				applicantUserId,
+				caseFacts: facts,
+				aiResearchConsent: true,
+			});
+			// Zero budget trips the end-to-end cap after real agent + judge
+			// work: the failure row must carry that spend, not empty usage.
+			await executeRun(
+				{
+					db: ctx.db,
+					env: { ...env, maxCostUsd: 0 },
+					logger: testLogger,
+					runner: stubAgentRunner({ brief: use.brief, fetched: use.fetched }),
+					judge: stubSupportJudge(),
+					repair: stubLanguageRepair(),
+					observability: {
+						status: "degraded",
+						hooksFor: () => ({ detach: () => {} }),
+						trackModelCall: (_opts, fn) => fn(),
+						trackToolExecution: (_opts, fn) => fn(),
+					},
+				},
+				run.id,
+				run.runToken as string,
+			);
+			const after = await getRun(ctx.db, run.id);
+			expect(after?.status).toBe("failed");
+			const usage = after?.usage as Record<string, number>;
+			expect(usage.inputTokens).toBeGreaterThan(0);
+			expect(usage.costUsd).toBeGreaterThan(0);
+			// The failed spend counts: a budget at today's total is exhausted.
+			const spend = (await ctx.db.execute(
+				sql`SELECT coalesce(sum(CASE WHEN usage->>'costUsd' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (usage->>'costUsd')::double precision ELSE 0 END), 0)::float8 AS total FROM agent_runs WHERE trigger = 'auto' AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`,
+			)) as unknown as Array<{ total: number }>;
+			const total = spend[0]?.total ?? 0;
+			expect(total).toBeGreaterThanOrEqual(usage.costUsd);
+			expect(
+				await checkAutoCaps(
+					ctx.db,
+					{
+						...env,
+						autoTriggerMaxRunsPerApplicantDay: 1000,
+						autoTriggerMaxRunsPerDay: 100_000,
+						autoTriggerDailyCostBudgetUsd: total,
+					},
+					randomUUID(),
+				),
+			).toEqual({ ok: false, reason: "daily_cost_budget" });
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("a runner-thrown failure persists a conservative cost against the auto cap", async () => {
+		const ctx = setupApp();
+		try {
+			const env = loadEnv();
+			// Hermetic floor: a timeout before any usage persists maxCostUsd.
+			const floorEnv = { ...env, maxCostUsd: 0.15 };
+			const facts = caseFacts();
+			const applicantUserId = randomUUID();
+			const { run } = await ensureRun(ctx.db, env, {
+				applicationId: facts.applicationId,
+				requestedBy: randomUUID(),
+				requestedByRole: "service",
+				trigger: "auto",
+				triggerEventId: randomUUID(),
+				applicantUserId,
+				caseFacts: facts,
+				aiResearchConsent: true,
+			});
+			// The runner throws before returning any usage (timeout): the
+			// failure row must carry the conservative floor, not zero, so
+			// the auto daily budget counts the failed work.
+			await executeRun(
+				{
+					db: ctx.db,
+					env: floorEnv,
+					logger: testLogger,
+					runner: stubAgentRunner({
+						brief: null,
+						fetched: [],
+						throw: new AgentTimeoutError("agent wall clock exceeded"),
+					}),
+					judge: stubSupportJudge(),
+					repair: stubLanguageRepair(),
+					observability: {
+						status: "degraded",
+						hooksFor: () => ({ detach: () => {} }),
+						trackModelCall: (_opts, fn) => fn(),
+						trackToolExecution: (_opts, fn) => fn(),
+					},
+				},
+				run.id,
+				run.runToken as string,
+			);
+			const after = await getRun(ctx.db, run.id);
+			expect(after?.status).toBe("failed");
+			expect(after?.errorCode).toBe("timeout");
+			const usage = after?.usage as Record<string, number>;
+			expect(usage.costUsd).toBe(0.15);
+			// The failed spend counts: a budget at today's total is exhausted.
+			const spend = (await ctx.db.execute(
+				sql`SELECT coalesce(sum(CASE WHEN usage->>'costUsd' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (usage->>'costUsd')::double precision ELSE 0 END), 0)::float8 AS total FROM agent_runs WHERE trigger = 'auto' AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`,
+			)) as unknown as Array<{ total: number }>;
+			const total = spend[0]?.total ?? 0;
+			expect(total).toBeGreaterThanOrEqual(usage.costUsd);
+			expect(
+				await checkAutoCaps(
+					ctx.db,
+					{
+						...env,
+						autoTriggerMaxRunsPerApplicantDay: 1000,
+						autoTriggerMaxRunsPerDay: 100_000,
+						autoTriggerDailyCostBudgetUsd: total,
+					},
+					randomUUID(),
+				),
+			).toEqual({ ok: false, reason: "daily_cost_budget" });
 		} finally {
 			await teardown(ctx);
 		}
@@ -1301,9 +1463,8 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 	it("collapses concurrent first views to one row", async () => {
 		const ctx = setupApp();
 		try {
-			const officer = user("officer");
 			const facts = caseFacts();
-			const { runId } = await settledRun(ctx, facts);
+			const { runId, officer } = await settledRun(ctx, facts);
 			const viewPath = `/internal/research/applications/${facts.applicationId}/runs/${runId}/view`;
 			const results = await Promise.all(
 				Array.from({ length: 5 }, () => post(ctx, viewPath, officer, {})),
@@ -1372,7 +1533,7 @@ describe("language repair (Wave 5)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			// Exactly one repair call; usage counts toward the run budget.
 			expect(repair.calls).toBe(1);
@@ -1405,7 +1566,7 @@ describe("language repair (Wave 5)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("failed");
 			expect(latest.run.errorCode).toBe("validation_failed");
 			expect(repair.calls).toBe(1);
@@ -1473,7 +1634,7 @@ describe("language repair (Wave 5)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("failed");
 			expect(latest.run.errorCode).toBe("validation_failed");
 			expect(repair.calls).toBe(1);
@@ -1517,7 +1678,7 @@ describe("run conversation threading (Wave 7)", () => {
 			const facts = caseFacts();
 			const res = await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
 			const created = (await res.json()) as { run: { id: string } };
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			// Every direct model call joins the run conversation: same id throughout.
 			expect(judgeRunIds.length).toBeGreaterThan(0);
@@ -1579,7 +1740,7 @@ describe("correctness boundaries (Wave A)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.evidence).toHaveLength(0);
 			expect(latest.findings).toHaveLength(0);
@@ -1605,7 +1766,7 @@ describe("correctness boundaries (Wave A)", () => {
 				const officer = user("officer");
 				const facts = caseFacts();
 				await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-				const latest = await waitLatest(ctx, facts.applicationId);
+				const latest = await waitLatest(ctx, facts.applicationId, officer);
 				expect(latest.run.status).toBe("failed");
 				expect(latest.run.errorCode).toBe(code);
 			} finally {
@@ -1655,7 +1816,7 @@ describe("correctness boundaries (Wave A)", () => {
 				applicantName: "John Smith",
 			});
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.findings).toHaveLength(0);
 			expect(latest.validation?.discarded[0].reason).toMatch(/name_only/);
@@ -1706,7 +1867,7 @@ describe("correctness boundaries (Wave A)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.findings).toHaveLength(1);
 			const rows = await ctx.db
@@ -1725,7 +1886,6 @@ describe("correctness boundaries (Wave A)", () => {
 			await teardown(ctx);
 		}
 	});
-
 	it("drops a finding whose judge claims supported without a span", async () => {
 		const use = successFixture();
 		const spanless: SupportJudge = async () => ({ verdict: "supported", span: null });
@@ -1734,7 +1894,7 @@ describe("correctness boundaries (Wave A)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.findings).toHaveLength(0);
 			expect(latest.validation?.unsupportedClaims).toBe(2);
@@ -1794,7 +1954,7 @@ describe("correctness boundaries (Wave A)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.evidence).toHaveLength(1);
 			expect(latest.findings).toHaveLength(1);
@@ -1855,7 +2015,7 @@ describe("correctness boundaries (Wave A)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(latest.evidence).toHaveLength(0);
 			expect(latest.findings).toHaveLength(0);
@@ -1884,7 +2044,7 @@ describe("correctness boundaries (Wave A)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			// Summary/findings are clean: no repair call is spent on
 			// droppable non-findings.
@@ -1916,11 +2076,511 @@ describe("correctness boundaries (Wave A)", () => {
 			const officer = user("officer");
 			const facts = caseFacts();
 			await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
-			const latest = await waitLatest(ctx, facts.applicationId);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
 			expect(latest.run.status).toBe("succeeded");
 			expect(repair.calls).toBe(0);
 			expect(latest.findings).toHaveLength(2);
 			expect(JSON.stringify(latest.brief)).not.toMatch(/loan terms|approve/);
+		} finally {
+			await teardown(ctx);
+		}
+	});
+});
+
+describe("T00 sensitive research access control and audit", () => {
+	it("ensure claims access idempotently; concurrent first claims collapse to one grant", async () => {
+		const ctx = setupApp();
+		try {
+			const officer = user("officer");
+			const facts = caseFacts();
+			const first = await post(
+				ctx,
+				"/internal/research/runs/ensure",
+				officer,
+				ensurePayload(facts),
+			);
+			expect(first.status).toBe(202);
+			const second = await post(
+				ctx,
+				"/internal/research/runs/ensure",
+				officer,
+				ensurePayload(facts),
+			);
+			expect(second.status).toBe(202);
+			const grants = await ctx.db
+				.select()
+				.from(researchAccessGrants)
+				.where(eq(researchAccessGrants.applicationId, facts.applicationId));
+			const active = grants.filter((g) => g.revokedAt === null);
+			expect(active).toHaveLength(1);
+			expect(active[0]?.userId).toBe(officer.id);
+			expect(active[0]?.accessRole).toBe("assigned_officer");
+			expect(active[0]?.grantedBy).toBe(officer.id);
+
+			// Concurrent first claims on a fresh case serialize on the
+			// advisory lock: exactly one wins, no duplicate rows.
+			const fresh = caseFacts();
+			const outcomes = await Promise.all(
+				Array.from({ length: 5 }, () =>
+					claimOfficerAccess(ctx.db, fresh.applicationId, officer.id),
+				),
+			);
+			expect(outcomes.filter((o) => o.claimed)).toHaveLength(1);
+			const freshGrants = await ctx.db
+				.select({ id: researchAccessGrants.id })
+				.from(researchAccessGrants)
+				.where(eq(researchAccessGrants.applicationId, fresh.applicationId));
+			expect(freshGrants).toHaveLength(1);
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("a second officer gets 404 on ensure/latest/view/finding/bundle; applicants get 403", async () => {
+		const ctx = setupApp();
+		try {
+			const facts = caseFacts();
+			const { runId, findings, officer } = await settledRun(ctx, facts);
+			const other = user("officer");
+
+			const ensure = await post(ctx, "/internal/research/runs/ensure", other, ensurePayload(facts));
+			expect(ensure.status).toBe(404);
+			expect(
+				(await get(ctx, `/internal/research/applications/${facts.applicationId}/latest`, other))
+					.status,
+			).toBe(404);
+			expect(
+				(
+					await post(
+						ctx,
+						`/internal/research/applications/${facts.applicationId}/runs/${runId}/view`,
+						other,
+						{},
+					)
+				).status,
+			).toBe(404);
+			expect(
+				(
+					await post(
+						ctx,
+						`/internal/research/applications/${facts.applicationId}/findings/${findings[0].id}/review`,
+						other,
+						{ action: "accepted" },
+					)
+				).status,
+			).toBe(404);
+			expect(
+				(
+					await get(
+						ctx,
+						`/internal/research/applications/${facts.applicationId}/runs/${runId}/bundle`,
+						other,
+					)
+				).status,
+			).toBe(404);
+
+			// Role denial stays 403 (checked before access), never 404.
+			expect(
+				(await get(ctx, `/internal/research/applications/${facts.applicationId}/latest`, APPLICANT))
+					.status,
+			).toBe(403);
+			// The owning officer is unaffected by the denial.
+			expect(
+				(await get(ctx, `/internal/research/applications/${facts.applicationId}/latest`, officer))
+					.status,
+			).toBe(200);
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("service grants/revokes across the role matrix; officer/applicant get 403", async () => {
+		const ctx = setupApp();
+		try {
+			const service = user("service");
+			const officer = user("officer");
+			const applicant = user("applicant");
+			const facts = caseFacts();
+			const { officer: owner } = await settledRun(ctx, facts);
+			const grantPath = `/internal/research/applications/${facts.applicationId}/access/grants`;
+			const revokePath = `/internal/research/applications/${facts.applicationId}/access/revoke`;
+
+			// Unsigned service calls are 401, like every internal route.
+			const unsigned = await ctx.app.request(grantPath, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ userId: officer.id, accessRole: "compliance" }),
+			});
+			expect(unsigned.status).toBe(401);
+
+			// Officers and applicants cannot manage access.
+			for (const who of [owner, officer, applicant]) {
+				const denied = await post(ctx, grantPath, who, {
+					userId: officer.id,
+					accessRole: "compliance",
+				});
+				expect(denied.status).toBe(403);
+				const deniedRevoke = await post(ctx, revokePath, who, { userId: officer.id });
+				expect(deniedRevoke.status).toBe(403);
+			}
+
+			// Strict body: unknown roles and bad ids are 422, bad app ids 404.
+			for (const body of [
+				{ userId: officer.id, accessRole: "super_officer" },
+				{ userId: "not-a-uuid", accessRole: "compliance" },
+				{ accessRole: "compliance" },
+				{},
+			]) {
+				expect((await post(ctx, grantPath, service, body)).status).toBe(422);
+			}
+			expect(
+				(
+					await post(ctx, `/internal/research/applications/not-a-uuid/access/grants`, service, {
+						userId: officer.id,
+						accessRole: "compliance",
+					})
+				).status,
+			).toBe(404);
+
+			// Every matrix role grants read access.
+			const holders = new Map<string, TestUser>();
+			for (const accessRole of [
+				"assigned_officer",
+				"compliance",
+				"policy_owner",
+				"safeguarding",
+			] as const) {
+				const holder = user("officer");
+				holders.set(accessRole, holder);
+				const granted = await post(ctx, grantPath, service, {
+					userId: holder.id,
+					accessRole,
+				});
+				expect(granted.status).toBe(201);
+				const body = (await granted.json()) as {
+					grant: { userId: string; accessRole: string; revokedAt: null };
+				};
+				expect(body.grant.userId).toBe(holder.id);
+				expect(body.grant.accessRole).toBe(accessRole);
+				expect(
+					(await get(ctx, `/internal/research/applications/${facts.applicationId}/latest`, holder))
+						.status,
+				).toBe(200);
+			}
+
+			// Revoke removes access; revoking again (or a stranger) is 404.
+			const compliance = holders.get("compliance") as TestUser;
+			expect((await post(ctx, revokePath, service, { userId: compliance.id })).status).toBe(200);
+			expect(
+				(
+					await get(
+						ctx,
+						`/internal/research/applications/${facts.applicationId}/latest`,
+						compliance,
+					)
+				).status,
+			).toBe(404);
+			expect((await post(ctx, revokePath, service, { userId: compliance.id })).status).toBe(404);
+			expect((await post(ctx, revokePath, service, { userId: randomUUID() })).status).toBe(404);
+
+			// A revoked holder may be granted again.
+			expect(
+				(await post(ctx, grantPath, service, { userId: compliance.id, accessRole: "compliance" }))
+					.status,
+			).toBe(201);
+			expect(
+				(
+					await get(
+						ctx,
+						`/internal/research/applications/${facts.applicationId}/latest`,
+						compliance,
+					)
+				).status,
+			).toBe(200);
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("every read/write appends audit rows with ids and codes, never PII", async () => {
+		const ctx = setupApp();
+		try {
+			const service = user("service");
+			const facts = caseFacts();
+			const { runId, findings, officer } = await settledRun(ctx, facts);
+			const appPath = `/internal/research/applications/${facts.applicationId}`;
+			await get(ctx, `${appPath}/latest`, officer);
+			await post(ctx, `${appPath}/runs/${runId}/view`, officer, {});
+			await post(ctx, `${appPath}/findings/${findings[0].id}/review`, officer, {
+				action: "accepted",
+			});
+			await get(ctx, `${appPath}/runs/${runId}/bundle`, officer);
+			// A denied cross-officer probe is audited too.
+			const probe = await get(ctx, `${appPath}/latest`, user("officer"));
+			expect(probe.status).toBe(404);
+			// A service grant/revoke round-trip is audited.
+			const specialist = user("officer");
+			await post(ctx, `${appPath}/access/grants`, service, {
+				userId: specialist.id,
+				accessRole: "safeguarding",
+			});
+			await post(ctx, `${appPath}/access/revoke`, service, { userId: specialist.id });
+
+			const rows = await ctx.db
+				.select()
+				.from(researchAuditLog)
+				.where(eq(researchAuditLog.applicationId, facts.applicationId));
+			const actions = rows.map((r) => r.action);
+			for (const expected of [
+				"access.claim",
+				"run.ensure",
+				"run.read",
+				"run.view",
+				"finding.review",
+				"bundle.read",
+				"access.denied",
+				"access.grant",
+				"access.revoke",
+			]) {
+				expect(actions).toContain(expected);
+			}
+			// Append-only: more reads only add rows, and run-scoped reads
+			// carry the run id.
+			expect(rows.length).toBeGreaterThanOrEqual(9);
+			expect(rows.filter((r) => r.runId === runId).map((r) => r.action)).toContain("bundle.read");
+			const dump = JSON.stringify(rows);
+			for (const pii of [
+				"Jane Doe",
+				"Acme Ltd",
+				"Leeds",
+				"filed accounts",
+				"officer@example.com",
+				"applicant@example.com",
+			]) {
+				expect(dump).not.toContain(pii);
+			}
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("a revoked officer cannot self-claim; only a service re-grant restores access", async () => {
+		const ctx = setupApp();
+		try {
+			const service = user("service");
+			const facts = caseFacts();
+			const { officer } = await settledRun(ctx, facts);
+			const appPath = `/internal/research/applications/${facts.applicationId}`;
+
+			expect(
+				(await post(ctx, `${appPath}/access/revoke`, service, { userId: officer.id })).status,
+			).toBe(200);
+
+			// Self-claim is denied (audited), not re-inserted.
+			expect(
+				(await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts))).status,
+			).toBe(404);
+			expect((await get(ctx, `${appPath}/latest`, officer)).status).toBe(404);
+			const denials = (
+				await ctx.db
+					.select()
+					.from(researchAuditLog)
+					.where(eq(researchAuditLog.applicationId, facts.applicationId))
+			).filter((r) => r.action === "access.denied" && r.actorId === officer.id);
+			expect(denials.length).toBeGreaterThanOrEqual(1);
+			const grants = await ctx.db
+				.select()
+				.from(researchAccessGrants)
+				.where(eq(researchAccessGrants.applicationId, facts.applicationId));
+			expect(grants.filter((g) => g.revokedAt === null)).toHaveLength(0);
+
+			// Only the service grant path restores access.
+			expect(
+				(
+					await post(ctx, `${appPath}/access/grants`, service, {
+						userId: officer.id,
+						accessRole: "assigned_officer",
+					})
+				).status,
+			).toBe(201);
+			expect((await get(ctx, `${appPath}/latest`, officer)).status).toBe(200);
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("specialist grants are additive: a grant before first claim never blocks the officer", async () => {
+		const ctx = setupApp();
+		try {
+			const service = user("service");
+			const specialist = user("officer");
+			const facts = caseFacts();
+			const appPath = `/internal/research/applications/${facts.applicationId}`;
+
+			// Specialist grant lands before any officer has claimed the case.
+			expect(
+				(
+					await post(ctx, `${appPath}/access/grants`, service, {
+						userId: specialist.id,
+						accessRole: "compliance",
+					})
+				).status,
+			).toBe(201);
+
+			// A specialist-only holder cannot ensure: denied (audited 404),
+			// grant unchanged, no officer row inserted.
+			await expect(
+				claimOfficerAccess(ctx.db, facts.applicationId, specialist.id),
+			).rejects.toMatchObject({ status: 404 });
+			const earlyGrants = await ctx.db
+				.select()
+				.from(researchAccessGrants)
+				.where(eq(researchAccessGrants.applicationId, facts.applicationId));
+			const earlyLive = earlyGrants.filter((g) => g.revokedAt === null);
+			expect(earlyLive).toHaveLength(1);
+			expect(earlyLive[0]?.userId).toBe(specialist.id);
+			expect(earlyLive[0]?.accessRole).toBe("compliance");
+
+			// The first officer still claims the case (not a 404): a
+			// specialist-only grant never makes it unclaimable.
+			const officer = user("officer");
+			const ensured = await post(
+				ctx,
+				"/internal/research/runs/ensure",
+				officer,
+				ensurePayload(facts),
+			);
+			expect(ensured.status).toBe(202);
+			expect(((await ensured.json()) as { inserted: boolean }).inserted).toBe(true);
+
+			// Both the owner and the specialist read; a stranger gets 404.
+			expect((await get(ctx, `${appPath}/latest`, officer)).status).toBe(200);
+			expect((await get(ctx, `${appPath}/latest`, specialist)).status).toBe(200);
+			expect((await get(ctx, `${appPath}/latest`, user("officer"))).status).toBe(404);
+
+			// Once the officer owns the case, the specialist's own claim is
+			// still denied (audited 404, no officer row, no conversion) —
+			// while their specialist grant keeps working for reads.
+			await expect(
+				claimOfficerAccess(ctx.db, facts.applicationId, specialist.id),
+			).rejects.toMatchObject({ status: 404 });
+			expect((await get(ctx, `${appPath}/latest`, specialist)).status).toBe(200);
+			const grants = await ctx.db
+				.select()
+				.from(researchAccessGrants)
+				.where(eq(researchAccessGrants.applicationId, facts.applicationId));
+			const live = grants.filter((g) => g.revokedAt === null);
+			expect(live).toHaveLength(2);
+			expect(live.find((g) => g.userId === specialist.id)?.accessRole).toBe("compliance");
+			expect(live.find((g) => g.userId === officer.id)?.accessRole).toBe("assigned_officer");
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("specialists cannot ensure: 404 with an audited denial, owner and co-owner unaffected", async () => {
+		const ctx = setupApp();
+		try {
+			const service = user("service");
+			const facts = caseFacts();
+			const { officer } = await settledRun(ctx, facts);
+			const appPath = `/internal/research/applications/${facts.applicationId}`;
+
+			// Every specialist role is denied on ensure — only an active
+			// `assigned_officer` grant authorizes it.
+			for (const accessRole of ["compliance", "policy_owner", "safeguarding"] as const) {
+				const specialist = user("officer");
+				expect(
+					(
+						await post(ctx, `${appPath}/access/grants`, service, {
+							userId: specialist.id,
+							accessRole,
+						})
+					).status,
+				).toBe(201);
+				expect(
+					(await post(ctx, "/internal/research/runs/ensure", specialist, ensurePayload(facts)))
+						.status,
+				).toBe(404);
+				// The denial is audited; the specialist grant is unchanged
+				// (no officer row, no conversion, no revocation).
+				const denials = (
+					await ctx.db
+						.select()
+						.from(researchAuditLog)
+						.where(eq(researchAuditLog.applicationId, facts.applicationId))
+				).filter((r) => r.action === "access.denied" && r.actorId === specialist.id);
+				expect(denials.length).toBeGreaterThanOrEqual(1);
+				const grants = await ctx.db
+					.select()
+					.from(researchAccessGrants)
+					.where(eq(researchAccessGrants.applicationId, facts.applicationId));
+				expect(
+					grants
+						.filter((g) => g.userId === specialist.id && g.revokedAt === null)
+						.map((g) => g.accessRole),
+				).toEqual([accessRole]);
+				// Reads still pass for the denied specialist.
+				expect((await get(ctx, `${appPath}/latest`, specialist)).status).toBe(200);
+			}
+
+			// The owner re-ensures idempotently; a service-granted co-owner
+			// (second active `assigned_officer`) ensures too — never blocked
+			// by the first.
+			expect(
+				(await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts))).status,
+			).toBe(202);
+			const coOwner = user("officer");
+			expect(
+				(
+					await post(ctx, `${appPath}/access/grants`, service, {
+						userId: coOwner.id,
+						accessRole: "assigned_officer",
+					})
+				).status,
+			).toBe(201);
+			expect(
+				(await post(ctx, "/internal/research/runs/ensure", coOwner, ensurePayload(facts))).status,
+			).toBe(202);
+			expect((await get(ctx, `${appPath}/latest`, coOwner)).status).toBe(200);
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("specialists keep read access across latest/view/bundle/audit", async () => {
+		const ctx = setupApp();
+		try {
+			const service = user("service");
+			const facts = caseFacts();
+			const { runId, findings, officer } = await settledRun(ctx, facts);
+			const appPath = `/internal/research/applications/${facts.applicationId}`;
+			// Owner accepts one finding so a bundle exists.
+			expect(
+				(
+					await post(ctx, `${appPath}/findings/${findings[0].id}/review`, officer, {
+						action: "accepted",
+					})
+				).status,
+			).toBe(201);
+
+			const specialist = user("officer");
+			expect(
+				(
+					await post(ctx, `${appPath}/access/grants`, service, {
+						userId: specialist.id,
+						accessRole: "compliance",
+					})
+				).status,
+			).toBe(201);
+
+			expect((await get(ctx, `${appPath}/latest`, specialist)).status).toBe(200);
+			expect((await post(ctx, `${appPath}/runs/${runId}/view`, specialist, {})).status).toBe(200);
+			expect((await get(ctx, `${appPath}/runs/${runId}/bundle`, specialist)).status).toBe(200);
+			// No auto history on this case: empty entries, no claim, still 200.
+			const audit = await get(ctx, `${appPath}/audit`, specialist);
+			expect(audit.status).toBe(200);
+			expect(await audit.json()).toEqual({ applicationId: facts.applicationId, entries: [] });
 		} finally {
 			await teardown(ctx);
 		}

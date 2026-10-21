@@ -9,8 +9,13 @@ import {
 	scores,
 	type Db,
 } from "@credit/db/applications";
-import { HttpError, type ServiceApp, type ServiceVariables } from "@credit/service-kit";
-import { caseFactsSchema } from "@credit/core";
+import {
+	HttpError,
+	requireService,
+	type ServiceApp,
+	type ServiceVariables,
+} from "@credit/service-kit";
+import { caseFactsSchema, type CaseFacts } from "@credit/core";
 import { asc, count, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
@@ -29,6 +34,42 @@ const officer = createMiddleware<{ Variables: ServiceVariables }>(async (c, next
 	if (me.role !== "officer") throw new HttpError(403, "FORBIDDEN", "officer role required");
 	await next();
 });
+
+// Single 16-key schema shared by the officer case-facts route and the
+// service research-context route. Fail typed (no PII, no raw ZodError 500)
+// on legacy/corrupt rows.
+function buildCaseFacts(row: typeof applications.$inferSelect): CaseFacts {
+	const identity = row.identity as { fullName?: string; city?: string };
+	const business = row.business as {
+		companyName?: string;
+		registrationNumber?: string;
+		industry?: string;
+		yearsTrading?: number;
+	} | null;
+	const submittedAt = row.submittedAt.toISOString();
+	const parsed = caseFactsSchema.safeParse({
+		applicationId: row.id,
+		reference: row.reference,
+		type: row.type,
+		product: row.product,
+		amountCents: row.amountCents,
+		termMonths: row.termMonths,
+		submittedAt,
+		asOf: submittedAt,
+		applicantName: identity.fullName ?? "",
+		companyName: business?.companyName ?? null,
+		registrationNumber: business?.registrationNumber ?? null,
+		industry: business?.industry ?? null,
+		yearsTrading: business?.yearsTrading ?? null,
+		city: identity.city ?? null,
+		aiResearchConsent: row.aiResearchConsent,
+		status: row.status,
+	});
+	if (!parsed.success) {
+		throw new HttpError(502, "CASE_FACTS_INVALID", "case facts are unavailable");
+	}
+	return parsed.data;
+}
 
 export function internalRoutes(deps: InternalRouteDeps): ServiceApp {
 	const app: ServiceApp = new Hono();
@@ -116,38 +157,20 @@ export function internalRoutes(deps: InternalRouteDeps): ServiceApp {
 		const rows = await db.select().from(applications).where(eq(applications.id, id));
 		const row = rows[0];
 		if (!row) throw new HttpError(404, "NOT_FOUND", "not found");
-		const identity = row.identity as { fullName?: string; city?: string };
-		const business = row.business as {
-			companyName?: string;
-			registrationNumber?: string;
-			industry?: string;
-			yearsTrading?: number;
-		} | null;
-		const submittedAt = row.submittedAt.toISOString();
-		// Single 16-key schema: the public response shape lives in core.
-		// Fail typed (no PII, no raw ZodError 500) on legacy/corrupt rows.
-		const parsed = caseFactsSchema.safeParse({
-			applicationId: row.id,
-			reference: row.reference,
-			type: row.type,
-			product: row.product,
-			amountCents: row.amountCents,
-			termMonths: row.termMonths,
-			submittedAt,
-			asOf: submittedAt,
-			applicantName: identity.fullName ?? "",
-			companyName: business?.companyName ?? null,
-			registrationNumber: business?.registrationNumber ?? null,
-			industry: business?.industry ?? null,
-			yearsTrading: business?.yearsTrading ?? null,
-			city: identity.city ?? null,
-			aiResearchConsent: row.aiResearchConsent,
-			status: row.status,
-		});
-		if (!parsed.success) {
-			throw new HttpError(502, "CASE_FACTS_INVALID", "case facts are unavailable");
-		}
-		return c.json(parsed.data);
+		return c.json(buildCaseFacts(row));
+	});
+
+	// T00 service-only research context (future auto-trigger principal).
+	// Same 16-key case facts plus the internal applicant user id, so the
+	// service can scope work without a second lookup. `applicantUserId` is
+	// internal routing data: it must never enter the agent prompt or trace.
+	app.get("/internal/applications/:id/research-context", requireService, async (c) => {
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		const rows = await db.select().from(applications).where(eq(applications.id, id));
+		const row = rows[0];
+		if (!row) throw new HttpError(404, "NOT_FOUND", "not found");
+		return c.json({ caseFacts: buildCaseFacts(row), applicantUserId: row.applicantUserId });
 	});
 
 	// Dashboard counts for the portfolio service (FR-9.2): application

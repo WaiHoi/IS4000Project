@@ -47,6 +47,10 @@ export interface ResearchStub {
 	activeRuns: Map<string, { runId: string; status: string }>;
 	/** Latest aggregate by application id (absent → 404). */
 	aggregates: Map<string, unknown>;
+	/** Auto-trigger audit entries by application id (absent → the real
+	 * contract: 200 empty when no run exists for the app, 404 when a run
+	 * exists that the caller cannot see). */
+	audits: Map<string, unknown>;
 	/** Run metadata by run id (scoping + status checks). */
 	runs: Map<string, { applicationId: string; status: string }>;
 	/** Frozen bundles by run id (absent on a succeeded run → 404). */
@@ -121,6 +125,7 @@ export function setupApp(opts: SetupOptions = {}): TestContext {
 		caseFactsMissing: new Set(),
 		activeRuns: new Map(),
 		aggregates: new Map(),
+		audits: new Map(),
 		runs: new Map(),
 		bundles: new Map(),
 		findings: new Map(),
@@ -185,6 +190,21 @@ export function setupApp(opts: SetupOptions = {}): TestContext {
 				return aggregate === undefined
 					? jsonResponse(404, { error: { code: "NOT_FOUND", message: "no research run" } })
 					: jsonResponse(200, aggregate);
+			}
+			match = path.match(/^\/internal\/research\/applications\/([^/]+)\/audit$/);
+			if (match && method === "GET") {
+				const appId = match[1];
+				const entries = research.audits.get(appId);
+				if (entries !== undefined) {
+					return jsonResponse(200, { applicationId: appId, entries });
+				}
+				// Real research contract with no auto history: no run at
+				// all → 200 empty (no claim); a run the caller cannot see →
+				// audited 404.
+				const hasRun = [...research.runs.values()].some((r) => r.applicationId === appId);
+				return hasRun
+					? jsonResponse(404, { error: { code: "NOT_FOUND", message: "not found" } })
+					: jsonResponse(200, { applicationId: appId, entries: [] });
 			}
 			match = path.match(/^\/internal\/research\/applications\/([^/]+)\/runs\/([^/]+)\/view$/);
 			if (match && method === "POST") {

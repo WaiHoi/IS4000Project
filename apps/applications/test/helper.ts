@@ -19,7 +19,7 @@ process.env.LOG_LEVEL ??= "silent";
 export interface TestUser {
 	id: string;
 	email: string;
-	role: "applicant" | "officer";
+	role: "applicant" | "officer" | "service";
 }
 
 export interface TestContext {
@@ -48,7 +48,7 @@ export function setupApp(): TestContext {
 // uuid — no users table here), so test users are synthetic.
 export async function createUser(
 	_ctx: TestContext,
-	role: "applicant" | "officer" = "applicant",
+	role: "applicant" | "officer" | "service" = "applicant",
 ): Promise<TestUser> {
 	const email = `svc-${randomUUID()}@example.com`;
 	return { id: randomUUID(), email, role };

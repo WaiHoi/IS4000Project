@@ -28,7 +28,7 @@ export function isValidRequestId(value: string): boolean {
 	return UUID_RE.test(value) || TOKEN_RE.test(value);
 }
 
-export type InternalRole = "applicant" | "officer";
+export type InternalRole = "applicant" | "officer" | "service";
 
 export interface InternalUser {
 	id: string;
@@ -159,7 +159,8 @@ export function resolveInternalUser(
 ): InternalUser | null {
 	if (!input.userId || !input.signature || !input.requestId || !input.bodyHash) return null;
 	if (!isValidRequestId(input.requestId)) return null;
-	if (input.role !== "applicant" && input.role !== "officer") return null;
+	if (input.role !== "applicant" && input.role !== "officer" && input.role !== "service")
+		return null;
 	const ts = Number(input.ts);
 	if (!Number.isFinite(ts) || Math.abs(now - ts) > CLOCK_SKEW_MS) return null;
 	const expected = signature(
@@ -178,9 +179,19 @@ export function resolveInternalUser(
 	const a = Buffer.from(input.signature, "utf8");
 	const b = Buffer.from(expected, "utf8");
 	if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-	return { id: input.userId, email: input.email, role: input.role };
+	return { id: input.userId, email: input.email, role: input.role as InternalRole };
 }
 
+/** Guards routes only automation may call (T00 service grants,
+ * research-context). Unsigned callers 401 upstream in `requireInternal`;
+ * here any valid signature without the service role is 403. Officer and
+ * applicant behavior is unchanged — they are rejected, never accepted. */
+export const requireService = createMiddleware<{ Variables: ServiceVariables }>(async (c, next) => {
+	const me = c.var.user;
+	if (!me) throw new HttpError(401, "UNAUTHENTICATED", "login required");
+	if (me.role !== "service") throw new HttpError(403, "FORBIDDEN", "service role required");
+	await next();
+});
 /** Guards `/api/*` + `/internal/*`; exports the resolved user on context. */
 export const requireInternal = (secret: string) =>
 	createMiddleware<{ Variables: ServiceVariables }>(async (c, next) => {

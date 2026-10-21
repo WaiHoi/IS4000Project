@@ -28,7 +28,10 @@ export const agentRunStatus = pgEnum("agent_run_status", [
 	"succeeded",
 	"failed",
 ]);
-export const agentTrigger = pgEnum("agent_trigger", ["officer"]);
+export const agentTrigger = pgEnum("agent_trigger", ["officer", "auto"]);
+// T11: who requested the run. Auto runs are requested by the service
+// principal, never a minted officer identity.
+export const agentRequestedByRole = pgEnum("agent_requested_by_role", ["officer", "service"]);
 export const agentObservability = pgEnum("agent_observability", ["ok", "degraded"]);
 export const agentErrorCode = pgEnum("agent_error_code", [
 	"model_unavailable",
@@ -54,6 +57,16 @@ export const evidenceDateBasis = pgEnum("evidence_date_basis", [
 export const findingSupport = pgEnum("finding_support", ["verified", "unverified"]);
 export const findingConfidence = pgEnum("finding_confidence", ["low", "medium", "high"]);
 export const findingReviewAction = pgEnum("finding_review_action", ["accepted", "rejected"]);
+// T00 case-level authorization: which staff may see sensitive research for
+// one application. Officers self-claim `assigned_officer` on first run;
+// `service` grants/revokes the specialist roles. `user_id` is a plain uuid
+// (cross-DB reference to credit_auth.users, never an FK).
+export const researchAccessRole = pgEnum("research_access_role", [
+	"assigned_officer",
+	"compliance",
+	"policy_owner",
+	"safeguarding",
+]);
 
 export const agentRuns = pgTable(
 	"agent_runs",
@@ -64,6 +77,12 @@ export const agentRuns = pgTable(
 		status: agentRunStatus("status").notNull().default("queued"),
 		trigger: agentTrigger("trigger").notNull().default("officer"),
 		requestedBy: uuid("requested_by").notNull(),
+		requestedByRole: agentRequestedByRole("requested_by_role").notNull().default("officer"),
+		// T11 auto-trigger dedupe key: the Kafka envelope id. Null for
+		// officer runs; the partial unique index below guards only auto rows.
+		triggerEventId: text("trigger_event_id"),
+		// T11 internal cap accounting only — never sent to the prompt/trace.
+		applicantUserId: uuid("applicant_user_id"),
 		runToken: uuid("run_token"),
 		caseFacts: jsonb("case_facts").notNull(),
 		model: text("model").notNull(),
@@ -88,8 +107,17 @@ export const agentRuns = pgTable(
 		uniqueIndex("agent_runs_active_application_uniq")
 			.on(t.applicationId, t.feature)
 			.where(sql`${t.status} in ('queued', 'running')`),
+		// T11: one run per referral generation — duplicate envelopes return
+		// the original run (even terminal) with zero new paid calls.
+		uniqueIndex("agent_runs_trigger_event_uniq")
+			.on(t.applicationId, t.trigger, t.triggerEventId)
+			.where(sql`${t.triggerEventId} IS NOT NULL`),
 		index("agent_runs_application_created_idx").on(t.applicationId, t.createdAt),
 		index("agent_runs_status_timeout_idx").on(t.status, t.timeoutAt),
+		// T11 auto-cap day queries: per-applicant/day, global/day, and
+		// cost-budget/day all filter `trigger='auto'` + `created_at`.
+		index("agent_runs_auto_caps_idx").on(t.trigger, t.createdAt),
+		index("agent_runs_applicant_created_idx").on(t.applicantUserId, t.createdAt),
 	],
 );
 
@@ -193,5 +221,75 @@ export const agentRunViews = pgTable(
 		// ON CONFLICT DO NOTHING against this bucket. A stored UTC column
 		// (not a date_trunc expression — STABLE, unusable in an index).
 		uniqueIndex("agent_run_views_run_officer_minute_uniq").on(t.runId, t.officerId, t.viewedMinute),
+	],
+);
+
+// T11: durable auto-trigger outcome log — one row per referral
+// generation `(application_id, trigger_event_id)`. Redeliveries return the
+// stored outcome (even after a status/consent change) with zero new paid
+// runs. `outcome` is 'ensured' | 'duplicate' | 'skipped'; `reason` carries
+// the skip machine code.
+export const researchAutoEvents = pgTable(
+	"research_auto_events",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		applicationId: uuid("application_id").notNull(),
+		triggerEventId: text("trigger_event_id").notNull(),
+		outcome: text("outcome").notNull(),
+		runId: uuid("run_id"),
+		reason: text("reason"),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		uniqueIndex("research_auto_events_application_event_uniq").on(
+			t.applicationId,
+			t.triggerEventId,
+		),
+		index("research_auto_events_application_idx").on(t.applicationId),
+	],
+);
+
+// T00: one active grant per (application, user). Revocation sets
+// `revoked_at` (history stays); the partial unique index guards only live
+// rows. `application_id` is a plain uuid — no cross-DB FK.
+export const researchAccessGrants = pgTable(
+	"research_access_grants",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		applicationId: uuid("application_id").notNull(),
+		userId: uuid("user_id").notNull(),
+		accessRole: researchAccessRole("access_role").notNull(),
+		grantedBy: uuid("granted_by").notNull(),
+		grantedAt: timestamp("granted_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
+		revokedAt: ts("revoked_at"),
+	},
+	(t) => [
+		uniqueIndex("research_access_grants_active_application_user_uniq")
+			.on(t.applicationId, t.userId)
+			.where(sql`${t.revokedAt} IS NULL`),
+		index("research_access_grants_application_idx").on(t.applicationId),
+	],
+);
+
+// T00: append-only security audit — every sensitive-research read/write and
+// every grant/revoke/claim/denial. No update/delete path exists in code;
+// `metadata` carries ids and codes only, never PII. `run_id` is nullable
+// (access actions have no run) and intentionally FK-free so history survives
+// run cleanup.
+export const researchAuditLog = pgTable(
+	"research_audit_log",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		applicationId: uuid("application_id").notNull(),
+		runId: uuid("run_id"),
+		actorId: uuid("actor_id").notNull(),
+		actorRole: text("actor_role").notNull(),
+		action: text("action").notNull(),
+		metadata: jsonb("metadata"),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		index("research_audit_log_application_time_idx").on(t.applicationId, t.createdAt),
+		index("research_audit_log_run_idx").on(t.runId),
 	],
 );

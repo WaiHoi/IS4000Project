@@ -8,6 +8,7 @@ import {
 	type ServiceApp,
 } from "@credit/service-kit";
 import type { AgentRunner } from "./agent.js";
+import { getAutoTriggerStatus } from "./auto-trigger.js";
 import type { ResearchEnv } from "./env.js";
 import { getObservability, type Observability } from "./observability.js";
 import type { LanguageRepair } from "./repair.js";
@@ -50,7 +51,11 @@ export function createApp(deps: ResearchDeps): ServiceApp {
 			// extra `status` field rides the checks map like checkOutbox's
 			// backlog counters — readiness reads `ok` alone.
 			const observabilityInfo = { ok: true, status: observability.status };
-			return { db, config, observability: observabilityInfo };
+			// Informational only: the auto-trigger consumer is best-effort
+			// like Grafana (Kafka down never fails readiness).
+			const auto = getAutoTriggerStatus();
+			const autoTrigger = { ok: true, enabled: auto.enabled, connected: auto.connected };
+			return { db, config, observability: observabilityInfo, autoTrigger };
 		},
 	});
 }

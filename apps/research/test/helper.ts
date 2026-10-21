@@ -27,7 +27,7 @@ process.env.LOG_LEVEL ??= "silent";
 export interface TestUser {
 	id: string;
 	email: string;
-	role: "applicant" | "officer";
+	role: "applicant" | "officer" | "service";
 }
 
 export interface TestContext {
@@ -48,7 +48,7 @@ export const APPLICANT: TestUser = {
 	role: "applicant",
 };
 
-export function user(role: "applicant" | "officer"): TestUser {
+export function user(role: "applicant" | "officer" | "service"): TestUser {
 	return { id: randomUUID(), email: `svc-${randomUUID()}@example.com`, role };
 }
 

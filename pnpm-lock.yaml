@@ -524,6 +524,9 @@ importers:
       hono:
         specifier: 'catalog:'
         version: 4.13.13
+      kafkajs:
+        specifier: 'catalog:'
+        version: 2.2.4
       openai:
         specifier: 'catalog:'
         version: 6.27.0(ws@8.22.0)(zod@4.6.7)

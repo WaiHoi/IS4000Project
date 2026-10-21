@@ -104,6 +104,37 @@ export async function executeRun(deps: ExecDeps, runId: string, token: string): 
 	// judge, and finalize errors all land in `catch`, so the
 	// fire-and-forget caller in routes.ts never sees an unhandled rejection.
 	let timer: ReturnType<typeof setInterval> | undefined;
+	const startedAt = Date.now();
+	// Partial spend accumulated for the failure row: failed runs keep
+	// counting toward the auto daily budget (success rows use checkBudget's
+	// totals instead — these counters only feed the catch below).
+	let agentIn = 0;
+	let agentOut = 0;
+	let agentTools = 0;
+	let agentSearches = 0;
+	let agentExtracts = 0;
+	let judgeIn = 0;
+	let judgeOut = 0;
+	let judgeCalls = 0;
+	let repairIn = 0;
+	let repairOut = 0;
+	let repairCalls = 0;
+	// Counting pass-throughs: validateAndBuild keeps its own error mapping
+	// and budget totals; these only observe, never alter behavior.
+	const countingJudge: SupportJudge = async (claim, quote, opts) => {
+		judgeCalls += 1;
+		const judgment = await deps.judge(claim, quote, opts);
+		judgeIn += judgment.usage?.inputTokens ?? Math.ceil((claim.length + quote.length) / 4);
+		judgeOut += judgment.usage?.outputTokens ?? 0;
+		return judgment;
+	};
+	const countingRepair: LanguageRepair = async (brief, opts) => {
+		repairCalls += 1;
+		const out = await deps.repair(brief, opts);
+		repairIn += out.usage?.inputTokens ?? Math.ceil(JSON.stringify(brief).length / 4);
+		repairOut += out.usage?.outputTokens ?? 0;
+		return out;
+	};
 	try {
 		if (!(await claimRun(db, runId, token))) return;
 		timer = setInterval(() => {
@@ -117,7 +148,6 @@ export async function executeRun(deps: ExecDeps, runId: string, token: string): 
 		}, 15_000);
 		const run = await getRun(db, runId);
 		if (!run || run.id !== runId) throw new ValidationFailure("run row missing after claim");
-		const startedAt = Date.now();
 		const facts = readStoredFacts(run.caseFacts);
 		const asOf = asOfDate(run.asOf.toISOString());
 		const obs = deps.observability;
@@ -138,13 +168,26 @@ export async function executeRun(deps: ExecDeps, runId: string, token: string): 
 			observability: obs,
 			runId,
 		});
+		agentIn = result.usage.inputTokens;
+		agentOut = result.usage.outputTokens;
+		agentTools = result.usage.toolCalls;
+		agentSearches = result.usage.searches;
+		agentExtracts = result.usage.extracts;
+		if (agentIn + agentOut === 0) {
+			// Same backstop checkBudget applies on success: chars/4.
+			agentIn = Math.ceil(
+				(JSON.stringify(result.brief).length +
+					result.fetched.reduce((n, f) => n + f.rawContent.length, 0)) /
+					4,
+			);
+		}
 		const validated = await validateAndBuild({
 			brief: result.brief,
 			fetched: result.fetched,
 			entity: facts.caseEntity,
 			asOf,
-			judge: deps.judge,
-			repair: deps.repair,
+			judge: countingJudge,
+			repair: countingRepair,
 			signal,
 			runId,
 		});
@@ -174,18 +217,35 @@ export async function executeRun(deps: ExecDeps, runId: string, token: string): 
 		// The failure row carries the real observability status, not the
 		// insert default: Grafana hooks ran before the failure. The log
 		// carries the sanitized code/message only — never case content.
+		// Partial spend persists with the failure so the auto daily budget
+		// counts failed work instead of reading it as free.
 		deps.logger.error({ runId, code, err: message }, "research run failed");
-		await finalizeFailure(db, runId, token, code, message, deps.observability.status).catch(
-			(finalizeErr: unknown) => {
-				deps.logger.error(
-					{
-						runId,
-						err: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
-					},
-					"research finalize failed",
-				);
-			},
-		);
+		const inputTokens = agentIn + judgeIn + repairIn;
+		const outputTokens = agentOut + judgeOut + repairOut;
+		// Runner-thrown before any usage (timeout/model error): persist a
+		// conservative floor so the auto daily budget counts the failed
+		// work. Post-agent failures already carry real tokens — keep them.
+		const measured = projectCostUsd(inputTokens, outputTokens);
+		const costUsd = inputTokens + outputTokens === 0 ? env.maxCostUsd : measured;
+		await finalizeFailure(db, runId, token, code, message, deps.observability.status, {
+			inputTokens,
+			outputTokens,
+			toolCalls: agentTools + judgeCalls,
+			searches: agentSearches,
+			extracts: agentExtracts,
+			judgeCalls,
+			repairCalls,
+			costUsd,
+			durationMs: Date.now() - startedAt,
+		}).catch((finalizeErr: unknown) => {
+			deps.logger.error(
+				{
+					runId,
+					err: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
+				},
+				"research finalize failed",
+			);
+		});
 	} finally {
 		if (timer !== undefined) clearInterval(timer);
 	}
@@ -654,6 +714,14 @@ async function validateAndBuild(opts: {
 			continue;
 		}
 		for (const e of capped) {
+			// A verbatim claim is supported without spending a judge call; this
+			// is the safest path for registry facts and keeps citations exact.
+			const normalize = (v: string): string => v.replace(/\s+/g, " ").trim().toLowerCase();
+			const claimText = normalize(f.claim);
+			if (claimText.length >= 20 && normalize(e.quote).includes(claimText)) {
+				supportedIds.push(e.id);
+				continue;
+			}
 			// One initial verdict plus at most one repair (max 2 calls).
 			const { verdict, repaired: fixed } = await judgeWithRepair(f.claim, e.quote, judge);
 			if (fixed) repaired = true;

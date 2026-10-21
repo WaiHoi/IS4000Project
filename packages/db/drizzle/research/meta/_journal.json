@@ -15,6 +15,27 @@
       "when": 1792490020089,
       "tag": "0001_solid_tattoo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792518546051,
+      "tag": "0002_loving_living_tribunal",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792519153143,
+      "tag": "0003_gray_tyger_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792522023047,
+      "tag": "0004_jazzy_stingray",
+      "breakpoints": true
     }
   ]
 }

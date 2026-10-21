@@ -135,7 +135,7 @@ export function createRealRunner(opts: {
 			const searchTool = tool({
 				name: "search_sources",
 				description:
-					"Search approved public sources for an entity and category. Returns up to N results with url, title, and publication date.",
+					"Search approved public sources for an entity and category. Returns up to N results with url, title, publication date, and the extracted text of the top result when available.",
 				parameters: searchParams,
 				execute: async ({ entity, category }: { entity: string; category: SearchCategory }) =>
 					trackTool("search_sources", async () => {
@@ -158,8 +158,50 @@ export function createRealRunner(opts: {
 							endDate: input.asOfDate,
 						});
 						for (const hit of hits) seen.set(hit.url, hit);
+						const results: Array<{
+							url: string;
+							title: string | null;
+							publishedDate: string | null;
+							content?: string;
+						}> = hits.map((h) => ({
+							url: h.url,
+							title: h.title,
+							publishedDate: h.publishedDate,
+						}));
+						// The model consistently stops after titles. Auto-extract the
+						// top unused result so search results become usable evidence
+						// within the same extract budget; failures stay non-fatal.
+						if (extracts < Math.min(env.maxFetches, 2)) {
+							const candidate = hits.find(
+								(h) => !fetched.some((f) => f.requestedUrl === h.url || f.returnedUrl === h.url),
+							);
+							if (candidate) {
+								const verdict = validateFinalUrl(candidate.url);
+								if (verdict.ok) {
+									try {
+										const extracted = await tavily.extract([verdict.finalUrl]);
+										const page = extracted[0];
+										if (page?.rawContent) {
+											extracts += 1;
+											fetched.push({
+												requestedUrl: candidate.url,
+												returnedUrl: page.url,
+												title: candidate.title,
+												searchPublishedDate: candidate.publishedDate,
+												rawContent: page.rawContent,
+											});
+											const row = results.find((r) => r.url === candidate.url);
+											if (row) row.content = page.rawContent.slice(0, 2500);
+										}
+									} catch {
+										// A failed extract must not fail the search; the
+										// model can still call fetch_source explicitly.
+									}
+								}
+							}
+						}
 						return JSON.stringify(
-							hits.map((h) => ({ url: h.url, title: h.title, publishedDate: h.publishedDate })),
+							results.filter((row) => typeof row.content === "string" && row.content.length > 0).slice(0, 1),
 						);
 					}),
 			});
@@ -171,6 +213,10 @@ export function createRealRunner(opts: {
 				parameters: fetchParams,
 				execute: async ({ url }: { url: string }) =>
 					trackTool("fetch_source", async () => {
+						const cached = fetched.find(
+							(f) => f.requestedUrl === url || f.returnedUrl === url,
+						);
+						if (cached) return cached.rawContent.slice(0, 2500);
 						budget();
 						if (!env.tavilyApiKey) throw new TavilyError("extract is not configured");
 						if (extracts >= env.maxFetches) throw new TavilyError("extract budget exceeded");
@@ -205,17 +251,35 @@ export function createRealRunner(opts: {
 				// The run's deadline signal goes straight into the SDK —
 				// one abort path, no parallel timer to leak or double-fire.
 				// Hooks detach in `finally`, including on abort.
-				const result = await runner.run(agent, buildUserPrompt(input.caseFacts), {
-					maxTurns: 10,
+				let result = await runner.run(agent, buildUserPrompt(input.caseFacts), {
+					maxTurns: 12,
 					signal: input.signal,
 				});
+				let usage = readUsage(result);
+				if (!input.signal.aborted && toolCalls === 0 && searches === 0) {
+					// The model occasionally returns an empty brief without
+					// calling either tool. One bounded retry with an explicit
+					// tool requirement keeps auto-triggered runs useful without
+					// masking a genuine provider failure.
+					const retry = await runner.run(
+						agent,
+						`${buildUserPrompt(input.caseFacts)}\n\nRetry requirement: call search_sources for adverse_media and registry before writing the brief. Do not return an empty brief without attempting at least one search per category.`,
+						{ maxTurns: 12, signal: input.signal },
+					);
+					const retryUsage = readUsage(retry);
+					usage = {
+						inputTokens: usage.inputTokens + retryUsage.inputTokens,
+						outputTokens: usage.outputTokens + retryUsage.outputTokens,
+					};
+					result = retry;
+				}
 				if (result.finalOutput === null || result.finalOutput === undefined) {
 					throw new Error("model returned no structured brief");
 				}
 				return {
 					brief: result.finalOutput,
 					fetched,
-					usage: { ...readUsage(result), toolCalls, searches, extracts },
+					usage: { ...usage, toolCalls, searches, extracts },
 					model: env.agentModel,
 				};
 			} catch (err) {

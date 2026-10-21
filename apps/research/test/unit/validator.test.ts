@@ -139,12 +139,20 @@ describe("source tiers", () => {
 		expect(tierForHost("reuters.com")).toBe("reputable_news");
 		expect(tierForHost("uk.trustpilot.com")).toBe("review_platform");
 		expect(tierForHost("random-blog.example.com")).toBe("other");
+		expect(tierForHost("www.acra.gov.sg")).toBe("official");
+		expect(tierForHost("www.sgx.com")).toBe("official");
+		expect(tierForHost("www.straitstimes.com")).toBe("reputable_news");
+		expect(tierForHost("www.businesstimes.com.sg")).toBe("reputable_news");
+		expect(tierForHost("www.sgpbusiness.com")).toBe("registry");
+		expect(tierForHost("companieshouse.sg")).toBe("registry");
 	});
 
 	it("computes registrable domains", () => {
 		expect(registrableDomain("www.bbc.co.uk")).toBe("bbc.co.uk");
 		expect(registrableDomain("news.bbc.co.uk")).toBe("bbc.co.uk");
 		expect(registrableDomain("reuters.com")).toBe("reuters.com");
+		expect(registrableDomain("www.businesstimes.com.sg")).toBe("businesstimes.com.sg");
+		expect(registrableDomain("www.acra.gov.sg")).toBe("acra.gov.sg");
 	});
 
 	it("judges independence by domain, hash, and syndication markers", () => {
@@ -569,8 +577,8 @@ describe("query template", () => {
 });
 
 describe("prompt", () => {
-	it("versions v1 with a stable hash and no purpose field", () => {
-		expect(PROMPT_VERSION).toBe("v1");
+	it("versions v2 with a stable hash and no purpose field", () => {
+		expect(PROMPT_VERSION).toBe("v2");
 		expect(promptHash()).toBe(promptHash());
 		expect(promptHash()).toMatch(/^[0-9a-f]{64}$/);
 		expect(SYSTEM_TEMPLATE).not.toMatch(/purpose/i);

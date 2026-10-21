@@ -280,6 +280,15 @@ services:
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
       AGENT_MODEL: ${AGENT_MODEL:-deepseek/deepseek-v4.1-flash-1017}
+      APPLICATIONS_URL: http://applications:4001
+      KAFKA_BROKERS: kafka:29092
+      AGENT_AUTO_TRIGGER_ENABLED: ${AGENT_AUTO_TRIGGER_ENABLED:-false}
+      AGENT_AUTO_TRIGGER_FROM_BEGINNING: ${AGENT_AUTO_TRIGGER_FROM_BEGINNING:-false}
+      AUTO_TRIGGER_SERVICE_USER_ID: ${AUTO_TRIGGER_SERVICE_USER_ID:-00000000-0000-0000-0000-000000000000}
+      AUTO_TRIGGER_SERVICE_EMAIL: ${AUTO_TRIGGER_SERVICE_EMAIL:-research-auto@internal.local}
+      AUTO_TRIGGER_MAX_RUNS_PER_APPLICANT_DAY: ${AUTO_TRIGGER_MAX_RUNS_PER_APPLICANT_DAY:-2}
+      AUTO_TRIGGER_MAX_RUNS_PER_DAY: ${AUTO_TRIGGER_MAX_RUNS_PER_DAY:-50}
+      AUTO_TRIGGER_DAILY_COST_BUDGET_USD: ${AUTO_TRIGGER_DAILY_COST_BUDGET_USD:-1}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       TAVILY_API_KEY: ${TAVILY_API_KEY}
       AGENT_MAX_SOURCES: ${AGENT_MAX_SOURCES:-6}
@@ -299,6 +308,8 @@ services:
       deps:
         condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     healthcheck:
       test:

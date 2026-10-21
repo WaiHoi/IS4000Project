@@ -253,18 +253,25 @@ Replay rules:
 
 Officer only. Cited public-source briefs on `pending_review` cases with AI research consent. There are no `/api/research/*` routes; everything lives under `/api/review/*`.
 
-| Method and path                                     | Purpose                                                        |
-| --------------------------------------------------- | -------------------------------------------------------------- |
-| `POST /api/review/:id/research`                     | Ensure a run; `202` `{ "runId", "status" }`, idempotent        |
-| `GET /api/review/:id/research`                      | Latest run + brief + evidence + findings; never records a view |
-| `POST /api/review/:id/research/view`                | `{ "runId" }`; records one view after the panel opens          |
-| `POST /api/review/:id/research/findings/:findingId` | `{ "action": "accepted"\|"rejected", "note?" }`; append-only   |
+| Method and path                                     | Purpose                                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `POST /api/review/:id/research`                     | Ensure a run; `202` `{ "runId", "status" }`, idempotent                              |
+| `GET /api/review/:id/research`                      | Latest run + brief + evidence + findings; never records a view                       |
+| `GET /api/review/:id/research/audit`                | Auto-trigger history (`auto.skip`/`auto.ensure`/`auto.duplicate`); works with no run |
+| `POST /api/review/:id/research/view`                | `{ "runId" }`; records one view after the panel opens                                |
+| `POST /api/review/:id/research/findings/:findingId` | `{ "action": "accepted"\|"rejected", "note?" }`; append-only                         |
 
 Rules:
 
 - Feature disabled (`AGENTS_ENABLED` or `AGENT_CASE_BRIEF_ENABLED` false): every research route returns 404 `RESEARCH_DISABLED` and the UI panel hides. Applicants still get 403 first.
 - `POST .../research` without AI research consent returns 403 `CONSENT_REQUIRED`; on a case that is not `pending_review` it returns 409 `CASE_NOT_PENDING`.
 - `GET .../research` returns 404 when no run exists yet. Finding reviews return 409 `RUN_NOT_SUCCEEDED` unless the run succeeded, and 404 when the run/finding does not belong to the application.
+- Case-level access (T00): the first officer to ensure a run claims the case (`assigned_officer`); the same officer re-ensuring is idempotent. Another user's active `assigned_officer` grant on that case makes any other officer's ensure, latest, view, finding-review, bundle, or audit call return 404 (non-disclosure — identical to "no such case"), and the denial is audited. Specialist grants (`compliance`, `policy_owner`, `safeguarding`) are additive: they never block an officer claim and never make a case unclaimable — but only an active `assigned_officer` grant authorizes ensure; specialists read but never ensure. A user with a revoked grant for the application cannot self-claim (audited denial/404) — only the service grant path may re-grant them. Specialist access is granted/revoked only through the service-only access endpoints below; officers and applicants get 403 there.
+- Auto-trigger (T11): when `AGENT_AUTO_TRIGGER_ENABLED` is true, research consumes `credit.review.requested` (group `credit-research-auto`, manual commit) and ensures at most one `trigger=auto` run per referral generation, requested by the service principal (`AUTO_TRIGGER_SERVICE_USER_ID`, role `service`). Every outcome is recorded in `research_auto_events` (unique per application + envelope id), checked before the context fetch/caps: a redelivered envelope returns the stored outcome — even after a status/consent change, even when terminal, even when an officer run absorbed the referral — with zero new paid calls. An auto run carries no officer grant: the first officer to open latest/view/bundle (or the auto-audit endpoint below, when history exists) claims the case via T00 `claimOfficerAccess`; any later officer gets 404. Skips (consent/status/caps/budget/context failures) are recorded and audited as `auto.skip` with a machine-readable reason (`consent_required`, `not_pending`, `applicant_daily_cap`, `global_daily_cap`, `daily_cost_budget`, `application_not_found`, `context_invalid`, `context_mismatch`, `invalid_applicant`), ensures as `auto.ensure`, duplicates as `auto.duplicate` — all under actor role `service`, ids and codes only. Caps are UTC-calendar-day scoped, count only `trigger='auto'` runs, and check + ensure commit atomically under a global advisory lock; queued/running auto runs reserve `AGENT_MAX_COST_USD` each against the cost budget. Context 4xx/shape failures are permanent skips (never infinite redelivery) — except 408/429, which are transient and throw so Kafka redelivers; 5xx/transport/timeout failures throw so Kafka redelivers. Malformed envelopes are skipped + committed, never retried. Kafka carries no per-envelope auth: production Kafka must use SASL/ACL or a private network (the host-published 9092 listener is plaintext for local dev/test only). Crash-after-insert runs are picked up by the queued-run recovery sweep, which runs before the reaper on boot (boot + every 10s); the reaper stays the fallback.
+- Review auto-audit: `GET /api/review/:id/research/audit` (officer) proxies the internal endpoint below with the same feature gate as the other research routes. It deliberately has no consent/status gate — gating on those would hide the skips it exists to surface. It returns `200 { "applicationId", "entries" }` (`action`, `actorRole`, `runId`, `metadata` with trigger event id + reason, `createdAt`), no PII, even when no run exists but a skip was audited. With no auto history it returns `200 { "applicationId", "entries": [] }` when no run exists, and 404 when a run exists the caller cannot see. Unknown cases 404 via the case-existence check (no orphan grant); cross-officer reads 404 via the research claim, passed through untouched. Disabled flags 404 `RESEARCH_DISABLED`; applicants 403. The case page fetches it automatically when latest 404s or research is unavailable, shows the `trigger` (`auto`/`officer`) and `requestedByRole` on runs (`auto` badge + "started automatically" copy), renders a cross-officer 404 as "not available for this case / assigned to another officer" (never a raw error), and offers an explicit "View auto-trigger audit" section with refresh. An auto run appears without clicking Run; the panel never auto-starts an officer run.
+- Internal auto-audit: `GET /internal/research/applications/:applicationId/audit` (officer) returns the recent `auto.skip`/`auto.ensure`/`auto.duplicate` entries (`action`, `actorRole`, `runId`, `metadata` with trigger event id + reason, `createdAt`) — no PII. With no auto.* history it returns `200 { "applicationId", "entries": [] }` WITHOUT claiming when no run exists for the application (merely opening a case page must not assign it); when a run exists but the caller holds no grant it returns the same audited 404 as latest (non-disclosure — the denial is audited). Only when history exists does the first officer to open it claim the case via T00 `claimOfficerAccess` even when no run exists (a skip usually leaves none); any later officer gets 404. An officer who already holds an active grant (assigned or specialist) reads without claiming. This is how a skip reason becomes visible.
+- Every sensitive-research read/write appends one row to `research_audit_log` (actor, time, action, application/run ids — never PII). If the audit write fails, the request fails instead of silently dropping security history. The table is append-only at the database level too (a migration trigger rejects UPDATE/DELETE). The run insert and its `run.ensure` audit commit in one transaction, as do a finding-review insert and its audit — a failed audit never leaves an unaudited mutation.
+- Status semantics: unsigned/bad-signature calls return 401; a valid signature with the wrong role returns 403; cross-officer and unknown-case reads return 404.
 - Using research in a decision: send only the selection (`agentRunId` plus non-empty `acceptedFindingIds`) in the decision body. Review fetches the app-scoped frozen bundle, verifies the selection is covered, narrows the forwarded bundle to exactly the accepted ids (§8.6), and forwards the server-built `research` object to the workflow; the selection itself is stripped. A client-supplied `research` object is rejected with 422.
 
 Advisory boundary: research never approves, declines, scores, prices, or sets terms. Only `verified` (supported, cited) findings render; acceptance only freezes cited evidence into the decision snapshot and never changes the decision by itself. Bundle failures map precisely: transport/5xx → 503 `RESEARCH_UNAVAILABLE` (retryable: `error.fields.retryable == ["true"]`, retry or decide without research); missing/non-succeeded run, uncovered selection, or empty accepted set → 409 `RESEARCH_SELECTION_STALE` (non-retryable: re-review or decide without). Decisions without a selection never touch research and are never blocked by it.
@@ -480,21 +487,33 @@ METHOD\nPATH\nUSER_ID\nEMAIL(lowercased)\nROLE\nTS
 
 - `METHOD`: upper-cased HTTP method.
 - `PATH`: exact pathname the receiving service sees, no query string.
-- `USER_ID`, `EMAIL` (lowercased before signing), `ROLE` (`applicant` or `officer`): the authenticated user.
+- `USER_ID`, `EMAIL` (lowercased before signing), `ROLE` (`applicant`, `officer`, or `service`): the authenticated user or automation principal.
 - `TS`: milliseconds since epoch. Clock skew limit is 5 minutes.
 
 Headers on every internal call: `x-user-id`, `x-user-role`, `x-user-email`, `x-internal-ts`, `x-internal-signature`, `x-request-id`. Missing or bad signatures return 401. A valid signature with the wrong role returns 403. Service `/health` endpoints stay public for orchestrators; `/api/*` and `/internal/*` need the signature.
 
-| Endpoint                                  | Service       | Called by       | Role                          |
-| ----------------------------------------- | ------------- | --------------- | ----------------------------- |
-| `GET /internal/review/queue`              | Applications  | Review          | Officer                       |
-| `GET /internal/applications/:id/decision` | Applications  | Review          | Officer                       |
-| `GET /internal/stats`                     | Applications  | Portfolio       | Officer                       |
-| `GET /internal/loans/by-application/:id`  | Loans         | Gateway, review | Signed user; owner or officer |
-| `GET /internal/stats`                     | Loans         | Portfolio       | Officer                       |
-| `GET /health`                             | Every service | Any             | Public                        |
+| Endpoint                                          | Service       | Called by       | Role                                         |
+| ------------------------------------------------- | ------------- | --------------- | -------------------------------------------- |
+| `GET /internal/review/queue`                      | Applications  | Review          | Officer                                      |
+| `GET /internal/applications/:id/decision`         | Applications  | Review          | Officer                                      |
+| `GET /internal/applications/:id/case-facts`       | Applications  | Review          | Officer                                      |
+| `GET /internal/applications/:id/research-context` | Applications  | Automation      | Service only (officer/applicant 403)         |
+| `GET /internal/stats`                             | Applications  | Portfolio       | Officer                                      |
+| `GET /internal/loans/by-application/:id`          | Loans         | Gateway, review | Signed user; owner or officer                |
+| `GET /internal/stats`                             | Loans         | Portfolio       | Officer                                      |
+| `POST /internal/research/runs/ensure`             | Research      | Review          | Officer (claims the case; cross-officer 404) |
+| `GET /internal/research/applications/:id/latest`  | Research      | Review          | Officer with an active grant, else 404       |
+| `POST .../runs/:runId/view`                       | Research      | Review          | Officer with an active grant, else 404       |
+| `GET .../runs/:runId/bundle`                      | Research      | Review          | Officer with an active grant, else 404       |
+| `POST .../findings/:findingId/review`             | Research      | Review          | Officer with an active grant, else 404       |
+| `GET .../audit` (auto-trigger history)            | Research      | Review          | Officer (first caller claims; later 404)     |
+| `POST .../access/grants`                          | Research      | Automation      | Service only (officer/applicant 403)         |
+| `POST .../access/revoke`                          | Research      | Automation      | Service only (officer/applicant 403)         |
+| `GET /health`                                     | Every service | Any             | Public                                       |
 
 `GET /internal/applications/:id/decision` returns `{ "status", "decision": { "id", "outcome", "requestId" } | null }`. `GET /internal/loans/by-application/:id` returns the loan summary with installment counts and enforces the same owner-or-officer rule as the public loan routes (cross-applicant reads are 404). The stats endpoints return status-count maps for the dashboard.
+
+Research access management (T00): `POST .../access/grants` takes a strict `{ "userId": "<uuid>", "accessRole": "assigned_officer"|"compliance"|"policy_owner"|"safeguarding" }` body and returns `201 { "grant" }`; unknown roles or bad ids are 422. `POST .../access/revoke` takes `{ "userId": "<uuid>" }` and returns `200 { "revoked": true }`, or 404 when no active grant exists. Both audit the change. `GET /internal/applications/:id/research-context` (service only) returns `{ "caseFacts": {<the same 16 keys as case-facts>}, "applicantUserId": "<uuid>" }`; `applicantUserId` is internal routing data and never enters the agent prompt or trace. Officer `/case-facts` behavior is unchanged.
 
 ## Related
 

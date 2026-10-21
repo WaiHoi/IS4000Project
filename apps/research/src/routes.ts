@@ -1,5 +1,7 @@
-// Internal research API (signed, officer-only in v1). All run/finding
-// routes verify the run belongs to `:applicationId`; mismatch is 404.
+// Internal research API (signed). Run/finding routes are officer-only and
+// case-scoped (T00 access grants); access grant/revoke routes are
+// service-only. All run/finding routes verify the run belongs to
+// `:applicationId`; mismatch is 404.
 // Wave 3 (review routes/UI) is out of scope — this file serves review only.
 import {
 	agentEvidence,
@@ -7,11 +9,13 @@ import {
 	agentFindings,
 	agentRunViews,
 	findingEvidence,
+	withTx,
 	type Db,
 } from "@credit/db/research";
 import {
 	HttpError,
 	readJson,
+	requireService,
 	zodFields,
 	type Logger,
 	type ServiceApp,
@@ -22,10 +26,20 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { caseFactsSchema } from "@credit/core";
+import {
+	auditResearch,
+	claimOfficerAccess,
+	grantResearchAccess,
+	hasResearchAccess,
+	requireOrClaimResearchAccess,
+	requireResearchAccess,
+	revokeResearchAccess,
+	type AccessRole,
+} from "./access.js";
 import type { AgentRunner } from "./agent.js";
 import type { ResearchEnv } from "./env.js";
 import {
-	ensureRun,
+	ensureRunTx,
 	getRun,
 	latestRunForApplication,
 	summarizeRun,
@@ -52,6 +66,21 @@ const reviewSchema = z
 	.object({
 		action: z.enum(["accepted", "rejected"]),
 		note: z.string().max(1000).optional(),
+	})
+	.strict();
+
+// T00 service-only access management. The role matrix lives here as a
+// strict enum: anything outside it is 422, never a silent downgrade.
+const grantSchema = z
+	.object({
+		userId: z.uuid(),
+		accessRole: z.enum(["assigned_officer", "compliance", "policy_owner", "safeguarding"]),
+	})
+	.strict();
+
+const revokeSchema = z
+	.object({
+		userId: z.uuid(),
 	})
 	.strict();
 
@@ -109,11 +138,39 @@ export function researchRoutes(deps: ResearchRouteDeps): ServiceApp {
 		if (applicationId !== caseFacts.applicationId) {
 			throw new HttpError(422, "VALIDATION_ERROR", "application id mismatch");
 		}
-		const { run, inserted } = await ensureRun(db, env, {
-			applicationId,
-			requestedBy: me.id,
-			caseFacts: caseFacts as CaseFactsPayload,
-			aiResearchConsent,
+		// T00: fail-closed validation BEFORE the claim, so a rejected
+		// request never leaves an orphan grant behind. ensureRun
+		// re-validates the same predicates; drift fails closed there.
+		if (!aiResearchConsent) {
+			throw new HttpError(403, "CONSENT_REQUIRED", "AI research consent is required");
+		}
+		if (caseFacts.status !== "pending_review") {
+			throw new HttpError(409, "CASE_NOT_PENDING", "case is not awaiting an officer decision");
+		}
+		if (caseFacts.asOf !== caseFacts.submittedAt) {
+			throw new HttpError(422, "VALIDATION_ERROR", "asOf must equal submittedAt");
+		}
+		// Claim-on-first-run: another user's active assigned_officer grant is
+		// 404 (non-disclosure); otherwise this officer owns the case from here.
+		await claimOfficerAccess(db, applicationId, me.id);
+		// The run insert and its `run.ensure` audit commit atomically: a
+		// failed audit leaves no unaudited run behind.
+		const { run, inserted } = await withTx(db, async (tx) => {
+			const ensured = await ensureRunTx(tx, env, {
+				applicationId,
+				requestedBy: me.id,
+				caseFacts: caseFacts as CaseFactsPayload,
+				aiResearchConsent,
+			});
+			await auditResearch(tx, {
+				applicationId,
+				runId: ensured.run.id,
+				actorId: me.id,
+				actorRole: me.role,
+				action: "run.ensure",
+				metadata: { status: ensured.run.status, inserted: ensured.inserted },
+			});
+			return ensured;
 		});
 		if (inserted && run.runToken) {
 			// Exactly one background execution, only when this call inserted.
@@ -140,8 +197,18 @@ export function researchRoutes(deps: ResearchRouteDeps): ServiceApp {
 	app.get("/internal/research/applications/:applicationId/latest", requireOfficer, async (c) => {
 		const applicationId = c.req.param("applicationId");
 		if (!UUID_RE.test(applicationId)) throw new HttpError(404, "NOT_FOUND", "not found");
+		// T11: an auto run carries no officer grant — the first officer to
+		// open it claims the case here; any later officer gets 404.
+		await requireOrClaimResearchAccess(db, applicationId, c.var.user.id, c.var.user.role);
 		const run = await latestRunForApplication(db, applicationId);
 		if (!run) throw new HttpError(404, "NOT_FOUND", "no research run for this application");
+		await auditResearch(db, {
+			applicationId,
+			runId: run.id,
+			actorId: c.var.user.id,
+			actorRole: c.var.user.role,
+			action: "run.read",
+		});
 		return c.json(await aggregateRun(db, run, c.var.user.id));
 	});
 
@@ -151,6 +218,15 @@ export function researchRoutes(deps: ResearchRouteDeps): ServiceApp {
 		async (c) => {
 			const me = c.var.user;
 			const run = await scopedRun(db, c.req.param("applicationId"), c.req.param("runId"));
+			// T11 claim-on-first-read (see latest).
+			await requireOrClaimResearchAccess(db, run.applicationId, me.id, me.role);
+			await auditResearch(db, {
+				applicationId: run.applicationId,
+				runId: run.id,
+				actorId: me.id,
+				actorRole: me.role,
+				action: "run.view",
+			});
 			const recent = (await db.execute(
 				sql`SELECT viewed_at FROM agent_run_views
 					WHERE run_id = ${run.id} AND officer_id = ${me.id}
@@ -197,6 +273,8 @@ export function researchRoutes(deps: ResearchRouteDeps): ServiceApp {
 		requireOfficer,
 		async (c) => {
 			const run = await scopedRun(db, c.req.param("applicationId"), c.req.param("runId"));
+			// T11 claim-on-first-read (see latest).
+			await requireOrClaimResearchAccess(db, run.applicationId, c.var.user.id, c.var.user.role);
 			if (run.status !== "succeeded" || !run.brief) {
 				throw new HttpError(404, "NOT_FOUND", "no succeeded research bundle");
 			}
@@ -213,6 +291,13 @@ export function researchRoutes(deps: ResearchRouteDeps): ServiceApp {
 					"no accepted findings remain on this run",
 				);
 			}
+			await auditResearch(db, {
+				applicationId: run.applicationId,
+				runId: run.id,
+				actorId: c.var.user.id,
+				actorRole: c.var.user.role,
+				action: "bundle.read",
+			});
 			return c.json({
 				bundle: {
 					agentRunId: run.id,
@@ -260,6 +345,7 @@ export function researchRoutes(deps: ResearchRouteDeps): ServiceApp {
 			if (!run || run.applicationId !== applicationId) {
 				throw new HttpError(404, "NOT_FOUND", "not found");
 			}
+			await requireResearchAccess(db, applicationId, me.id, me.role);
 			if (run.status !== "succeeded") {
 				throw new HttpError(
 					409,
@@ -267,17 +353,168 @@ export function researchRoutes(deps: ResearchRouteDeps): ServiceApp {
 					"findings can be reviewed only on a succeeded run",
 				);
 			}
-			const [review] = await db
-				.insert(agentFindingReviews)
-				.values({
-					findingId,
+			const [review] = await withTx(db, async (tx) => {
+				// Review insert + audit commit atomically: a failed audit
+				// leaves no unaudited review behind.
+				const [row] = await tx
+					.insert(agentFindingReviews)
+					.values({
+						findingId,
+						runId: run.id,
+						officerId: me.id,
+						action: parsed.data.action,
+						note: parsed.data.note ?? null,
+					})
+					.returning({ id: agentFindingReviews.id });
+				await auditResearch(tx, {
+					applicationId,
 					runId: run.id,
-					officerId: me.id,
-					action: parsed.data.action,
-					note: parsed.data.note ?? null,
-				})
-				.returning({ id: agentFindingReviews.id });
+					actorId: me.id,
+					actorRole: me.role,
+					action: "finding.review",
+					metadata: { findingId, reviewAction: parsed.data.action },
+				});
+				return [row];
+			});
 			return c.json({ id: review.id, findingId, action: parsed.data.action }, 201);
+		},
+	);
+
+	// T11: recent auto-trigger history (skips, ensures, duplicates) for an
+	// authorized officer — this is how a skip reason becomes visible. With
+	// no auto.* history AND no run at all the endpoint returns
+	// `{entries:[]}` WITHOUT claiming (merely opening a case page must not
+	// assign it); when a run exists but the caller holds no grant it
+	// returns the same audited 404 as latest (non-disclosure). Only when
+	// history exists does the first officer claim via T00
+	// `claimOfficerAccess` (a skip usually leaves no run and no grant
+	// behind, so plain requireResearchAccess would 404 for everyone) — any
+	// later officer gets 404. An officer who already holds an active grant
+	// (assigned or specialist) reads without claiming. Entries carry
+	// ids/codes/reasons only, never case facts, quotes, or applicant data.
+	app.get("/internal/research/applications/:applicationId/audit", requireOfficer, async (c) => {
+		const applicationId = c.req.param("applicationId");
+		if (!UUID_RE.test(applicationId)) throw new HttpError(404, "NOT_FOUND", "not found");
+		const rows = (await db.execute(
+			sql`SELECT action, actor_role, run_id, metadata, created_at FROM research_audit_log
+				WHERE application_id = ${applicationId} AND action IN ('auto.skip', 'auto.ensure', 'auto.duplicate')
+				ORDER BY created_at DESC LIMIT 50`,
+		)) as unknown as Array<{
+			action: string;
+			actor_role: string;
+			run_id: string | null;
+			metadata: unknown;
+			created_at: string;
+		}>;
+		if (rows.length === 0) {
+			// No auto history: a stranger on a run-less case sees the same
+			// empty answer as the owner (nothing is assigned by looking);
+			// a stranger on a case with a run gets the audited 404.
+			if (await hasResearchAccess(db, applicationId, c.var.user.id)) {
+				return c.json({ applicationId, entries: [] });
+			}
+			const runs = (await db.execute(
+				sql`SELECT id FROM agent_runs WHERE application_id = ${applicationId} LIMIT 1`,
+			)) as unknown as Array<{ id: string }>;
+			if (runs.length === 0) return c.json({ applicationId, entries: [] });
+			await requireResearchAccess(db, applicationId, c.var.user.id, c.var.user.role);
+			return c.json({ applicationId, entries: [] });
+		}
+		if (await hasResearchAccess(db, applicationId, c.var.user.id)) {
+			await auditResearch(db, {
+				applicationId,
+				actorId: c.var.user.id,
+				actorRole: c.var.user.role,
+				action: "run.read",
+				metadata: { scope: "auto-audit" },
+			});
+			return c.json({
+				applicationId,
+				entries: rows.map((r) => ({
+					action: r.action,
+					actorRole: r.actor_role,
+					runId: r.run_id,
+					metadata: r.metadata ?? {},
+					createdAt: new Date(r.created_at).toISOString(),
+				})),
+			});
+		}
+		await claimOfficerAccess(db, applicationId, c.var.user.id);
+		await auditResearch(db, {
+			applicationId,
+			actorId: c.var.user.id,
+			actorRole: c.var.user.role,
+			action: "run.read",
+			metadata: { scope: "auto-audit" },
+		});
+		return c.json({
+			applicationId,
+			entries: rows.map((r) => ({
+				action: r.action,
+				actorRole: r.actor_role,
+				runId: r.run_id,
+				metadata: r.metadata ?? {},
+				createdAt: new Date(r.created_at).toISOString(),
+			})),
+		});
+	});
+
+	// T00 service-only access management (future auto-trigger principal and
+	// specialist grants). Officers and applicants get 403 via
+	// `requireService`; every grant/revoke is audited with ids/roles only.
+	app.post(
+		"/internal/research/applications/:applicationId/access/grants",
+		requireService,
+		async (c) => {
+			const me = c.var.user;
+			const applicationId = c.req.param("applicationId");
+			if (!UUID_RE.test(applicationId)) throw new HttpError(404, "NOT_FOUND", "not found");
+			const parsed = grantSchema.safeParse(await readJson(c));
+			if (!parsed.success) {
+				throw new HttpError(422, "VALIDATION_ERROR", "invalid grant", zodFields(parsed.error));
+			}
+			const grant = await grantResearchAccess(db, {
+				applicationId,
+				userId: parsed.data.userId,
+				accessRole: parsed.data.accessRole as AccessRole,
+				grantedBy: me.id,
+				granterRole: me.role,
+			});
+			return c.json(
+				{
+					grant: {
+						id: grant.id,
+						applicationId: grant.applicationId,
+						userId: grant.userId,
+						accessRole: grant.accessRole,
+						grantedBy: grant.grantedBy,
+						grantedAt: grant.grantedAt.toISOString(),
+						revokedAt: grant.revokedAt?.toISOString() ?? null,
+					},
+				},
+				201,
+			);
+		},
+	);
+
+	app.post(
+		"/internal/research/applications/:applicationId/access/revoke",
+		requireService,
+		async (c) => {
+			const me = c.var.user;
+			const applicationId = c.req.param("applicationId");
+			if (!UUID_RE.test(applicationId)) throw new HttpError(404, "NOT_FOUND", "not found");
+			const parsed = revokeSchema.safeParse(await readJson(c));
+			if (!parsed.success) {
+				throw new HttpError(422, "VALIDATION_ERROR", "invalid revoke", zodFields(parsed.error));
+			}
+			await revokeResearchAccess(db, {
+				applicationId,
+				userId: parsed.data.userId,
+				revokedBy: me.id,
+				revokerRole: me.role,
+			});
+			return c.json({ applicationId, userId: parsed.data.userId, revoked: true });
 		},
 	);
 
