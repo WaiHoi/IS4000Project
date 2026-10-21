@@ -13,14 +13,18 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import {
 	applications,
+	chaseRequestFindings,
+	chaseRequests,
+	documentCrosschecks,
 	documentFiles,
+	documentFindings,
 	documentPages,
 	withTx,
 	type Db,
 	type Tx,
 } from "@credit/db/applications";
 import { HttpError, writeAudit } from "@credit/service-kit";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
 	CRYPTO_VERSION,
 	encryptDocument,
@@ -159,8 +163,14 @@ export interface UploadInput {
 
 interface PendingExtraction {
 	status: "ready" | "low_confidence" | "unsupported" | "failed";
-	pages: Array<{ text: string; source: "pdf_text" | "ocr"; confidence: number }>;
+	pages: Array<{
+		text: string;
+		source: "pdf_text" | "ocr";
+		confidence: number;
+		pageNumber?: number;
+	}>;
 	textLayerRisk: boolean;
+	pageCount?: number;
 }
 
 export interface UploadOutcome {
@@ -440,11 +450,11 @@ export class DocumentService {
 							extraction: {
 								status: r.status,
 								pages: r.pages.map((p) => ({
-									text: p.text,
+									...p,
 									source: p.source as "pdf_text" | "ocr",
-									confidence: p.confidence,
 								})),
 								textLayerRisk: r.textLayerRisk,
+								pageCount: r.pageCount,
 							},
 						};
 					}
@@ -454,11 +464,11 @@ export class DocumentService {
 						extraction: {
 							status: r.status,
 							pages: r.pages.map((p) => ({
-								text: p.text,
+								...p,
 								source: p.source as "pdf_text" | "ocr",
-								confidence: p.confidence,
 							})),
 							textLayerRisk: r.textLayerRisk,
+							pageCount: r.pageCount,
 						},
 					};
 				} catch (err) {
@@ -536,7 +546,10 @@ export class DocumentService {
 					? ("unsupported" as const)
 					: extraction.status;
 		const pages =
-			kind === "id" ? [] : (extraction?.pages ?? []).map((p, i) => ({ ...p, pageNumber: i + 1 }));
+			kind === "id"
+				? []
+				: (extraction?.pages ?? []).map((p, i) => ({ ...p, pageNumber: p.pageNumber ?? i + 1 }));
+		const pageCount = kind === "id" ? 0 : (extraction?.pageCount ?? pages.length);
 		const confidences = pages.map((p) => p.confidence);
 		const ocrConfidence =
 			pages.length === 0 ? null : confidences.reduce((a, b) => a + b, 0) / confidences.length;
@@ -585,7 +598,7 @@ export class DocumentService {
 				encryptionTag: encrypted.tagB64,
 				keyId: config.keyId,
 				cryptoVersion: CRYPTO_VERSION,
-				pageCount: pages.length,
+				pageCount,
 				ocrConfidence,
 				uploadedBy: input.userId,
 				uploadedAt: at,
@@ -598,7 +611,7 @@ export class DocumentService {
 			auditPayload: {
 				kind,
 				sizeBytes: bytes.length,
-				pageCount: pages.length,
+				pageCount,
 				ocrStatus,
 			},
 		});
@@ -713,11 +726,11 @@ export class DocumentService {
 				extraction = {
 					status: r.status,
 					pages: r.pages.map((p) => ({
-						text: p.text,
+						...p,
 						source: p.source as "pdf_text" | "ocr",
-						confidence: p.confidence,
 					})),
 					textLayerRisk: r.textLayerRisk,
+					pageCount: r.pageCount,
 				};
 			} catch (err) {
 				if (err instanceof HttpError) throw err;
@@ -729,7 +742,11 @@ export class DocumentService {
 			} finally {
 				this.ocrSemaphore.release();
 			}
-			const pages = extraction.pages.map((p, i) => ({ ...p, pageNumber: i + 1 }));
+			const pages = extraction.pages.map((p, i) => ({
+				...p,
+				pageNumber: p.pageNumber ?? i + 1,
+			}));
+			const pageCount = extraction.pageCount ?? pages.length;
 			const updated = await withTx(db, async (tx) => {
 				await this.lockApplication(tx, input.applicationId);
 				const apps = await tx
@@ -745,7 +762,7 @@ export class DocumentService {
 					.set({
 						ocrStatus: extraction.status,
 						textLayerRisk: extraction.textLayerRisk,
-						pageCount: pages.length,
+						pageCount,
 						ocrConfidence:
 							pages.length === 0
 								? null
@@ -768,6 +785,33 @@ export class DocumentService {
 						})),
 					);
 				}
+				// A retry can change page text; old citations must not survive.
+				const stale = await tx
+					.select({ id: documentFindings.id, crosscheckId: documentFindings.crosscheckId })
+					.from(documentFindings)
+					.where(eq(documentFindings.documentFileId, file.id));
+				if (stale.length > 0) {
+					const staleIds = stale.map((s) => s.id);
+					const links = await tx
+						.select({ chaseRequestId: chaseRequestFindings.chaseRequestId })
+						.from(chaseRequestFindings)
+						.where(inArray(chaseRequestFindings.findingId, staleIds));
+					const chaseIds = [...new Set(links.map((l) => l.chaseRequestId))];
+					await tx
+						.delete(chaseRequestFindings)
+						.where(inArray(chaseRequestFindings.findingId, staleIds));
+					if (chaseIds.length > 0) {
+						await tx
+							.update(chaseRequests)
+							.set({ body: null, redactedAt: new Date() })
+							.where(inArray(chaseRequests.id, chaseIds));
+					}
+					await tx.delete(documentFindings).where(eq(documentFindings.documentFileId, file.id));
+					await tx
+						.update(documentCrosschecks)
+						.set({ status: "redacted", findingCount: 0 })
+						.where(inArray(documentCrosschecks.id, [...new Set(stale.map((s) => s.crosscheckId))]));
+				}
 				await writeAudit(tx, {
 					applicationId: input.applicationId,
 					actor: input.userId,
@@ -776,7 +820,7 @@ export class DocumentService {
 					payload: {
 						documentFileId: file.id,
 						ocrStatus: extraction.status,
-						pageCount: pages.length,
+						pageCount,
 					},
 				});
 				return row;

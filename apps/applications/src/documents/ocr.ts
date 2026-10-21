@@ -20,12 +20,16 @@ export interface ExtractedPage {
 	text: string;
 	source: TextSource;
 	confidence: number;
+	/** Actual 1-based source page (PDF blank pages may be omitted). */
+	pageNumber?: number;
 }
 
 export interface ExtractionResult {
 	status: Exclude<OcrStatus, "not_applicable">;
 	pages: ExtractedPage[];
 	textLayerRisk: boolean;
+	/** Actual source page count when known (may exceed extracted pages). */
+	pageCount?: number;
 }
 
 export interface OcrLimits {
@@ -271,17 +275,28 @@ export function createPdfOcrAdapter(): Pick<OcrAdapter, "extractPdf"> {
 								const text = truncateUtf8(raw, limits.maxPageTextBytes);
 								if (total + Buffer.byteLength(text, "utf8") > limits.maxTotalTextBytes) break;
 								total += Buffer.byteLength(text, "utf8");
-								pages.push({ text, source: "pdf_text", confidence: 1.0 });
+								pages.push({
+									text,
+									source: "pdf_text",
+									confidence: 1.0,
+									pageNumber: n,
+								});
 							}
 							await page.cleanup();
 						}
 						if (pages.length === 0) {
-							return { status: "unsupported", pages: [], textLayerRisk: risk };
+							return {
+								status: "unsupported",
+								pages: [],
+								textLayerRisk: risk,
+								pageCount: doc.numPages,
+							};
 						}
 						return {
 							status: risk ? "low_confidence" : "ready",
 							pages,
 							textLayerRisk: risk,
+							pageCount: doc.numPages,
 						};
 					} finally {
 						await loadingTask.destroy().catch(() => {});
@@ -347,12 +362,19 @@ export function createImageOcrAdapter(opts: ImageOcrOptions): Pick<OcrAdapter, "
 						holder.worker = created;
 						const result = await created.recognize(bytes);
 						const text = truncateUtf8(result.data.text.trim(), limits.maxTotalTextBytes);
-						if (text === "") return { status: "unsupported", pages: [], textLayerRisk: false };
+						if (text === "")
+							return {
+								status: "unsupported",
+								pages: [],
+								textLayerRisk: false,
+								pageCount: 1,
+							};
 						const confidence = Math.min(1, Math.max(0, (result.data.confidence ?? 0) / 100));
 						return {
 							status: confidence < limits.minConfidence ? "low_confidence" : "ready",
-							pages: [{ text, source: "ocr", confidence }],
+							pages: [{ text, source: "ocr", confidence, pageNumber: 1 }],
 							textLayerRisk: false,
+							pageCount: 1,
 						};
 					},
 					() => holder.worker?.terminate().catch(() => {}),
