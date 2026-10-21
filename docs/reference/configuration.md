@@ -1,4 +1,4 @@
-# Configuration Reference
+﻿# Configuration Reference
 
 Every environment variable, its consumers, and its default. Audience: developer or operator configuring the stack. Outcome: a correct `.env` for local runs and containers.
 
@@ -73,7 +73,7 @@ Every environment variable, its consumers, and its default. Audience: developer 
 | `DOCUMENT_OCR_TIMEOUT_MS`                 | Applications                                              | Default `20000`                                                         | pdfjs/tesseract bound per extraction                                                                                                                         |
 | `DOCUMENT_OCR_CONCURRENCY`                | Applications                                              | Default `2`                                                             | Process-wide extractions; saturated → 429 `OCR_BUSY`                                                                                                         |
 | `DOCUMENT_UPLOAD_RATE_PER_MIN`            | Applications                                              | Default `5`                                                             | Per-application upload rate                                                                                                                                  |
-| `DOCUMENT_OCR_DATA_DIR`                   | Applications                                              | Optional                                                                | Vendored tesseract data (no runtime CDN); PDF text extraction needs none                                                                                     |
+| `DOCUMENT_OCR_DATA_DIR`                   | Applications                                              | Default `apps/applications/assets/tesseract`                            | Vendored tesseract data (no runtime CDN); PDF text extraction needs none                                                                                     |
 | `DOCUMENT_RETENTION_DAYS`                 | Applications                                              | Default `90`                                                            | Blob/page TTL; consent withdrawal sets `retention_until=now()`; legal hold blocks deletion                                                                   |
 | `DOCUMENT_SCANNER`                        | Applications                                              | Default `clamd`                                                         | `clamd` in dev/prod; `test` only under `NODE_ENV=test`                                                                                                       |
 | `CLAMAV_HOST` / `CLAMAV_PORT`             | Applications                                              | Default `127.0.0.1` / `3310`                                            | ClamAV daemon; compose `microservices` profile runs one as `clamav:3310`                                                                                     |
@@ -159,8 +159,8 @@ AGENT_CASE_BRIEF_ENABLED=false
 AGENT_AUTO_TRIGGER_ENABLED=false
 # T01/T02 document workflow (SPEC-t01-t02): off by default. Uploads need the
 # flag, an encryption key, a storage dir, and a ClamAV daemon; PDF text needs
-# no OCR assets, image OCR needs DOCUMENT_OCR_DATA_DIR. See README "Document
-# workflow" for run instructions and v1 limitations.
+# no OCR assets; image OCR uses the vendored app asset by default. See README
+# "Document workflow" for run instructions and v1 limitations.
 DOCUMENT_FEATURE_ENABLED=false
 DOCUMENT_STORAGE_DIR=.data/documents
 DOCUMENT_ENCRYPTION_KEY=

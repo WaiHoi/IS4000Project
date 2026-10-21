@@ -98,9 +98,10 @@ CLAMAV_PORT=3310
 
 The scanner needs a ClamAV daemon: run one locally on `:3310`, or start the
 `microservices` overlay (`compose.services.yml` runs `clamav:3310` with
-`CLAMAV_HOST=clamav` plus the encrypted `documents` volume). Image OCR needs
-`DOCUMENT_OCR_DATA_DIR` with vendored tesseract data (no runtime CDN); text
-PDFs need no OCR assets. Missing key/scanner fails uploads closed (503)
+`CLAMAV_HOST=clamav` plus the encrypted `documents` volume). Image OCR uses
+the vendored `apps/applications/assets/tesseract/eng.traineddata.gz`; set
+`DOCUMENT_OCR_DATA_DIR` only to override it (no runtime CDN). Text PDFs need
+no OCR assets. Missing key/scanner fails uploads closed (503)
 without affecting readiness or decisions; the UI panel hides while the flag
 is off and the mock Verification checklist is untouched.
 
