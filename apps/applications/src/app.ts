@@ -31,13 +31,13 @@ export interface ApplicationsDeps {
 
 /** Test seam: pass fakes for gateway/db; the production server wires the real ones. */
 export function createApp(deps: ApplicationsDeps): ServiceApp {
+	const documentConfig = { ...configFromEnv(deps.env), ...deps.documents?.config };
 	const routes: ServiceApp = applicationsRoutes({
 		db: deps.db,
 		gateway: deps.gateway,
 		logger: deps.logger,
-		documentsEnabled: deps.env.documents.featureEnabled,
+		documentsEnabled: documentConfig.featureEnabled,
 	});
-	const documentConfig = { ...configFromEnv(deps.env), ...deps.documents?.config };
 	routes.route(
 		"/",
 		internalRoutes({

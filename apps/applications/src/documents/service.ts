@@ -417,8 +417,10 @@ export class DocumentService {
 
 		try {
 			assertSize(bytes, config.maxBytes);
-		} catch {
-			await failRow("FILE_TOO_LARGE", 413);
+		} catch (err) {
+			const code = err instanceof HttpError ? err.code : "FILE_TOO_LARGE";
+			const status = err instanceof HttpError ? err.status : 413;
+			await failRow(code, status);
 			throw new HttpError(500, "INTERNAL_ERROR", "internal error"); // unreachable
 		}
 		let detected: DetectedType;
@@ -755,6 +757,26 @@ export class DocumentService {
 					.where(eq(applications.id, input.applicationId));
 				if (!apps[0]?.documentProcessingConsent) {
 					throw new HttpError(403, "CONSENT_REQUIRED", "document processing consent is required");
+				}
+				// Re-read under the shared lock: retention may have tombstoned
+				// the file while OCR was running outside the transaction.
+				const locked = await tx
+					.select()
+					.from(documentFiles)
+					.where(eq(documentFiles.id, file.id))
+					.for("update");
+				const fresh = locked[0];
+				if (
+					!fresh ||
+					fresh.status !== "ready" ||
+					(fresh.ocrStatus !== "failed" && fresh.ocrStatus !== "unsupported") ||
+					fresh.blobPurgedAt !== null
+				) {
+					throw new HttpError(
+						409,
+						"OCR_NOT_RETRYABLE",
+						"the document changed while text extraction was running",
+					);
 				}
 				const confidences = pages.map((p) => p.confidence);
 				const [row] = await tx

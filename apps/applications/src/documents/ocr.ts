@@ -323,7 +323,8 @@ export function createImageOcrAdapter(opts: ImageOcrOptions): Pick<OcrAdapter, "
 			limits: OcrLimits,
 		): Promise<ExtractionResult> {
 			const dims = parseImageDimensions(bytes, imageType);
-			if (dims && dims.width * dims.height > limits.maxPixels) {
+			if (!dims) throw new OcrFailed("IMAGE_DIMENSIONS_UNKNOWN");
+			if (dims.width * dims.height > limits.maxPixels) {
 				throw new OcrFailed("IMAGE_TOO_LARGE");
 			}
 			// No vendored assets → never hang, never hit network.

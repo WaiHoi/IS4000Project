@@ -38,7 +38,10 @@ const parsed = createEnv({
 		DOCUMENT_OCR_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
 		DOCUMENT_OCR_CONCURRENCY: z.coerce.number().int().positive().default(2),
 		DOCUMENT_UPLOAD_RATE_PER_MIN: z.coerce.number().int().positive().default(5),
-		DOCUMENT_OCR_DATA_DIR: z.string().min(1).optional(),
+		DOCUMENT_OCR_DATA_DIR: z
+			.string()
+			.min(1)
+			.default(fileURLToPath(new URL("../assets/tesseract", import.meta.url))),
 		DOCUMENT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
 		DOCUMENT_SCANNER: z.string().min(1).default("clamd"),
 		CLAMAV_HOST: z.string().min(1).default("127.0.0.1"),

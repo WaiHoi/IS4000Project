@@ -391,6 +391,7 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 		const me = c.var.user;
 		const id = c.req.param("id");
 		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		if (!documentsEnabled) throw new HttpError(404, "NOT_FOUND", "not found");
 		const parsed = documentConsentSchema.safeParse(await readJson(c));
 		if (!parsed.success) {
 			throw new HttpError(400, "VALIDATION_ERROR", "invalid consent", zodFields(parsed.error));

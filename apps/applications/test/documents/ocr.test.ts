@@ -129,14 +129,21 @@ describe("image dimension preparsing", () => {
 		big.writeUInt32BE(5000, 20);
 		const adapter = createImageOcrAdapter({ dataDir: undefined, timeoutMs: 2000 });
 		await expect(adapter.extractImage(big, "png", LIMITS)).rejects.toThrow("IMAGE_TOO_LARGE");
-		const t0 = Date.now();
 		await expect(
 			adapter.extractImage(Buffer.from("89504e47", "hex"), "png", LIMITS),
-		).rejects.toThrow("OCR_DATA_MISSING");
+		).rejects.toThrow("IMAGE_DIMENSIONS_UNKNOWN");
+		const small = Buffer.alloc(24);
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(small, 0);
+		small.writeUInt32BE(13, 8);
+		small.write("IHDR", 12);
+		small.writeUInt32BE(100, 16);
+		small.writeUInt32BE(100, 20);
+		const t0 = Date.now();
+		await expect(adapter.extractImage(small, "png", LIMITS)).rejects.toThrow("OCR_DATA_MISSING");
 		expect(Date.now() - t0).toBeLessThan(2000);
 		await expect(
 			createImageOcrAdapter({ dataDir: "/nonexistent-ocr-dir", timeoutMs: 2000 }).extractImage(
-				Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+				small,
 				"png",
 				LIMITS,
 			),

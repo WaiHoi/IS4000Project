@@ -816,6 +816,42 @@ export async function runDocumentCrosscheck(
 	}
 }
 
+/** Re-check citations against current page text. Findings are immutable in
+ * normal operation, but OCR retry/retention or DB tampering must never make
+ * the API or a chase draft cite a quote that is no longer present. */
+async function validFindings(
+	db: Db | Tx,
+	findings: Array<typeof documentFindings.$inferSelect>,
+): Promise<Array<typeof documentFindings.$inferSelect>> {
+	const fileIds = [
+		...new Set(findings.flatMap((f) => (f.documentFileId ? [f.documentFileId] : []))),
+	];
+	if (fileIds.length === 0) return findings;
+	const pages = await db
+		.select({
+			documentFileId: documentPages.documentFileId,
+			pageNumber: documentPages.pageNumber,
+			text: documentPages.text,
+		})
+		.from(documentPages)
+		.where(inArray(documentPages.documentFileId, fileIds));
+	const byPage = new Map(pages.map((p) => [`${p.documentFileId}:${p.pageNumber}`, p.text]));
+	return findings.filter((f) => {
+		if (!f.documentFileId || f.pageNumber === null) {
+			return f.status === "needs_chase";
+		}
+		if (f.quote === null || f.quoteStart === null || f.quoteEnd === null || f.quoteHash === null) {
+			return f.status === "needs_chase";
+		}
+		const page = byPage.get(`${f.documentFileId}:${f.pageNumber}`);
+		if (page === undefined) return false;
+		return (
+			codePointSlice(page, f.quoteStart, f.quoteEnd) === f.quote &&
+			quoteHashFor(f.quote) === f.quoteHash
+		);
+	});
+}
+
 /** Latest run for an application (null when never run). Findings are scoped
  * to the same application — a cross-app id can never match. */
 export async function getLatestCrosscheck(
@@ -840,7 +876,10 @@ export async function getLatestCrosscheck(
 			),
 		)
 		.orderBy(documentFindings.createdAt, documentFindings.id);
-	return { crosscheck: presentCrosscheck(crosscheck), findings: findings.map(presentFinding) };
+	const valid = await validFindings(db, findings);
+	const presented = presentCrosscheck(crosscheck);
+	presented.findingCount = valid.length;
+	return { crosscheck: presented, findings: valid.map(presentFinding) };
 }
 
 // --- Draft chase ---
@@ -917,6 +956,14 @@ export async function createChaseDraft(
 		) {
 			throw new HttpError(404, "NOT_FOUND", "not found");
 		}
+		const current = await validFindings(tx, selected);
+		if (current.length !== selected.length) {
+			throw new HttpError(
+				409,
+				"STALE_CITATION",
+				"a selected citation no longer matches the document; rerun the cross-check",
+			);
+		}
 		const selectedFileIds = [
 			...new Set(selected.flatMap((f) => (f.documentFileId ? [f.documentFileId] : []))),
 		];
@@ -939,11 +986,11 @@ export async function createChaseDraft(
 				return typeof payload?.["documentFileId"] === "string" ? [payload["documentFileId"]] : [];
 			}),
 		);
-		if (!selectedFileIds.some((id) => opened.has(id))) {
+		if (selectedFileIds.length === 0 || !selectedFileIds.every((id) => opened.has(id))) {
 			throw new HttpError(
 				409,
 				"ORIGINAL_NOT_OPENED",
-				"open the original document before drafting a chase",
+				"open every cited original document before drafting a chase",
 			);
 		}
 		const now = new Date();

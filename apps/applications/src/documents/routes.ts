@@ -4,7 +4,7 @@
 // is 403 CONSENT_REQUIRED; cross-applicant/officer is a non-leaking 404.
 // T02 cross-check/chase (D2) live here too: assigned-officer only, no-store,
 // ids-only audits.
-import { withTx, type Db } from "@credit/db/applications";
+import { withTx, applications, type Db } from "@credit/db/applications";
 import {
 	HttpError,
 	readJson,
@@ -14,6 +14,7 @@ import {
 	type ServiceApp,
 } from "@credit/service-kit";
 import { Hono } from "hono";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { claimAssignedOfficer, resolveDocumentAccess } from "./access.js";
 import { createChaseDraft, getLatestCrosscheck, runDocumentCrosscheck } from "./crosscheck.js";
@@ -68,6 +69,28 @@ export function documentRoutes(deps: DocumentRouteDeps): ServiceApp {
 	const app: ServiceApp = new Hono();
 	const { db, config, service, logger } = deps;
 
+	const auditDenied = async (
+		applicationId: string,
+		user: { id: string; role: string },
+		action: string,
+	): Promise<void> => {
+		const exists = await db
+			.select({ id: applications.id })
+			.from(applications)
+			.where(eq(applications.id, applicationId))
+			.limit(1);
+		if (exists.length === 0) return;
+		await withTx(db, async (tx) => {
+			await writeAudit(tx, {
+				applicationId,
+				actor: user.id,
+				action: "access.denied",
+				entity: "document_file",
+				payload: { applicationId, role: user.role, attemptedAction: action },
+			});
+		});
+	};
+
 	/** Feature → access → consent gate shared by every document route. */
 	const gate = async (c: {
 		req: { param: (name: string) => string };
@@ -77,7 +100,10 @@ export function documentRoutes(deps: DocumentRouteDeps): ServiceApp {
 		if (!UUID_RE.test(applicationId)) throw new HttpError(404, "NOT_FOUND", "not found");
 		if (!config.featureEnabled) throw new HttpError(404, "NOT_FOUND", "not found");
 		const resolved = await resolveDocumentAccess(db, applicationId, c.var.user);
-		if (!resolved) throw new HttpError(404, "NOT_FOUND", "not found");
+		if (!resolved) {
+			await auditDenied(applicationId, c.var.user, "document_read");
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
 		if (!resolved.application.documentProcessingConsent) {
 			throw new HttpError(403, "CONSENT_REQUIRED", "document processing consent is required");
 		}
@@ -111,8 +137,12 @@ export function documentRoutes(deps: DocumentRouteDeps): ServiceApp {
 		if (!UUID_RE.test(applicationId)) throw new HttpError(404, "NOT_FOUND", "not found");
 		if (!config.featureEnabled) throw new HttpError(404, "NOT_FOUND", "not found");
 		const resolved = await resolveDocumentAccess(db, applicationId, c.var.user);
-		if (!resolved) throw new HttpError(404, "NOT_FOUND", "not found");
+		if (!resolved) {
+			await auditDenied(applicationId, c.var.user, "document_crosscheck");
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
 		if (resolved.access !== "assigned") {
+			await auditDenied(applicationId, c.var.user, "document_crosscheck");
 			throw new HttpError(403, "FORBIDDEN", "assigned officers only");
 		}
 		if (!resolved.application.documentProcessingConsent) {
