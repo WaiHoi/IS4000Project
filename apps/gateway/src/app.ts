@@ -119,6 +119,67 @@ export function createApp(deps: GatewayDeps): Hono<{ Variables: Variables }> {
 		});
 	});
 
+	// T17 intake (SPEC-t17-t18 §2.3): draft create + submit ride the submit
+	// limiter and the long timeout (submit starts the workflow); the
+	// checklist, consent, and customer reads proxy with the normal bound.
+	app.post("/api/applications/drafts", user, async (c) => {
+		const me = c.var.user;
+		if (me.role !== "applicant") {
+			throw new HttpError(403, "FORBIDDEN", "applicants only");
+		}
+		if (!deps.submitLimiter.check(me.id)) {
+			throw new HttpError(429, "RATE_LIMITED", "too many submissions");
+		}
+		const key = c.req.header("Idempotency-Key")?.trim();
+		if (!key) {
+			throw new HttpError(400, "MISSING_IDEMPOTENCY_KEY", "Idempotency-Key header is required");
+		}
+		return proxyTo(
+			c,
+			deps,
+			me,
+			{ baseUrl: deps.env.applicationsUrl, path: "/api/applications/drafts" },
+			LONG_UPSTREAM_TIMEOUT_MS,
+		);
+	});
+
+	app.post("/api/applications/:id/submit", user, async (c) => {
+		const me = c.var.user;
+		if (me.role !== "applicant") {
+			throw new HttpError(403, "FORBIDDEN", "applicants only");
+		}
+		if (!deps.submitLimiter.check(me.id)) {
+			throw new HttpError(429, "RATE_LIMITED", "too many submissions");
+		}
+		const key = c.req.header("Idempotency-Key")?.trim();
+		if (!key) {
+			throw new HttpError(400, "MISSING_IDEMPOTENCY_KEY", "Idempotency-Key header is required");
+		}
+		const path = new URL(c.req.url).pathname;
+		return proxyTo(
+			c,
+			deps,
+			me,
+			{ baseUrl: deps.env.applicationsUrl, path },
+			LONG_UPSTREAM_TIMEOUT_MS,
+		);
+	});
+
+	app.get("/api/applications/:id/requirements", user, async (c) => {
+		const path = new URL(c.req.url).pathname;
+		return proxyTo(c, deps, c.var.user, { baseUrl: deps.env.applicationsUrl, path });
+	});
+
+	app.patch("/api/applications/:id/context-consent", user, async (c) => {
+		const path = new URL(c.req.url).pathname;
+		return proxyTo(c, deps, c.var.user, { baseUrl: deps.env.applicationsUrl, path });
+	});
+
+	app.all("/api/customer/*", user, async (c) => {
+		const path = new URL(c.req.url).pathname;
+		return proxyTo(c, deps, c.var.user, { baseUrl: deps.env.applicationsUrl, path });
+	});
+
 	app.get("/api/applications", user, async (c) => {
 		return proxyTo(c, deps, c.var.user, {
 			baseUrl: deps.env.applicationsUrl,

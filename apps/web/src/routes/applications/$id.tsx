@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CaseView } from "../../components/CaseView";
+import { CustomerSnapshot, RequirementsPanel } from "../../components/RequirementsPanel";
 import { DocumentPanel } from "../../components/DocumentPanel";
 import { EmptyState, ErrorBox, Page, Skeleton } from "../../components/ui";
 import { ApiError, api, apiErrorMessage, type CaseDetail, isTerminal } from "../../lib/api";
@@ -52,6 +53,13 @@ function Detail() {
 						</p>
 					)}
 					<CaseView data={detail.data} />
+					{(detail.data.application.status === "draft" ||
+						detail.data.application.status === "submitted") && (
+						<>
+							<RequirementsPanel applicationId={id} status={detail.data.application.status} />
+							<CustomerSnapshot />
+						</>
+					)}
 					<DocumentPanel
 						applicationId={id}
 						mode="applicant"

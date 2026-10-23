@@ -34,15 +34,20 @@ export class Api {
 		this.cookie = session;
 	}
 
-	private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
-		const headers: Record<string, string> = { cookie: this.cookie };
-		if (body !== undefined) headers["content-type"] = "application/json";
+	private async req<T>(
+		method: string,
+		path: string,
+		body?: unknown,
+		headers?: Record<string, string>,
+	): Promise<T> {
+		const hdrs: Record<string, string> = { cookie: this.cookie, ...headers };
+		if (body !== undefined) hdrs["content-type"] = "application/json";
 		if (path === "/api/applications" && method === "POST") {
-			headers["Idempotency-Key"] = crypto.randomUUID();
+			hdrs["Idempotency-Key"] = crypto.randomUUID();
 		}
 		const res = await fetch(`${API_BASE}${path}`, {
 			method,
-			headers,
+			headers: hdrs,
 			body: body === undefined ? undefined : JSON.stringify(body),
 		});
 		let data: unknown = null;
@@ -66,8 +71,23 @@ export class Api {
 		return this.req<T>("GET", path);
 	}
 
-	post<T>(path: string, body?: unknown): Promise<T> {
-		return this.req<T>("POST", path, body);
+	post<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
+		return this.req<T>("POST", path, body, headers);
+	}
+
+	/** Raw POST surfacing status/code without throwing (for 409 assertions). */
+	async postRaw(
+		path: string,
+		body?: unknown,
+		headers?: Record<string, string>,
+	): Promise<{ status: number; code: string }> {
+		try {
+			await this.req<unknown>("POST", path, body, headers);
+			return { status: 200, code: "OK" };
+		} catch (err) {
+			if (err instanceof ApiError) return { status: err.status, code: err.code };
+			throw err;
+		}
 	}
 }
 

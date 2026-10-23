@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { resolveWorkspacePath } from "@credit/core";
 import { MAX_UPLOAD_BYTES } from "@credit/service-kit";
 import { createEnv } from "@t3-oss/env-core";
 import dotenv from "dotenv";
@@ -47,6 +48,41 @@ const parsed = createEnv({
 		CLAMAV_HOST: z.string().min(1).default("127.0.0.1"),
 		CLAMAV_PORT: z.coerce.number().int().min(1).max(65_535).default(3310),
 		DOCUMENT_CROSSCHECK_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.7),
+		// T17 customer evidence + intake (SPEC-t17-t18 §2/§5). The customer
+		// blob root is disjoint from DOCUMENT_STORAGE_DIR so the T01 app
+		// orphan sweep can never touch it. DEMO_AS_OF is the fixed fixture
+		// clock (the D2 manifest owns the canonical value).
+		CUSTOMER_STORAGE_DIR: z.string().min(1).default(".data/customer-documents"),
+		CUSTOMER_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+		// T18 internal context reads (SPEC-t17-t18 §3.2/§3.3/§5, D3a).
+		// Thresholds feed the deterministic v1 candidate signals; page and
+		// account caps bound the service-only routes. Upper bounds fail
+		// closed at boot so an operator cannot widen the tool budget.
+		CONTEXT_HISTORY_MONTHS: z.coerce.number().int().min(1).max(36).default(6),
+		CONTEXT_NEGATIVE_BALANCE_DAYS: z.coerce.number().int().min(1).default(3),
+		CONTEXT_REVENUE_CONCENTRATION_PCT: z.coerce.number().min(1).max(100).default(40),
+		CONTEXT_CASH_DEPOSIT_PCT: z.coerce.number().min(1).max(100).default(25),
+		CONTEXT_FCF_VARIANCE_PCT: z.coerce.number().min(1).max(100).default(30),
+		CONTEXT_CURSOR_SECRET: z.string().min(16).optional(),
+		CONTEXT_TRANSACTIONS_PAGE_LIMIT: z.coerce.number().int().min(1).max(500).default(500),
+		CONTEXT_TRANSACTIONS_MAX_PAGES: z.coerce.number().int().min(1).max(10).default(2),
+		CONTEXT_METRICS_MAX_ACCOUNTS: z.coerce.number().int().min(1).max(10).default(10),
+		DEMO_MODE: z.enum(["true", "false"]).default("false"),
+		DEMO_AS_OF: z
+			.string()
+			.regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
+			.default("2026-06-30"),
+		// D2a demo fixtures/reset (SPEC-t17-t18 §2.5): the seed version must
+		// match the manifest; reset is destructive and never allowed in prod.
+		DEMO_SEED_VERSION: z.string().min(1).default("1"),
+		DEMO_RESET_ALLOWED: z.enum(["true", "false"]).default("false"),
+		NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+		// T18 context purge callback (SPEC-t17-t18 §4): when context consent
+		// is withdrawn, PATCH best-effort notifies the research service
+		// (service HMAC) to purge stored brief/signals. Unset (tests, local
+		// dev without research) disables the callback — read gating on the
+		// live consent flag still hides prior context immediately.
+		RESEARCH_URL: z.string().url().optional(),
 		// HTTP body cap for the multipart upload path only (10 MB file +
 		// overhead); every other /api/* route keeps the 100 KB JSON bound.
 		DOCUMENT_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(MAX_UPLOAD_BYTES),
@@ -65,7 +101,9 @@ export const env = {
 	documentUploadMaxBytes: parsed.DOCUMENT_UPLOAD_MAX_BYTES,
 	documents: {
 		featureEnabled: parsed.DOCUMENT_FEATURE_ENABLED === "true",
-		storageDir: parsed.DOCUMENT_STORAGE_DIR,
+		// Relative roots anchor at the workspace root: services run with
+		// cwd=package dir under `pnpm --filter`, scripts with cwd=root.
+		storageDir: resolveWorkspacePath(parsed.DOCUMENT_STORAGE_DIR),
 		encryptionKey: parsed.DOCUMENT_ENCRYPTION_KEY,
 		keyId: parsed.DOCUMENT_KEY_ID,
 		previousKeys: parsed.DOCUMENT_PREVIOUS_KEYS,
@@ -87,6 +125,30 @@ export const env = {
 		clamavPort: parsed.CLAMAV_PORT,
 		crosscheckMinConfidence: parsed.DOCUMENT_CROSSCHECK_MIN_CONFIDENCE,
 	},
+	customer: {
+		storageDir: resolveWorkspacePath(parsed.CUSTOMER_STORAGE_DIR),
+		retentionDays: parsed.CUSTOMER_RETENTION_DAYS,
+	},
+	context: {
+		historyMonths: parsed.CONTEXT_HISTORY_MONTHS,
+		negativeBalanceDays: parsed.CONTEXT_NEGATIVE_BALANCE_DAYS,
+		revenueConcentrationPct: parsed.CONTEXT_REVENUE_CONCENTRATION_PCT,
+		cashDepositSharePct: parsed.CONTEXT_CASH_DEPOSIT_PCT,
+		fcfVariancePct: parsed.CONTEXT_FCF_VARIANCE_PCT,
+		cursorSecret: parsed.CONTEXT_CURSOR_SECRET,
+		pageLimit: parsed.CONTEXT_TRANSACTIONS_PAGE_LIMIT,
+		maxPages: parsed.CONTEXT_TRANSACTIONS_MAX_PAGES,
+		maxAccounts: parsed.CONTEXT_METRICS_MAX_ACCOUNTS,
+	},
+	demo: {
+		mode: parsed.DEMO_MODE === "true",
+		asOf: new Date(`${parsed.DEMO_AS_OF}T00:00:00Z`),
+		asOfRaw: parsed.DEMO_AS_OF,
+		seedVersion: parsed.DEMO_SEED_VERSION,
+		resetAllowed: parsed.DEMO_RESET_ALLOWED === "true",
+	},
+	researchUrl: parsed.RESEARCH_URL,
+	nodeEnv: parsed.NODE_ENV,
 };
 
 export type ApplicationsEnv = typeof env;

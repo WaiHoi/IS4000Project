@@ -1,0 +1,787 @@
+{
+	"version": 1,
+	"demoAsOf": "2026-06-30",
+	"sha256": "60cd32d3ce7263e7ced7765f475f3cb9f91ddcbfe362fe0a34c9b4852b72ca63",
+	"notes": "T17 deterministic demo fixtures (SPEC-t17-t18 §2.5). DEMO_AS_OF is the fixed fixture clock: all freshness, requirements, reuse, submit, and T11 asOf evaluate against it for fixture-owned rows. BreadTalk is the stale-blocker demo: valid KYC with a bank statement at DEMO_AS_OF-120d and financial statements at DEMO_AS_OF-24mo. Fresh variants ship only via demo:refresh-evidence and never auto-attach. alex is the fresh standard persona (existing demo user). sparse is the insufficient-data persona (verified KYC, no accounts/transactions/evidence). Transaction amounts are integer cents; credits positive, debits negative. Page text lines double as the deterministic PDF body so reused copies produce the declared T02 findings (matching Company Name / Registration No / Account Holder labels; id/payslip/financial_statements are needs_chase until a dedicated T02 rule exists). Expected T18 candidate signal types are deterministic-stub (demo:context-stub) expectations: demo:verify pins exact types for stub runs whose context stage succeeded, and live succeeded runs must be non-empty and use only deterministic metric types; flags-off, absent-run, and T18-disabled (skipped/failed/not_applicable) cases are a passing seam, never a failure.",
+	"personas": {
+		"breadtalk": {
+			"email": "breadtalk@example.com",
+			"fullName": "BreadTalk Demo",
+			"role": "applicant",
+			"newUser": true,
+			"profile": {
+				"segment": "sme",
+				"customerSince": "2019-03-01",
+				"kycStatus": "verified",
+				"kycVerifiedAt": "2025-01-01T00:00:00Z",
+				"kycExpiresAt": "2028-01-01T00:00:00Z",
+				"identity": {
+					"fullName": "Baker Tan",
+					"dob": "1985-08-12",
+					"nationalId": "BTDEMO01",
+					"email": "breadtalk@example.com",
+					"phone": "+65-6100-8818",
+					"address": "9 Baked Street",
+					"city": "Singapore"
+				},
+				"business": {
+					"companyName": "BreadTalk Demo Pte Ltd",
+					"registrationNumber": "BT201901",
+					"industry": "retail",
+					"yearsTrading": 7,
+					"employees": 12,
+					"annualRevenueCents": 120000000,
+					"monthlyFcfCents": 8000000,
+					"existingDebtServiceCents": 1000000
+				}
+			},
+			"accounts": [
+				{
+					"id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+					"bankName": "Demo Bank",
+					"accountType": "business_current",
+					"maskedNumber": "****8818",
+					"currency": "SGD",
+					"openedAt": "2019-04-01",
+					"status": "active"
+				}
+			],
+			"transactions": [
+				{
+					"sourceReference": "bt-0001",
+					"postedAt": "2026-01-06T10:00:00Z",
+					"amountCents": 1200000,
+					"balanceAfterCents": 6200000,
+					"currency": "SGD",
+					"description": "Daily sales settlement",
+					"counterparty": "NETS settlement",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0002",
+					"postedAt": "2026-01-12T10:00:00Z",
+					"amountCents": -850000,
+					"balanceAfterCents": 5350000,
+					"currency": "SGD",
+					"description": "Staff payroll Jan",
+					"counterparty": null,
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0003",
+					"postedAt": "2026-01-15T10:00:00Z",
+					"amountCents": 600000,
+					"balanceAfterCents": 5950000,
+					"currency": "SGD",
+					"description": "Cash takings banked",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0004",
+					"postedAt": "2026-01-20T10:00:00Z",
+					"amountCents": -320000,
+					"balanceAfterCents": 5630000,
+					"currency": "SGD",
+					"description": "Flour supplier",
+					"counterparty": "Prima Flour",
+					"category": "purchase",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0005",
+					"postedAt": "2026-01-28T10:00:00Z",
+					"amountCents": 1150000,
+					"balanceAfterCents": 6780000,
+					"currency": "SGD",
+					"description": "Corporate catering",
+					"counterparty": "Catering client",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0006",
+					"postedAt": "2026-02-03T10:00:00Z",
+					"amountCents": -500000,
+					"balanceAfterCents": 6280000,
+					"currency": "SGD",
+					"description": "Transfer to fixed deposit",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0007",
+					"postedAt": "2026-02-04T10:00:00Z",
+					"amountCents": 500000,
+					"balanceAfterCents": 6780000,
+					"currency": "SGD",
+					"description": "Fixed deposit matured",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0008",
+					"postedAt": "2026-02-10T10:00:00Z",
+					"amountCents": 580000,
+					"balanceAfterCents": 7360000,
+					"currency": "SGD",
+					"description": "Cash takings banked",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0009",
+					"postedAt": "2026-02-18T10:00:00Z",
+					"amountCents": -12000,
+					"balanceAfterCents": 7348000,
+					"currency": "SGD",
+					"description": "Bank charges",
+					"counterparty": null,
+					"category": "fee",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0010",
+					"postedAt": "2026-02-25T10:00:00Z",
+					"amountCents": 1300000,
+					"balanceAfterCents": 8648000,
+					"currency": "SGD",
+					"description": "Daily sales settlement",
+					"counterparty": "NETS settlement",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0011",
+					"postedAt": "2026-03-02T10:00:00Z",
+					"amountCents": -1000000,
+					"balanceAfterCents": 7648000,
+					"currency": "SGD",
+					"description": "Debt service Mar",
+					"counterparty": null,
+					"category": "loan",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0012",
+					"postedAt": "2026-03-10T10:00:00Z",
+					"amountCents": -500000,
+					"balanceAfterCents": 7148000,
+					"currency": "SGD",
+					"description": "Supplier advance",
+					"counterparty": "Prima Flour",
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0013",
+					"postedAt": "2026-03-12T10:00:00Z",
+					"amountCents": 500000,
+					"balanceAfterCents": 7648000,
+					"currency": "SGD",
+					"description": "Supplier advance refunded",
+					"counterparty": "Prima Flour",
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0014",
+					"postedAt": "2026-03-15T10:00:00Z",
+					"amountCents": 620000,
+					"balanceAfterCents": 8268000,
+					"currency": "SGD",
+					"description": "Cash takings banked",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0015",
+					"postedAt": "2026-03-28T10:00:00Z",
+					"amountCents": 1250000,
+					"balanceAfterCents": 9518000,
+					"currency": "SGD",
+					"description": "Delivery platform payout",
+					"counterparty": "Delivery platform",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0016",
+					"postedAt": "2026-04-05T10:00:00Z",
+					"amountCents": -850000,
+					"balanceAfterCents": 8668000,
+					"currency": "SGD",
+					"description": "Staff payroll Apr",
+					"counterparty": null,
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0017",
+					"postedAt": "2026-04-11T10:00:00Z",
+					"amountCents": 590000,
+					"balanceAfterCents": 9258000,
+					"currency": "SGD",
+					"description": "Cash takings banked",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0018",
+					"postedAt": "2026-04-20T10:00:00Z",
+					"amountCents": -310000,
+					"balanceAfterCents": 8948000,
+					"currency": "SGD",
+					"description": "Oven maintenance",
+					"counterparty": null,
+					"category": "purchase",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0019",
+					"postedAt": "2026-04-27T10:00:00Z",
+					"amountCents": 1280000,
+					"balanceAfterCents": 10228000,
+					"currency": "SGD",
+					"description": "Daily sales settlement",
+					"counterparty": "NETS settlement",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0020",
+					"postedAt": "2026-05-03T10:00:00Z",
+					"amountCents": -750000,
+					"balanceAfterCents": 9478000,
+					"currency": "SGD",
+					"description": "Rental deposit new outlet",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0021",
+					"postedAt": "2026-05-07T10:00:00Z",
+					"amountCents": 750000,
+					"balanceAfterCents": 10228000,
+					"currency": "SGD",
+					"description": "Rental deposit returned",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0022",
+					"postedAt": "2026-05-15T10:00:00Z",
+					"amountCents": 610000,
+					"balanceAfterCents": 10838000,
+					"currency": "SGD",
+					"description": "Cash takings banked",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0023",
+					"postedAt": "2026-05-28T10:00:00Z",
+					"amountCents": 1320000,
+					"balanceAfterCents": 12158000,
+					"currency": "SGD",
+					"description": "Corporate catering",
+					"counterparty": "Catering client",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0024",
+					"postedAt": "2026-06-02T10:00:00Z",
+					"amountCents": -85000,
+					"balanceAfterCents": 12073000,
+					"currency": "SGD",
+					"description": "Cheque returned unpaid",
+					"counterparty": null,
+					"category": "returned_payment",
+					"returned": true
+				},
+				{
+					"sourceReference": "bt-0025",
+					"postedAt": "2026-06-10T10:00:00Z",
+					"amountCents": 600000,
+					"balanceAfterCents": 12673000,
+					"currency": "SGD",
+					"description": "Cash takings banked",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "bt-0026",
+					"postedAt": "2026-06-20T10:00:00Z",
+					"amountCents": 1260000,
+					"balanceAfterCents": 13933000,
+					"currency": "SGD",
+					"description": "Delivery platform payout",
+					"counterparty": "Delivery platform",
+					"category": "income",
+					"returned": false
+				}
+			],
+			"evidence": [
+				{
+					"fixtureKey": "id",
+					"kind": "id",
+					"originalFilename": "breadtalk-id.pdf",
+					"documentDate": "2025-01-15",
+					"periodEnd": null,
+					"title": "BreadTalk Demo — Identity Document",
+					"lines": [
+						"Identity Document",
+						"Full Name: Baker Tan",
+						"National ID: BTDEMO01",
+						"Issued: 2025-01-15"
+					]
+				},
+				{
+					"fixtureKey": "business_registration",
+					"kind": "business_registration",
+					"originalFilename": "breadtalk-business-registration.pdf",
+					"documentDate": "2024-06-30",
+					"periodEnd": null,
+					"title": "BreadTalk Demo — Business Registration",
+					"lines": [
+						"Business Registration",
+						"Company Name: BreadTalk Demo Pte Ltd",
+						"Registration No: BT201901",
+						"Issued: 2024-06-30"
+					]
+				},
+				{
+					"fixtureKey": "bank_statement_stale",
+					"kind": "bank_statement",
+					"originalFilename": "breadtalk-bank-statement-2026-03.pdf",
+					"documentDate": "2026-03-02",
+					"periodEnd": "2026-03-02",
+					"title": "BreadTalk Demo — Bank Statement (stale)",
+					"lines": [
+						"Bank Statement",
+						"Account Holder: BreadTalk Demo Pte Ltd",
+						"Account: ****8818",
+						"Period ending: 2026-03-02",
+						"Closing balance: SGD 76480.00"
+					]
+				},
+				{
+					"fixtureKey": "financial_statements_stale",
+					"kind": "financial_statements",
+					"originalFilename": "breadtalk-financial-statements-2024.pdf",
+					"documentDate": "2024-07-15",
+					"periodEnd": "2024-06-30",
+					"title": "BreadTalk Demo — Financial Statements (stale)",
+					"lines": [
+						"Financial Statements FY2024",
+						"Company Name: BreadTalk Demo Pte Ltd",
+						"Period ending: 2024-06-30",
+						"Revenue: SGD 1150000.00"
+					]
+				}
+			],
+			"freshEvidence": [
+				{
+					"fixtureKey": "bank_statement_fresh",
+					"kind": "bank_statement",
+					"originalFilename": "breadtalk-bank-statement-2026-05.pdf",
+					"documentDate": "2026-05-31",
+					"periodEnd": "2026-05-31",
+					"title": "BreadTalk Demo — Bank Statement (fresh)",
+					"lines": [
+						"Bank Statement",
+						"Account Holder: BreadTalk Demo Pte Ltd",
+						"Account: ****8818",
+						"Period ending: 2026-05-31",
+						"Closing balance: SGD 121580.00"
+					]
+				},
+				{
+					"fixtureKey": "financial_statements_fresh",
+					"kind": "financial_statements",
+					"originalFilename": "breadtalk-financial-statements-2025.pdf",
+					"documentDate": "2026-01-15",
+					"periodEnd": "2025-12-31",
+					"title": "BreadTalk Demo — Financial Statements (fresh)",
+					"lines": [
+						"Financial Statements FY2025",
+						"Company Name: BreadTalk Demo Pte Ltd",
+						"Period ending: 2025-12-31",
+						"Revenue: SGD 1200000.00"
+					]
+				}
+			],
+			"case": {
+				"fixtureKey": "case-breadtalk",
+				"type": "sme",
+				"product": "sme_term_loan",
+				"amountCents": 6000000,
+				"termMonths": 36,
+				"purpose": "Working capital for new outlet (demo)",
+				"consents": [true, true, true],
+				"documentProcessingConsent": true,
+				"aiResearchConsent": true,
+				"contextAnalysisConsent": true,
+				"identity": {
+					"fullName": "Baker Tan",
+					"dob": "1985-08-12",
+					"nationalId": "BTDEMO01",
+					"email": "breadtalk@example.com",
+					"phone": "+65-6100-8818",
+					"address": "9 Baked Street",
+					"city": "Singapore"
+				},
+				"sme": {
+					"companyName": "BreadTalk Demo Pte Ltd",
+					"registrationNumber": "BT201901",
+					"industry": "retail",
+					"yearsTrading": 7,
+					"employees": 12,
+					"annualRevenueCents": 120000000,
+					"monthlyFcfCents": 8000000,
+					"existingDebtServiceCents": 1000000
+				},
+				"attach": ["id", "business_registration"],
+				"staleCopies": ["bank_statement_stale", "financial_statements_stale"]
+			},
+			"expectedBlockers": {
+				"document:bank_statement": ["stale"],
+				"document:financial_statements": ["stale"]
+			},
+			"expectedSignals": ["round_trip", "cash_deposit_share", "returned_payment"],
+			"expectedFindings": [
+				{ "kind": "id", "field": "other", "status": "needs_chase" },
+				{ "kind": "financial_statements", "field": "other", "status": "needs_chase" }
+			]
+		},
+		"alex": {
+			"email": "alex@example.com",
+			"fullName": "Alex Demo",
+			"role": "applicant",
+			"newUser": false,
+			"profile": {
+				"segment": "individual",
+				"customerSince": "2021-06-01",
+				"kycStatus": "verified",
+				"kycVerifiedAt": "2025-06-01T00:00:00Z",
+				"kycExpiresAt": "2027-06-01T00:00:00Z",
+				"identity": {
+					"fullName": "Alex Demo",
+					"dob": "1992-11-03",
+					"nationalId": "ALEX0001",
+					"email": "alex@example.com",
+					"phone": "+1-555-0400",
+					"address": "4 Demo Street",
+					"city": "Demo City"
+				},
+				"business": null
+			},
+			"accounts": [
+				{
+					"id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000002",
+					"bankName": "Demo Bank",
+					"accountType": "personal_current",
+					"maskedNumber": "****3321",
+					"currency": "SGD",
+					"openedAt": "2021-07-01",
+					"status": "active"
+				}
+			],
+			"transactions": [
+				{
+					"sourceReference": "ax-0001",
+					"postedAt": "2026-01-31T10:00:00Z",
+					"amountCents": 520000,
+					"balanceAfterCents": 1520000,
+					"currency": "SGD",
+					"description": "Salary Jan",
+					"counterparty": "Acme Corp",
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0002",
+					"postedAt": "2026-02-05T10:00:00Z",
+					"amountCents": -180000,
+					"balanceAfterCents": 1340000,
+					"currency": "SGD",
+					"description": "Rent Feb",
+					"counterparty": "Landlord",
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0003",
+					"postedAt": "2026-02-28T10:00:00Z",
+					"amountCents": 520000,
+					"balanceAfterCents": 1860000,
+					"currency": "SGD",
+					"description": "Salary Feb",
+					"counterparty": "Acme Corp",
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0004",
+					"postedAt": "2026-03-05T10:00:00Z",
+					"amountCents": -200000,
+					"balanceAfterCents": 1660000,
+					"currency": "SGD",
+					"description": "Transfer to savings",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0005",
+					"postedAt": "2026-03-10T10:00:00Z",
+					"amountCents": 200000,
+					"balanceAfterCents": 1860000,
+					"currency": "SGD",
+					"description": "Transfer from savings",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0006",
+					"postedAt": "2026-03-31T10:00:00Z",
+					"amountCents": 520000,
+					"balanceAfterCents": 2380000,
+					"currency": "SGD",
+					"description": "Salary Mar",
+					"counterparty": "Acme Corp",
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0007",
+					"postedAt": "2026-04-12T10:00:00Z",
+					"amountCents": -95000,
+					"balanceAfterCents": 2285000,
+					"currency": "SGD",
+					"description": "Groceries",
+					"counterparty": "Demo Mart",
+					"category": "purchase",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0008",
+					"postedAt": "2026-04-30T10:00:00Z",
+					"amountCents": 520000,
+					"balanceAfterCents": 2805000,
+					"currency": "SGD",
+					"description": "Salary Apr",
+					"counterparty": "Acme Corp",
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0009",
+					"postedAt": "2026-05-15T10:00:00Z",
+					"amountCents": -120000,
+					"balanceAfterCents": 2685000,
+					"currency": "SGD",
+					"description": "Holiday booking",
+					"counterparty": "Travel Co",
+					"category": "purchase",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0010",
+					"postedAt": "2026-05-31T10:00:00Z",
+					"amountCents": 520000,
+					"balanceAfterCents": 3205000,
+					"currency": "SGD",
+					"description": "Salary May",
+					"counterparty": "Acme Corp",
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0011",
+					"postedAt": "2026-06-05T10:00:00Z",
+					"amountCents": -40000,
+					"balanceAfterCents": 3165000,
+					"currency": "SGD",
+					"description": "Utilities",
+					"counterparty": null,
+					"category": "fee",
+					"returned": false
+				},
+				{
+					"sourceReference": "ax-0012",
+					"postedAt": "2026-06-20T10:00:00Z",
+					"amountCents": -75000,
+					"balanceAfterCents": 3090000,
+					"currency": "SGD",
+					"description": "Insurance premium",
+					"counterparty": null,
+					"category": "fee",
+					"returned": false
+				}
+			],
+			"evidence": [
+				{
+					"fixtureKey": "id",
+					"kind": "id",
+					"originalFilename": "alex-id.pdf",
+					"documentDate": "2025-06-15",
+					"periodEnd": null,
+					"title": "Alex Demo — Identity Document",
+					"lines": [
+						"Identity Document",
+						"Full Name: Alex Demo",
+						"National ID: ALEX0001",
+						"Issued: 2025-06-15"
+					]
+				},
+				{
+					"fixtureKey": "payslip",
+					"kind": "payslip",
+					"originalFilename": "alex-payslip-2026-06.pdf",
+					"documentDate": "2026-06-15",
+					"periodEnd": null,
+					"title": "Alex Demo — Payslip",
+					"lines": [
+						"Payslip June 2026",
+						"Employee: Alex Demo",
+						"Employer: Acme Corp",
+						"Net pay: SGD 5200.00"
+					]
+				},
+				{
+					"fixtureKey": "bank_statement",
+					"kind": "bank_statement",
+					"originalFilename": "alex-bank-statement-2026-06.pdf",
+					"documentDate": "2026-06-01",
+					"periodEnd": "2026-06-01",
+					"title": "Alex Demo — Bank Statement",
+					"lines": [
+						"Bank Statement",
+						"Account Holder: Alex Demo",
+						"Account: ****3321",
+						"Period ending: 2026-06-01",
+						"Closing balance: SGD 30900.00"
+					]
+				}
+			],
+			"freshEvidence": [],
+			"case": {
+				"fixtureKey": "case-alex",
+				"type": "individual",
+				"product": "personal_loan",
+				"amountCents": 1500000,
+				"termMonths": 36,
+				"purpose": "Home renovation (demo)",
+				"consents": [true, true, true],
+				"documentProcessingConsent": true,
+				"aiResearchConsent": true,
+				"contextAnalysisConsent": true,
+				"identity": {
+					"fullName": "Alex Demo",
+					"dob": "1992-11-03",
+					"nationalId": "ALEX0001",
+					"email": "alex@example.com",
+					"phone": "+1-555-0400",
+					"address": "4 Demo Street",
+					"city": "Demo City"
+				},
+				"individual": {
+					"employmentStatus": "employed",
+					"employerName": "Acme Corp",
+					"employmentYears": 3,
+					"monthlyIncomeCents": 520000,
+					"existingDebtCents": 40000,
+					"bankRelationshipYears": 4
+				},
+				"attach": ["id", "payslip", "bank_statement"],
+				"staleCopies": []
+			},
+			"expectedBlockers": {},
+			"expectedSignals": ["revenue_concentration"],
+			"expectedFindings": [
+				{ "kind": "id", "field": "other", "status": "needs_chase" },
+				{ "kind": "payslip", "field": "other", "status": "needs_chase" }
+			]
+		},
+		"sparse": {
+			"email": "sparse@example.com",
+			"fullName": "Sparse Demo",
+			"role": "applicant",
+			"newUser": true,
+			"profile": {
+				"segment": "individual",
+				"customerSince": "2024-01-15",
+				"kycStatus": "verified",
+				"kycVerifiedAt": "2025-02-01T00:00:00Z",
+				"kycExpiresAt": "2027-02-01T00:00:00Z",
+				"identity": {
+					"fullName": "Sparse Demo",
+					"dob": "1995-02-20",
+					"nationalId": "SPARSE01",
+					"email": "sparse@example.com",
+					"phone": "+1-555-0500",
+					"address": "5 Demo Street",
+					"city": "Demo City"
+				},
+				"business": null
+			},
+			"accounts": [],
+			"transactions": [],
+			"evidence": [],
+			"freshEvidence": [],
+			"case": {
+				"fixtureKey": "case-sparse",
+				"type": "individual",
+				"product": "personal_loan",
+				"amountCents": 1000000,
+				"termMonths": 24,
+				"purpose": "Personal expenses (demo)",
+				"consents": [true, true, true],
+				"documentProcessingConsent": true,
+				"aiResearchConsent": true,
+				"contextAnalysisConsent": true,
+				"identity": {
+					"fullName": "Sparse Demo",
+					"dob": "1995-02-20",
+					"nationalId": "SPARSE01",
+					"email": "sparse@example.com",
+					"phone": "+1-555-0500",
+					"address": "5 Demo Street",
+					"city": "Demo City"
+				},
+				"individual": {
+					"employmentStatus": "employed",
+					"employerName": "Demo Retail",
+					"employmentYears": 1,
+					"monthlyIncomeCents": 300000,
+					"existingDebtCents": 10000,
+					"bankRelationshipYears": 1
+				},
+				"attach": [],
+				"staleCopies": []
+			},
+			"expectedBlockers": {
+				"document:bank_statement": ["missing"],
+				"document:id": ["missing"],
+				"document:payslip": ["missing"]
+			},
+			"expectedSignals": ["insufficient_data"],
+			"expectedFindings": []
+		}
+	}
+}

@@ -3,6 +3,7 @@
 import { sql } from "drizzle-orm";
 import {
 	date,
+	check,
 	index,
 	integer,
 	jsonb,
@@ -57,6 +58,21 @@ export const evidenceDateBasis = pgEnum("evidence_date_basis", [
 export const findingSupport = pgEnum("finding_support", ["verified", "unverified"]);
 export const findingConfidence = pgEnum("finding_confidence", ["low", "medium", "high"]);
 export const findingReviewAction = pgEnum("finding_review_action", ["accepted", "rejected"]);
+// --- T18 context analyst (SPEC-t17-t18 §3.1). D0 wires schema only; the
+// ContextAgentRunner/stage/retry land in D1+. ---
+export const contextStatus = pgEnum("context_status", [
+	"not_applicable",
+	"queued",
+	"running",
+	"succeeded",
+	"failed",
+	"skipped",
+]);
+export const contextSignalStatus = pgEnum("context_signal_status", [
+	"review",
+	"needs_chase",
+	"insufficient_data",
+]);
 // T00 case-level authorization: which staff may see sensitive research for
 // one application. Officers self-claim `assigned_officer` on first run;
 // `service` grants/revokes the specialist roles. `user_id` is a plain uuid
@@ -102,6 +118,23 @@ export const agentRuns = pgTable(
 		timeoutAt: ts("timeout_at").notNull(),
 		heartbeatAt: ts("heartbeat_at"),
 		createdAt: createdAt(),
+		// T18 context stage (same run row, separate stage fields): validated
+		// brief/usage detail, error code, lease/heartbeat for the reaper,
+		// prompt/model provenance, and the stage token/version. Retry inserts
+		// a new stage version; the token (not run status) is authoritative.
+		contextStatus: contextStatus("context_status").notNull().default("not_applicable"),
+		contextBrief: jsonb("context_brief"),
+		contextValidation: jsonb("context_validation"),
+		contextUsage: jsonb("context_usage"),
+		contextErrorCode: text("context_error_code"),
+		contextStartedAt: ts("context_started_at"),
+		contextFinishedAt: ts("context_finished_at"),
+		contextTimeoutAt: ts("context_timeout_at"),
+		contextHeartbeatAt: ts("context_heartbeat_at"),
+		contextPromptVersion: text("context_prompt_version"),
+		contextModel: text("context_model"),
+		contextStageToken: uuid("context_stage_token"),
+		contextStageVersion: integer("context_stage_version").notNull().default(1),
 	},
 	(t) => [
 		uniqueIndex("agent_runs_active_application_uniq")
@@ -118,6 +151,8 @@ export const agentRuns = pgTable(
 		// cost-budget/day all filter `trigger='auto'` + `created_at`.
 		index("agent_runs_auto_caps_idx").on(t.trigger, t.createdAt),
 		index("agent_runs_applicant_created_idx").on(t.applicantUserId, t.createdAt),
+		// T18 context-stage reaper: expired queued/running stages by lease.
+		index("agent_runs_context_status_timeout_idx").on(t.contextStatus, t.contextTimeoutAt),
 	],
 );
 
@@ -292,4 +327,72 @@ export const researchAuditLog = pgTable(
 		index("research_audit_log_application_time_idx").on(t.applicationId, t.createdAt),
 		index("research_audit_log_run_idx").on(t.runId),
 	],
+);
+
+// T18 context signals: deterministic candidate snapshots selected by the
+// model. Retries insert a new stage_version and mark old rows superseded —
+// reviewed rows are never mutated/deleted. Reads return only
+// `superseded_at IS NULL`; reviews of superseded rows stay historical.
+export const contextSignals = pgTable(
+	"context_signals",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		runId: uuid("run_id")
+			.notNull()
+			.references(() => agentRuns.id, { onDelete: "cascade" }),
+		stageVersion: integer("stage_version").notNull().default(1),
+		accountId: uuid("account_id"),
+		// Derived from account_id by the service (`all` when null); the
+		// check below enforces the relationship and the validator reuses it.
+		accountScope: text("account_scope").notNull(),
+		type: text("type").notNull(),
+		periodStart: date("period_start", { mode: "string" }),
+		periodEnd: date("period_end", { mode: "string" }),
+		metric: text("metric").notNull(),
+		observed: text("observed"),
+		expected: text("expected"),
+		confidence: findingConfidence("confidence").notNull().default("low"),
+		status: contextSignalStatus("status").notNull(),
+		policyVersion: text("policy_version").notNull(),
+		explanation: text("explanation"),
+		evidence: jsonb("evidence").notNull(),
+		supersededAt: ts("superseded_at"),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		uniqueIndex("context_signals_run_stage_scope_type_period_metric_uniq").on(
+			t.runId,
+			t.stageVersion,
+			t.accountScope,
+			t.type,
+			t.periodStart,
+			t.periodEnd,
+			t.metric,
+		),
+		index("context_signals_run_idx").on(t.runId),
+		check(
+			"context_signals_account_scope_chk",
+			sql`(${t.accountId} IS NULL AND ${t.accountScope} = 'all') OR (${t.accountId} IS NOT NULL AND ${t.accountScope} = CAST(${t.accountId} AS text))`,
+		),
+	],
+);
+
+// T18 signal reviews are mandatory + append-only. `signal_id` is a plain
+// uuid (no FK) so retention can purge signal content while reviews survive
+// with ids-only/snapshot metadata.
+export const contextSignalReviews = pgTable(
+	"context_signal_reviews",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		signalId: uuid("signal_id").notNull(),
+		runId: uuid("run_id")
+			.notNull()
+			.references(() => agentRuns.id, { onDelete: "cascade" }),
+		signalSnapshot: jsonb("signal_snapshot").notNull(),
+		officerId: uuid("officer_id").notNull(),
+		action: findingReviewAction("action").notNull(),
+		note: text("note"),
+		createdAt: createdAt(),
+	},
+	(t) => [index("context_signal_reviews_signal_idx").on(t.signalId, t.createdAt)],
 );

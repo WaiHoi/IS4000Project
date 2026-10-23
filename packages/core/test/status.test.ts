@@ -12,6 +12,7 @@ import {
 } from "../src/index.js";
 
 const ALLOWED: [ApplicationStatus, ApplicationStatus][] = [
+	["draft", "submitted"],
 	["submitted", "processing"],
 	["submitted", "failed"],
 	["processing", "pending_review"],
@@ -25,6 +26,7 @@ const ALLOWED: [ApplicationStatus, ApplicationStatus][] = [
 ];
 
 const ALL: ApplicationStatus[] = [
+	"draft",
 	"submitted",
 	"processing",
 	"pending_review",

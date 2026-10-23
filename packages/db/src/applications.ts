@@ -8,6 +8,7 @@ import {
 	bigint,
 	boolean,
 	check,
+	date,
 	index,
 	integer,
 	jsonb,
@@ -40,6 +41,7 @@ const moneyNullable = (name: string) => bigint(name, { mode: "number" });
 export const applicationType = pgEnum("application_type", ["individual", "sme"]);
 export const applicationProduct = pgEnum("application_product", ["personal_loan", "sme_term_loan"]);
 export const applicationStatus = pgEnum("application_status", [
+	"draft",
 	"submitted",
 	"processing",
 	"pending_review",
@@ -60,6 +62,8 @@ export const documentFileKind = pgEnum("document_file_kind", [
 	"id",
 	"business_registration",
 	"bank_statement",
+	"payslip",
+	"financial_statements",
 	"other",
 ]);
 export const documentFileStatus = pgEnum("document_file_status", ["ready", "rejected", "deleted"]);
@@ -90,6 +94,53 @@ export const documentFindingConfidence = pgEnum("document_finding_confidence", [
 ]);
 export const documentFindingStatus = pgEnum("document_finding_status", ["mismatch", "needs_chase"]);
 export const chaseRequestStatus = pgEnum("chase_request_status", ["draft"]);
+// --- T17 customer master / reusable evidence (SPEC-t17-t18 §2.2). D0 wires
+// schema only; draft/requirements/reuse/seed handlers land in D1+. ---
+export const applicationSource = pgEnum("application_source", ["live", "demo_case"]);
+export const customerSegment = pgEnum("customer_segment", ["individual", "sme"]);
+export const customerKycStatus = pgEnum("customer_kyc_status", [
+	"verified",
+	"expired",
+	"not_started",
+]);
+export const customerSource = pgEnum("customer_source", ["demo_seed", "customer_master"]);
+export const customerAccountType = pgEnum("customer_account_type", [
+	"personal_current",
+	"business_current",
+	"savings",
+]);
+export const customerAccountStatus = pgEnum("customer_account_status", ["active", "closed"]);
+export const customerTransactionCategory = pgEnum("customer_transaction_category", [
+	"income",
+	"transfer",
+	"payroll",
+	"loan",
+	"fee",
+	"purchase",
+	"cash",
+	"returned_payment",
+	"other",
+]);
+export const customerTransactionSource = pgEnum("customer_transaction_source", [
+	"demo_seed",
+	"statement",
+	"feed",
+]);
+export const customerDocumentScanStatus = pgEnum("customer_document_scan_status", [
+	"clean",
+	"rejected",
+]);
+export const documentFileSource = pgEnum("document_file_source", [
+	"upload",
+	"customer_reuse",
+	"demo_seed",
+]);
+export const documentDateSource = pgEnum("document_date_source", [
+	"statement_import",
+	"server_ocr",
+	"reused",
+	"customer_kyc",
+]);
 
 export const applications = pgTable(
 	"applications",
@@ -115,12 +166,20 @@ export const applications = pgTable(
 			mode: "date",
 		}),
 		documentConsentVersion: text("document_consent_version"),
+		// T17 draft/intake additions: nullable submittedAt (null iff draft),
+		// live/demo source + fixture key, and context-analysis consent.
+		source: applicationSource("source").notNull().default("live"),
+		fixtureKey: text("fixture_key").unique(),
+		contextAnalysisConsent: boolean("context_analysis_consent").notNull().default(false),
+		contextConsentAt: timestamp("context_consent_at", {
+			withTimezone: true,
+			mode: "date",
+		}),
+		contextConsentVersion: text("context_consent_version"),
 		submittedAt: timestamp("submitted_at", {
 			withTimezone: true,
 			mode: "date",
-		})
-			.defaultNow()
-			.notNull(),
+		}),
 		workflowStartedAt: timestamp("workflow_started_at", {
 			withTimezone: true,
 			mode: "date",
@@ -130,7 +189,14 @@ export const applications = pgTable(
 		createdAt: createdAt(),
 		updatedAt: updatedAt(),
 	},
-	(t) => [index("applications_status_idx").on(t.status)],
+	(t) => [
+		index("applications_status_idx").on(t.status),
+		// Drafts carry no submitted_at; submitted rows always do.
+		check(
+			"applications_draft_submitted_chk",
+			sql`(${t.status} = 'draft') = (${t.submittedAt} IS NULL)`,
+		),
+	],
 );
 
 export const kycChecks = pgTable(
@@ -335,6 +401,16 @@ export const documentFiles = pgTable(
 		blobPurgedAt: timestamp("blob_purged_at", { withTimezone: true, mode: "date" }),
 		errorCode: text("error_code"),
 		errorMessage: text("error_message"),
+		// T17 reuse provenance/freshness: server-derived dates only — uploads
+		// never assert document_date; null means unknown freshness (D1).
+		source: documentFileSource("source").notNull().default("upload"),
+		reusedFromCustomerDocumentId: uuid("reused_from_customer_document_id").references(
+			() => customerDocuments.id,
+			{ onDelete: "restrict" },
+		),
+		documentDate: date("document_date", { mode: "string" }),
+		periodEnd: date("period_end", { mode: "string" }),
+		documentDateSource: documentDateSource("document_date_source"),
 		createdAt: createdAt(),
 		updatedAt: updatedAt(),
 	},
@@ -494,5 +570,194 @@ export const documentLegalHolds = pgTable(
 		index("document_legal_holds_active_idx")
 			.on(t.applicationId)
 			.where(sql`${t.releasedAt} IS NULL`),
+	],
+);
+
+// --- T17 customer master + reusable evidence (SPEC-t17-t18 §2.2). D0 wires
+// schema only; customer blobs live under a separate CUSTOMER_STORAGE_DIR
+// root (D1) so the T01 app orphan sweep never touches them. ---
+
+export const customerProfiles = pgTable("customer_profiles", {
+	id: uuid("id").defaultRandom().primaryKey(),
+	// Cross-DB reference to credit_auth.users — plain uuid, never an FK.
+	userId: uuid("user_id").notNull().unique(),
+	segment: customerSegment("segment").notNull(),
+	customerSince: date("customer_since", { mode: "string" }).notNull(),
+	kycStatus: customerKycStatus("kyc_status").notNull(),
+	kycVerifiedAt: timestamp("kyc_verified_at", { withTimezone: true, mode: "date" }),
+	kycExpiresAt: timestamp("kyc_expires_at", { withTimezone: true, mode: "date" }),
+	identity: jsonb("identity").notNull(),
+	business: jsonb("business"),
+	source: customerSource("source").notNull(),
+	createdAt: createdAt(),
+	updatedAt: updatedAt(),
+});
+
+export const customerAccounts = pgTable(
+	"customer_accounts",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		customerId: uuid("customer_id")
+			.notNull()
+			.references(() => customerProfiles.id, { onDelete: "restrict" }),
+		bankName: text("bank_name").notNull(),
+		accountType: customerAccountType("account_type").notNull(),
+		// Last 4 only — never a full account number.
+		maskedNumber: text("masked_number").notNull(),
+		currency: text("currency").notNull(),
+		openedAt: date("opened_at", { mode: "string" }),
+		status: customerAccountStatus("status").notNull(),
+		source: customerSource("source").notNull(),
+		createdAt: createdAt(),
+		updatedAt: updatedAt(),
+	},
+	(t) => [index("customer_accounts_customer_status_idx").on(t.customerId, t.status)],
+);
+
+export const customerTransactions = pgTable(
+	"customer_transactions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		accountId: uuid("account_id")
+			.notNull()
+			.references(() => customerAccounts.id, { onDelete: "restrict" }),
+		postedAt: timestamp("posted_at", { withTimezone: true, mode: "date" }).notNull(),
+		// Signed: credits positive, debits negative.
+		amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+		balanceAfterCents: bigint("balance_after_cents", { mode: "number" }).notNull(),
+		currency: text("currency").notNull(),
+		description: text("description").notNull(),
+		counterparty: text("counterparty"),
+		category: customerTransactionCategory("category").notNull(),
+		returned: boolean("returned").notNull().default(false),
+		source: customerTransactionSource("source").notNull(),
+		sourceReference: text("source_reference"),
+		createdAt: createdAt(),
+		updatedAt: updatedAt(),
+	},
+	(t) => [
+		index("customer_transactions_account_posted_idx").on(t.accountId, t.postedAt),
+		uniqueIndex("customer_transactions_account_source_ref_uniq")
+			.on(t.accountId, t.source, t.sourceReference)
+			.where(sql`${t.sourceReference} IS NOT NULL`),
+	],
+);
+
+export const customerDocuments = pgTable(
+	"customer_documents",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		customerId: uuid("customer_id")
+			.notNull()
+			.references(() => customerProfiles.id, { onDelete: "restrict" }),
+		fixtureKey: text("fixture_key"),
+		kind: documentFileKind("kind").notNull(),
+		status: documentFileStatus("status").notNull(),
+		scanStatus: customerDocumentScanStatus("scan_status").notNull(),
+		scannedAt: timestamp("scanned_at", { withTimezone: true, mode: "date" }),
+		originalFilename: text("original_filename"),
+		mimeType: text("mime_type").notNull(),
+		sizeBytes: integer("size_bytes").notNull(),
+		sha256: text("sha256").notNull(),
+		storageKey: text("storage_key"),
+		encryptionNonce: text("encryption_nonce"),
+		encryptionTag: text("encryption_tag"),
+		keyId: text("key_id").notNull(),
+		cryptoVersion: text("crypto_version").notNull(),
+		pageCount: integer("page_count").notNull().default(0),
+		ocrStatus: documentOcrStatus("ocr_status").notNull(),
+		ocrConfidence: real("ocr_confidence"),
+		textLayerRisk: boolean("text_layer_risk").notNull().default(false),
+		// Server-derived freshness: period_end authoritative for
+		// bank_statement/financial_statements; null = unknown (D1).
+		documentDate: date("document_date", { mode: "string" }),
+		periodEnd: date("period_end", { mode: "string" }),
+		uploadedAt: timestamp("uploaded_at", { withTimezone: true, mode: "date" })
+			.defaultNow()
+			.notNull(),
+		retentionUntil: timestamp("retention_until", {
+			withTimezone: true,
+			mode: "date",
+		}).notNull(),
+		blobPurgedAt: timestamp("blob_purged_at", { withTimezone: true, mode: "date" }),
+		source: customerSource("source").notNull(),
+		createdAt: createdAt(),
+		updatedAt: updatedAt(),
+	},
+	(t) => [
+		index("customer_documents_customer_id_idx").on(t.customerId),
+		uniqueIndex("customer_documents_customer_kind_fixture_uniq")
+			.on(t.customerId, t.kind, t.fixtureKey)
+			.where(sql`${t.fixtureKey} IS NOT NULL`),
+	],
+);
+
+// Same shape as T01 pages, scoped to a customer document.
+export const customerDocumentPages = pgTable(
+	"customer_document_pages",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		customerDocumentId: uuid("customer_document_id")
+			.notNull()
+			.references(() => customerDocuments.id, { onDelete: "cascade" }),
+		pageNumber: integer("page_number").notNull(),
+		text: text("text").notNull(),
+		textSource: documentTextSource("text_source").notNull(),
+		confidence: real("confidence").notNull(),
+		textSha256: text("text_sha256").notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		uniqueIndex("customer_document_pages_file_page_uniq").on(t.customerDocumentId, t.pageNumber),
+	],
+);
+
+// Customer-scoped retention blockers (T16 pattern). Active holds
+// (`released_at IS NULL`) block the customer sweep (D1).
+export const customerLegalHolds = pgTable(
+	"customer_legal_holds",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		customerId: uuid("customer_id")
+			.notNull()
+			.references(() => customerProfiles.id, { onDelete: "restrict" }),
+		customerDocumentId: uuid("customer_document_id").references(() => customerDocuments.id, {
+			onDelete: "restrict",
+		}),
+		reason: text("reason").notNull(),
+		// Cross-DB reference to credit_auth.users — plain uuid, never an FK.
+		createdBy: uuid("created_by").notNull(),
+		createdAt: createdAt(),
+		releasedAt: timestamp("released_at", { withTimezone: true, mode: "date" }),
+	},
+	(t) => [
+		index("customer_legal_holds_customer_id_idx").on(t.customerId),
+		index("customer_legal_holds_active_idx")
+			.on(t.customerId)
+			.where(sql`${t.releasedAt} IS NULL`),
+	],
+);
+
+// Per-field prefill confirmations: client hashes are advisory — the create
+// handler derives reused vs edited by comparing canonical values (D1).
+export const applicationProfileConfirmations = pgTable(
+	"application_profile_confirmations",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => applications.id, { onDelete: "restrict" }),
+		customerProfileId: uuid("customer_profile_id")
+			.notNull()
+			.references(() => customerProfiles.id, { onDelete: "restrict" }),
+		field: text("field").notNull(),
+		valueHash: text("value_hash").notNull(),
+		confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: "date" })
+			.defaultNow()
+			.notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		uniqueIndex("application_profile_confirmations_app_field_uniq").on(t.applicationId, t.field),
 	],
 );

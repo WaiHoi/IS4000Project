@@ -11,7 +11,7 @@ import { auditLog, caseAccessGrants, documentFiles } from "@credit/db/applicatio
 import { createLogger } from "@credit/service-kit";
 import { stubGateway } from "@credit/service-kit/test";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../../src/app.js";
 import { configFromEnv } from "../../src/documents/service.js";
 import {
@@ -360,6 +360,83 @@ describe("id documents", () => {
 		const down = await ctx.app.request(filePath, { headers: signed(ctx, owner, "GET", filePath) });
 		expect(down.status).toBe(200);
 		expect(Buffer.from(await down.arrayBuffer()).equals(bytes)).toBe(true);
+	});
+});
+
+describe("statement dating on upload", () => {
+	const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+	const dayFmt = (daysAgo: number): string => {
+		const d = new Date(Date.now() - daysAgo * 86_400_000);
+		return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+	};
+	const dayIso = (daysAgo: number): string =>
+		new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+
+	afterEach(() => {
+		ctx.ocr.state.result = READY_TEXT;
+	});
+
+	const rowDates = async (
+		appId: string,
+	): Promise<{ periodEnd: string | null; documentDate: string | null; source: string | null }> => {
+		const rows = await ctx.db
+			.select({
+				periodEnd: documentFiles.periodEnd,
+				documentDate: documentFiles.documentDate,
+				source: documentFiles.documentDateSource,
+			})
+			.from(documentFiles)
+			.where(eq(documentFiles.applicationId, appId));
+		expect(rows).toHaveLength(1);
+		return rows[0];
+	};
+
+	it("persists the server-extracted periodEnd for a fresh statement", async () => {
+		const { appId, owner } = await newCase();
+		ctx.ocr.state.result = {
+			status: "ready",
+			pages: [
+				{
+					text: `Demo Bank\nStatement Period: ${dayFmt(40)} - ${dayFmt(10)}\nClosing 1,000`,
+					source: "pdf_text",
+					confidence: 0.99,
+				},
+			],
+			textLayerRisk: false,
+		};
+		expect((await upload(owner, appId, "bank_statement", pdfBytes("fresh-stmt"))).status).toBe(201);
+		expect(await rowDates(appId)).toEqual({
+			periodEnd: dayIso(10),
+			documentDate: dayIso(10),
+			source: "server_ocr",
+		});
+	});
+
+	it("persists a stale periodEnd from text (freshness stays the engine's job)", async () => {
+		const { appId, owner } = await newCase();
+		ctx.ocr.state.result = {
+			status: "ready",
+			pages: [
+				{
+					text: `Demo Bank\nStatement Period: ${dayFmt(200)} - ${dayFmt(120)}\nClosing 1,000`,
+					source: "pdf_text",
+					confidence: 0.99,
+				},
+			],
+			textLayerRisk: false,
+		};
+		expect((await upload(owner, appId, "bank_statement", pdfBytes("stale-stmt"))).status).toBe(201);
+		expect(await rowDates(appId)).toEqual({
+			periodEnd: dayIso(120),
+			documentDate: dayIso(120),
+			source: "server_ocr",
+		});
+	});
+
+	it("leaves dates unknown when the text carries no period", async () => {
+		const { appId, owner } = await newCase();
+		expect((await upload(owner, appId, "bank_statement", pdfBytes("dateless"))).status).toBe(201);
+		expect(await rowDates(appId)).toEqual({ periodEnd: null, documentDate: null, source: null });
 	});
 });
 

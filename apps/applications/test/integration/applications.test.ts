@@ -262,6 +262,8 @@ describe("case facts + consent (Phase 2 R0)", () => {
 				purpose: "malformed row",
 				identity: { fullName: "PII Probe Person" },
 				consents: [true, true, true],
+				// D0: submitted rows always carry submittedAt (draft iff null).
+				submittedAt: new Date(),
 			})
 			.returning({ id: applications.id });
 		const res = await getCaseFacts(officer, row.id);
@@ -286,6 +288,8 @@ describe("case facts + consent (Phase 2 R0)", () => {
 				purpose: "legacy row",
 				identity: { fullName: "Legacy Person" },
 				consents: [true, true, true],
+				// D0: submitted rows always carry submittedAt (draft iff null).
+				submittedAt: new Date(),
 			})
 			.returning({ id: applications.id });
 		const res = await getCaseFacts(officer, row.id);
@@ -320,12 +324,16 @@ describe("research context (T00 service-only)", () => {
 		const body = await jsonBody<{
 			caseFacts: Record<string, unknown>;
 			applicantUserId: string;
+			contextAnalysisConsent: boolean;
 		}>(res);
 		// Exactly the shared 16-key schema — plus the internal routing id
 		// beside it, never inside the facts (it must not reach the prompt).
 		expect(Object.keys(body.caseFacts).sort()).toEqual(CASE_FACTS_KEYS);
 		expect(body.caseFacts).not.toHaveProperty("applicantUserId");
+		expect(body.caseFacts).not.toHaveProperty("contextAnalysisConsent");
 		expect(body.applicantUserId).toBe(user.id);
+		// T18: context consent rides beside the facts for the stage gate.
+		expect(body.contextAnalysisConsent).toBe(false);
 		for (const leaked of ["dob", "nationalId", "address", "purpose", "consents"]) {
 			expect(body.caseFacts).not.toHaveProperty(leaked);
 		}

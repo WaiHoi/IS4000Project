@@ -32,7 +32,8 @@ export type StartOutcome = "started" | "already";
 export interface ReconcilerApp {
 	id: string;
 	status: string;
-	submittedAt: Date;
+	// T17: null for drafts; reconciler queries only touch submitted rows.
+	submittedAt: Date | null;
 	updatedAt: Date;
 	workflowStartedAt: Date | null;
 }

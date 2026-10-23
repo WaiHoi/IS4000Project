@@ -83,7 +83,14 @@ function friendlyMessage(err: unknown): string {
 	}
 }
 
-const KINDS: DocumentKind[] = ["business_registration", "bank_statement", "id", "other"];
+const KINDS: DocumentKind[] = [
+	"business_registration",
+	"bank_statement",
+	"payslip",
+	"financial_statements",
+	"id",
+	"other",
+];
 
 function ocrLabel(file: DocumentFile): string {
 	if (file.kind === "id") return "no text (ID)";

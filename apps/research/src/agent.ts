@@ -32,7 +32,6 @@ type AgentsOpenAIClient = ConstructorParameters<typeof OpenAIChatCompletionsMode
 setTracingDisabled(true);
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const MAX_TOOL_CALLS = 8;
 
 export interface FetchedEvidence {
 	requestedUrl: string;
@@ -117,7 +116,7 @@ export function createRealRunner(opts: {
 
 			const budget = (): void => {
 				toolCalls += 1;
-				if (toolCalls > MAX_TOOL_CALLS) throw new TavilyError("tool budget exceeded");
+				if (toolCalls > env.agentMaxToolCalls) throw new TavilyError("tool budget exceeded");
 			};
 
 			// The Runner hooks do not surface tool spans for these calls, so
@@ -244,6 +243,12 @@ export function createRealRunner(opts: {
 				model,
 				tools: [searchTool, fetchTool],
 				outputType: modelBriefSchema,
+				modelSettings: {
+					...(env.agentTemperature !== undefined ? { temperature: env.agentTemperature } : {}),
+					...(env.agentMaxOutputTokens !== undefined
+						? { maxTokens: env.agentMaxOutputTokens }
+						: {}),
+				},
 			});
 			const runner = new Runner();
 			const hooks = (input.hooksFor ?? (() => ({ detach: () => {} })))(runner);
@@ -252,7 +257,7 @@ export function createRealRunner(opts: {
 				// one abort path, no parallel timer to leak or double-fire.
 				// Hooks detach in `finally`, including on abort.
 				let result = await runner.run(agent, buildUserPrompt(input.caseFacts), {
-					maxTurns: 12,
+					maxTurns: env.agentMaxTurns,
 					signal: input.signal,
 				});
 				let usage = readUsage(result);
@@ -264,7 +269,7 @@ export function createRealRunner(opts: {
 					const retry = await runner.run(
 						agent,
 						`${buildUserPrompt(input.caseFacts)}\n\nRetry requirement: call search_sources for adverse_media and registry before writing the brief. Do not return an empty brief without attempting at least one search per category.`,
-						{ maxTurns: 12, signal: input.signal },
+						{ maxTurns: env.agentMaxTurns, signal: input.signal },
 					);
 					const retryUsage = readUsage(retry);
 					usage = {

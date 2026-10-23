@@ -10,7 +10,8 @@
 		"./loans": "./src/loans.ts",
 		"./portfolio": "./src/portfolio.ts",
 		"./research": "./src/research.ts",
-		"./shared": "./src/shared.ts"
+		"./shared": "./src/shared.ts",
+		"./password": "./src/password.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",

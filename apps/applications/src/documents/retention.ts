@@ -29,6 +29,7 @@ import { and, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { lockApplication } from "./access.js";
 import { sweepDocumentOrphans, type SweepResult } from "./service.js";
 import { deleteBlob, resolveStoragePath } from "./storage.js";
+import { runCustomerRetention, type CustomerRetentionResult } from "../customer/retention.js";
 
 export interface RetentionResult {
 	checked: number;
@@ -371,6 +372,12 @@ export interface MaintenanceDeps {
 	/** Orphan sweep runs only when blob storage is configured (dir + key);
 	 * retention always runs, even with the feature flag off. */
 	storageConfigured: boolean;
+	/** T17 customer evidence sweep (D2a): separate root + per-customer
+	 * lock; omitted in tests that only cover the T01 app sweep. */
+	customerStorageDir?: string;
+	/** Fixture clock for fixture-owned customer rows (SPEC-t17-t18 §2.5):
+	 * set from DEMO_AS_OF in demo mode, unset otherwise. */
+	customerDemoAsOf?: Date;
 	logger?: Pick<Logger, "info" | "warn">;
 	intervalMs?: number;
 }
@@ -378,6 +385,7 @@ export interface MaintenanceDeps {
 export interface MaintenanceResult {
 	orphans: SweepResult | null;
 	retention: RetentionResult;
+	customer: CustomerRetentionResult | null;
 }
 
 export async function runDocumentMaintenanceOnce(
@@ -394,6 +402,17 @@ export async function runDocumentMaintenanceOnce(
 		lockTimeoutMs: deps.lockTimeoutMs,
 		storageDir: deps.storageDir,
 	});
+	// The customer sweep is independent (disjoint root, per-customer locks):
+	// an app-sweep failure never blocks it and vice versa.
+	let customer: CustomerRetentionResult | null = null;
+	if (deps.customerStorageDir) {
+		customer = await runCustomerRetention({
+			db: deps.db,
+			lockTimeoutMs: deps.lockTimeoutMs,
+			storageDir: deps.customerStorageDir,
+			demoAsOf: deps.customerDemoAsOf,
+		});
+	}
 	deps.logger?.info(
 		{
 			checked: retention.checked,
@@ -403,10 +422,12 @@ export async function runDocumentMaintenanceOnce(
 			blobsPending: retention.blobsPending,
 			removedBlobs: orphans?.removedBlobs ?? 0,
 			removedTemps: orphans?.removedTemps ?? 0,
+			customerChecked: customer?.checked ?? 0,
+			customerDeleted: customer?.deletedDocuments ?? 0,
 		},
 		"document maintenance",
 	);
-	return { orphans, retention };
+	return { orphans, retention, customer };
 }
 
 /** Runs once at boot, then daily. The interval is unref'd and the

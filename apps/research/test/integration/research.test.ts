@@ -347,7 +347,7 @@ describe("run token + reaper (lifecycle)", () => {
 	it("claim/finalize are conditional on the token", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const facts = caseFacts();
 			const { run, inserted } = await ensureRun(ctx.db, env, {
 				applicationId: facts.applicationId,
@@ -374,7 +374,7 @@ describe("run token + reaper (lifecycle)", () => {
 	it("completes a queued insert started outside the route (crash-after-insert)", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const use = successFixture();
 			const facts = caseFacts();
 			const { run } = await ensureRun(ctx.db, env, {
@@ -414,7 +414,7 @@ describe("run token + reaper (lifecycle)", () => {
 	it("reaps stale queued/running runs and leaves live runs alone", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const mk = (f: CaseFactsPayload) =>
 				ensureRun(ctx.db, env, {
 					applicationId: f.applicationId,
@@ -599,7 +599,7 @@ describe("app-scoped views, reviews, and bundle", () => {
 		const ctx = setupApp();
 		try {
 			const officer = user("officer");
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const facts = caseFacts();
 			// Direct insert: no background execution, run stays queued.
 			// The route bypass is intentional — claim access directly so the
@@ -637,7 +637,7 @@ describe("app-scoped views, reviews, and bundle", () => {
 	it("a reaped run's old token writes nothing (stale success cannot land)", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const use = successFixture();
 			const facts = caseFacts();
 			const { run } = await ensureRun(ctx.db, env, {
@@ -697,7 +697,7 @@ describe("app-scoped views, reviews, and bundle", () => {
 	it("a run reaped mid-flight cannot finalize success with the old token", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const use = successFixture();
 			const facts = caseFacts();
 			const { run } = await ensureRun(ctx.db, env, {
@@ -775,7 +775,7 @@ describe("app-scoped views, reviews, and bundle", () => {
 		const ctx = setupApp();
 		try {
 			const officer = user("officer");
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const facts = caseFacts();
 			// Queued run: no succeeded bundle yet.
 			const { run } = await ensureRun(ctx.db, env, {
@@ -1222,7 +1222,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 	it("never rejects: bad tokens and runner crashes settle without unhandled rejection", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const degraded = {
 				status: "degraded" as const,
 				hooksFor: () => ({ detach: () => {} }),
@@ -1288,7 +1288,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 	it("enforces AGENT_MAX_COST_USD end-to-end including judge work", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const use = successFixture();
 			const facts = caseFacts();
 			const { run } = await ensureRun(ctx.db, env, {
@@ -1327,7 +1327,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 	it("a real failing run persists partial usage that counts against the auto cap", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			const use = successFixture();
 			const facts = caseFacts();
 			const applicantUserId = randomUUID();
@@ -1392,7 +1392,7 @@ describe("failure boundary + judge budget (Wave 2.5)", () => {
 	it("a runner-thrown failure persists a conservative cost against the auto cap", async () => {
 		const ctx = setupApp();
 		try {
-			const env = loadEnv();
+			const env = { ...loadEnv(), agentsEnabled: true };
 			// Hermetic floor: a timeout before any usage persists maxCostUsd.
 			const floorEnv = { ...env, maxCostUsd: 0.15 };
 			const facts = caseFacts();

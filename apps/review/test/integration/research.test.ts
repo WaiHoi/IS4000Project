@@ -358,6 +358,143 @@ describe("POST /api/review/:id/research/findings/:findingId", () => {
 	});
 });
 
+describe("POST /api/review/:id/research/context/retry", () => {
+	it("202s with the stage token via the latest run; 404 without one; 409 when exhausted", async () => {
+		const c = fresh();
+		const officer = createUser("officer");
+		const appId = randomUUID();
+		const runId = randomUUID();
+		c.research.runs.set(runId, { applicationId: appId, status: "failed" });
+		c.research.aggregates.set(appId, {
+			run: { id: runId, applicationId: appId, status: "failed" },
+		});
+
+		const retry = await post(c, `/api/review/${appId}/research/context/retry`, officer, {});
+		expect(retry.status).toBe(202);
+		const claimed = await jsonBody<{
+			runId: string;
+			contextStageToken: string;
+			contextStageVersion: number;
+		}>(retry);
+		expect(claimed.runId).toBe(runId);
+		expect(claimed.contextStageVersion).toBe(2);
+		expect(c.research.calls).toContain(
+			`POST /internal/research/applications/${appId}/runs/${runId}/context/retry`,
+		);
+
+		// Exhausted retry passes the 409 through (no silent downgrade).
+		c.research.retryBlocked.add(runId);
+		const blocked = await post(c, `/api/review/${appId}/research/context/retry`, officer, {});
+		expect(blocked.status).toBe(409);
+		expect(await errorCode(blocked)).toBe("RETRY_UNAVAILABLE");
+
+		// No run at all → the latest 404 passes through, never a retry call.
+		const bare = randomUUID();
+		const missing = await post(c, `/api/review/${bare}/research/context/retry`, officer, {});
+		expect(missing.status).toBe(404);
+	});
+
+	it("403s applicants; 404s when disabled", async () => {
+		const c = fresh();
+		const officer = createUser("officer");
+		const appId = randomUUID();
+		const applicant = createUser("applicant");
+		expect(
+			(await post(c, `/api/review/${appId}/research/context/retry`, applicant, {})).status,
+		).toBe(403);
+
+		const off = setupApp({ agentsEnabled: false });
+		expect(
+			(await post(off, `/api/review/${appId}/research/context/retry`, officer, {})).status,
+		).toBe(404);
+	});
+});
+
+describe("POST /api/review/:id/research/context/signals/:signalId/review", () => {
+	it("appends accept/reject with the updated signal; 404 mismatch; 409 superseded", async () => {
+		const c = fresh();
+		const officer = createUser("officer");
+		const appId = randomUUID();
+		const runId = randomUUID();
+		const signalId = randomUUID();
+		const staleId = randomUUID();
+		c.research.signals.set(signalId, { runId, applicationId: appId, superseded: false });
+		c.research.signals.set(staleId, { runId, applicationId: appId, superseded: true });
+
+		const accept = await post(
+			c,
+			`/api/review/${appId}/research/context/signals/${signalId}/review`,
+			officer,
+			{ action: "accepted" },
+		);
+		expect(accept.status).toBe(201);
+		expect(((await accept.json()) as { signalId: string }).signalId).toBe(signalId);
+
+		const reject = await post(
+			c,
+			`/api/review/${appId}/research/context/signals/${signalId}/review`,
+			officer,
+			{ action: "rejected", note: "looks benign" },
+		);
+		expect(reject.status).toBe(201);
+
+		const otherApp = randomUUID();
+		expect(
+			(
+				await post(
+					c,
+					`/api/review/${otherApp}/research/context/signals/${signalId}/review`,
+					officer,
+					{ action: "accepted" },
+				)
+			).status,
+		).toBe(404);
+		expect(
+			(
+				await post(c, `/api/review/${appId}/research/context/signals/${staleId}/review`, officer, {
+					action: "accepted",
+				})
+			).status,
+		).toBe(409);
+		expect(
+			(
+				await post(c, `/api/review/${appId}/research/context/signals/${signalId}/review`, officer, {
+					action: "maybe",
+				})
+			).status,
+		).toBe(422);
+	});
+
+	it("403s applicants; 404s when disabled", async () => {
+		const c = fresh();
+		const appId = randomUUID();
+		const applicant = createUser("applicant");
+		expect(
+			(
+				await post(
+					c,
+					`/api/review/${appId}/research/context/signals/${randomUUID()}/review`,
+					applicant,
+					{ action: "accepted" },
+				)
+			).status,
+		).toBe(403);
+
+		const off = setupApp({ agentsEnabled: false });
+		const officer = createUser("officer");
+		expect(
+			(
+				await post(
+					off,
+					`/api/review/${appId}/research/context/signals/${randomUUID()}/review`,
+					officer,
+					{ action: "accepted" },
+				)
+			).status,
+		).toBe(404);
+	});
+});
+
 describe("POST /api/review/:id/decision with research", () => {
 	it("503s RESEARCH_UNAVAILABLE when research is down; ordinary decisions still work", async () => {
 		const c = fresh();

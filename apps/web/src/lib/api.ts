@@ -73,7 +73,8 @@ export interface AppSummary {
 	status: string;
 	amountCents: number;
 	termMonths: number;
-	submittedAt: string;
+	// T17: null for drafts; submitted rows stay non-null.
+	submittedAt: string | null;
 	decidedAt: string | null;
 }
 
@@ -172,7 +173,7 @@ export interface QueueItem {
 	product: string;
 	amountCents: number;
 	termMonths: number;
-	submittedAt: string;
+	submittedAt: string | null;
 	waitMs: number;
 	score: number | null;
 	grade: string | null;
@@ -302,6 +303,47 @@ export interface ResearchBrief {
 	questionsForOfficer?: string[];
 }
 
+// --- T18 internal context (SPEC-t17-t18 §3.6, D4). Metadata only: signal
+// type/period/metric/confidence/status/policy version plus evidence *ids*.
+// Never transaction descriptions, counterparties, or document text. ---
+
+export interface ResearchContextSignal {
+	id: string;
+	stageVersion: number;
+	accountScope: string;
+	type: string;
+	periodStart: string | null;
+	periodEnd: string | null;
+	metric: string;
+	observed: number | null;
+	expected: number | null;
+	confidence: string;
+	status: string;
+	policyVersion: string;
+	explanation: string | null;
+	evidence: Array<{ kind: string; id: string; page?: number }>;
+	reviewStatus?: string;
+	reviewedAt?: string | null;
+}
+
+export interface ResearchContext {
+	status: string;
+	stageVersion: number;
+	errorCode: string | null;
+	model: string | null;
+	brief: {
+		summary?: string;
+		claims?: Array<{ text: string; signalRefs: number[] }>;
+		dataGaps?: string[];
+		limitations?: string[];
+	} | null;
+	validation: unknown;
+	usage: { costUsd?: number } | null;
+	startedAt: string | null;
+	finishedAt: string | null;
+	signals: ResearchContextSignal[];
+}
+
 export interface ResearchUsage {
 	toolCalls?: number;
 	searches?: number;
@@ -316,6 +358,8 @@ export interface ResearchAggregate {
 	usage?: ResearchUsage | null;
 	evidence?: ResearchEvidenceItem[];
 	findings?: ResearchFindingItem[];
+	/** T18 context stage; absent on runs from before the stage existed. */
+	context?: ResearchContext | null;
 	viewedAt?: string | null;
 }
 
@@ -374,6 +418,41 @@ export function reviewResearchFinding(
 		`/api/review/${applicationId}/research/findings/${findingId}`,
 		{ method: "POST", body: note === undefined ? { action } : { action, note } },
 	);
+}
+
+/** T18 context retry (officer-only): 202 with the stage token/version; the
+ * stage runs in the background — poll latest until the stage settles. */
+export function retryResearchContext(
+	applicationId: string,
+): Promise<{ runId: string; contextStageToken: string; contextStageVersion: number }> {
+	return api<{ runId: string; contextStageToken: string; contextStageVersion: number }>(
+		`/api/review/${applicationId}/research/context/retry`,
+		{ method: "POST", body: {} },
+	);
+}
+
+/** T18 signal review (officer-only, append-only): accept/dismiss one live
+ * signal with an optional note; returns the updated signal. */
+export function reviewContextSignal(
+	applicationId: string,
+	signalId: string,
+	action: "accepted" | "rejected",
+	note?: string,
+): Promise<{
+	id: string;
+	signalId: string;
+	action: string;
+	signal: ResearchContextSignal;
+}> {
+	return api<{
+		id: string;
+		signalId: string;
+		action: string;
+		signal: ResearchContextSignal;
+	}>(`/api/review/${applicationId}/research/context/signals/${signalId}/review`, {
+		method: "POST",
+		body: note === undefined ? { action } : { action, note },
+	});
 }
 
 // --- Formatting / status helpers. ---
@@ -448,7 +527,13 @@ export function apiErrorMessage(err: unknown): string {
 // Metadata only — page text travels via fetchDocumentPages and the
 // original bytes via downloadDocument (blob, never logged).
 
-export type DocumentKind = "id" | "business_registration" | "bank_statement" | "other";
+export type DocumentKind =
+	| "id"
+	| "business_registration"
+	| "bank_statement"
+	| "payslip"
+	| "financial_statements"
+	| "other";
 
 export interface DocumentFile {
 	id: string;
@@ -634,6 +719,131 @@ export function retryDocumentOcr(
 	);
 }
 
+// --- T17 customer intake: drafts, requirements, reuse (SPEC-t17-t18 §2.3).
+// Metadata only — masked numbers, freshness, ids. Never storage keys,
+// page text, or full account numbers. ---
+
+export interface CustomerAccountMeta {
+	id: string;
+	bankName: string;
+	accountType: string;
+	maskedNumber: string;
+	currency: string;
+	openedAt: string;
+	status: string;
+}
+
+export interface CustomerDocMeta {
+	id: string;
+	kind: string;
+	status: string;
+	scanStatus: string;
+	mimeType: string;
+	sizeBytes: number;
+	sha256: string;
+	pageCount: number;
+	ocrStatus: string;
+	ocrConfidence: number | null;
+	documentDate: string | null;
+	periodEnd: string | null;
+	freshness: string;
+	reusable: boolean;
+	reuseReason: string | null;
+	retentionUntil: string;
+	uploadedAt: string;
+}
+
+export interface CustomerProfileResponse {
+	profile: {
+		id: string;
+		segment: string;
+		customerSince: string;
+		kycStatus: string;
+		kycVerifiedAt: string | null;
+		kycExpiresAt: string | null;
+		kycFresh: boolean;
+		identity: Record<string, unknown>;
+		business: Record<string, unknown> | null;
+		source: string;
+	};
+	accounts: CustomerAccountMeta[];
+	documents: CustomerDocMeta[];
+	asOf: string;
+}
+
+/** 404 (no profile — legacy demo users) → null; every other error throws. */
+export async function fetchCustomerProfile(): Promise<CustomerProfileResponse | null> {
+	try {
+		return await api<CustomerProfileResponse>("/api/customer/profile");
+	} catch (err) {
+		if (err instanceof ApiError && err.status === 404) return null;
+		throw err;
+	}
+}
+
+export interface RequirementsResponse {
+	policyVersion: string;
+	asOf: string;
+	readyToSubmit: boolean;
+	blockers: Record<string, string[]>;
+	warnings: Array<{ code: string; kind?: string; field?: string }>;
+	requiredDocuments: Array<{ kind: string; reason: string }>;
+	reusableDocuments: Array<{
+		customerDocumentId: string;
+		kind: string;
+		periodEnd: string | null;
+		documentDate: string | null;
+	}>;
+	prefill: { reused: string[]; edited: string[]; unconfirmed: string[] };
+	kyc: { status: string | null; expiresAt: string | null };
+}
+
+export function fetchRequirements(applicationId: string): Promise<RequirementsResponse> {
+	return api<RequirementsResponse>(`/api/applications/${applicationId}/requirements`);
+}
+
+export function createDraft(
+	body: unknown,
+	idempotencyKey: string,
+): Promise<{ id: string; reference: string }> {
+	return api<{ id: string; reference: string }>("/api/applications/drafts", {
+		method: "POST",
+		body,
+		headers: { "Idempotency-Key": idempotencyKey },
+	});
+}
+
+export function submitDraft(
+	applicationId: string,
+	idempotencyKey: string,
+): Promise<{ id: string; reference: string }> {
+	return api<{ id: string; reference: string }>(`/api/applications/${applicationId}/submit`, {
+		method: "POST",
+		body: {},
+		headers: { "Idempotency-Key": idempotencyKey },
+	});
+}
+
+export function reuseCustomerDocuments(
+	applicationId: string,
+	customerDocumentIds: string[],
+	kind?: string,
+): Promise<{ files: DocumentFile[] }> {
+	return api<{ files: DocumentFile[] }>(`/api/applications/${applicationId}/documents/reuse`, {
+		method: "POST",
+		body: kind === undefined ? { customerDocumentIds } : { customerDocumentIds, kind },
+	});
+}
+
+export function updateContextConsent(
+	applicationId: string,
+	consent: boolean,
+): Promise<{ contextAnalysisConsent: boolean }> {
+	return api<{ contextAnalysisConsent: boolean }>(
+		`/api/applications/${applicationId}/context-consent`,
+		{ method: "PATCH", body: { consent } },
+	);
+}
 /** Authenticated download via blob + object URL; the caller opens/saves and
  * revokes. Returns the blob and a safe filename (id-based, never logged). */
 export async function downloadDocument(

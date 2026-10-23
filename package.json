@@ -22,6 +22,13 @@
 		"setup": "pnpm db:wait && pnpm db:init && pnpm kafka:init && pnpm db:migrate && pnpm db:seed",
 		"demo:monitor": "bun scripts/demo-monitor.ts",
 		"demo:check": "bun scripts/demo-check.ts",
+		"demo:seed": "bun scripts/demo-seed.ts",
+		"demo:case": "bun scripts/demo-case.ts",
+		"demo:refresh-evidence": "bun scripts/demo-refresh-evidence.ts",
+		"demo:submit": "bun scripts/demo-submit.ts",
+		"demo:verify": "bun scripts/demo-verify.ts",
+		"demo:context-stub": "bun scripts/demo-context-stub.ts",
+		"demo:reset": "bun scripts/demo-reset.ts",
 		"build": "pnpm -r --if-present build"
 	},
 	"devDependencies": {

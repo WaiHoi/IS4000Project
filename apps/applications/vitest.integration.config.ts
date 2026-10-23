@@ -7,6 +7,9 @@ export default defineConfig({
 		include: ["test/integration/**/*.test.ts"],
 		pool: "forks",
 		forks: { singleFork: true },
+		// singleFork alone still schedules files in parallel workers: cap
+		// at one so files actually run serially (shared tables).
+		maxWorkers: 1,
 		testTimeout: 60_000,
 		hookTimeout: 60_000,
 	},

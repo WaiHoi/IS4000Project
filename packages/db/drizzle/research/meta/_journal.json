@@ -36,6 +36,13 @@
       "when": 1792522023047,
       "tag": "0004_jazzy_stingray",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792658159320,
+      "tag": "0005_nifty_young_avengers",
+      "breakpoints": true
     }
   ]
 }

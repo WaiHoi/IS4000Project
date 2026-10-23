@@ -32,7 +32,7 @@ export function toApplicationDto(row: ApplicationRow): ApplicationDto {
 		identity: row.identity,
 		financial: row.financial,
 		business: row.business,
-		submittedAt: row.submittedAt.toISOString(),
+		submittedAt: row.submittedAt?.toISOString() ?? null,
 		decidedAt: row.decidedAt?.toISOString() ?? null,
 	};
 }

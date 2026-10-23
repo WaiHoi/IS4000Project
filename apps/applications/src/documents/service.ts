@@ -35,6 +35,7 @@ import {
 import {
 	assertDetectedType,
 	assertSize,
+	extractStatementDates,
 	isUniqueViolation,
 	LockTimeout,
 	mapUploadError,
@@ -556,6 +557,14 @@ export class DocumentService {
 		const ocrConfidence =
 			pages.length === 0 ? null : confidences.reduce((a, b) => a + b, 0) / confidences.length;
 
+		// Server-side statement dating from extracted page text (never
+		// client-asserted): fresh/stale flows from periodEnd; unknown stays
+		// a requirements blocker.
+		const statementDates = extractStatementDates(
+			kind,
+			pages.map((p) => p.text),
+		);
+
 		// Encrypt after extraction; storage failure leaves no row.
 		const fileId = randomUUID();
 		const storageKey = storageKeyFor(input.applicationId, fileId);
@@ -607,6 +616,9 @@ export class DocumentService {
 				retentionUntil: new Date(Date.now() + config.retentionDays * 86_400_000),
 				errorCode: null,
 				errorMessage: null,
+				periodEnd: statementDates.periodEnd,
+				documentDate: statementDates.documentDate,
+				documentDateSource: statementDates.dateSource,
 			}),
 			pages,
 			auditAction: "document.uploaded",

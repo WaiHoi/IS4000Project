@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { dedupeDecisionMade, dedupeLoanBooked } from "@credit/core";
 import { applications, decisions, policyEvaluations, scores } from "@credit/db/applications";
 import { installments, loans } from "@credit/db/loans";
-import { auditLog, outboxEvents } from "@credit/db/shared";
+import { outboxEvents } from "@credit/db/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { bookLoan, resumeBooking } from "../../src/activities/booking.js";
@@ -40,6 +40,8 @@ async function fixture(status: "processing" | "pending_review" = "processing"): 
 			financial: null,
 			business: null,
 			consents: [true, true, true],
+			// D0: submitted rows always carry submittedAt (draft iff null).
+			submittedAt: new Date(),
 		})
 		.returning({ id: applications.id });
 	const applicationId = app.id;
@@ -73,12 +75,11 @@ afterAll(async () => {
 				.from(loans)
 				.where(eq(loans.applicationId, applicationId));
 			for (const loan of loanRows) {
-				await loansDb.delete(auditLog).where(eq(auditLog.loanId, loan.id));
+				// audit_log is append-only at the DB level; leave it in place.
 				await loansDb.delete(outboxEvents).where(eq(outboxEvents.key, applicationId));
 				await loansDb.delete(installments).where(eq(installments.loanId, loan.id));
 				await loansDb.delete(loans).where(eq(loans.id, loan.id));
 			}
-			await appsDb.delete(auditLog).where(eq(auditLog.applicationId, applicationId));
 			await appsDb.delete(outboxEvents).where(eq(outboxEvents.key, applicationId));
 			await appsDb.delete(decisions).where(eq(decisions.applicationId, applicationId));
 			await appsDb.delete(scores).where(eq(scores.applicationId, applicationId));

@@ -18,6 +18,7 @@ import {
 import {
 	applications,
 	auditLog,
+	customerProfiles,
 	decisions,
 	documentFiles,
 	documents,
@@ -60,7 +61,8 @@ function summarize(row: typeof applications.$inferSelect): Record<string, unknow
 		status: row.status,
 		amountCents: row.amountCents,
 		termMonths: row.termMonths,
-		submittedAt: row.submittedAt.toISOString(),
+		// T17: drafts carry submittedAt=null; direct-create rows stay non-null.
+		submittedAt: row.submittedAt?.toISOString() ?? null,
 		decidedAt: row.decidedAt?.toISOString() ?? null,
 	};
 }
@@ -100,6 +102,17 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 		const me = c.var.user;
 		if (me.role !== "applicant") {
 			throw new HttpError(403, "FORBIDDEN", "applicants only");
+		}
+		// T17: direct create remains only for applicants with no customer
+		// profile. Profiled customers must use draft → requirements → submit
+		// (profile/KYC status does not change this guard).
+		const owned = await db
+			.select({ id: customerProfiles.id })
+			.from(customerProfiles)
+			.where(eq(customerProfiles.userId, me.id))
+			.limit(1);
+		if (owned.length > 0) {
+			throw new HttpError(409, "DRAFT_REQUIRED", "profiled applicants must use drafts");
 		}
 		const key = c.req.header("Idempotency-Key")?.trim();
 		if (!key) {
@@ -305,6 +318,8 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 		}
 		const conditions = [
 			...(me.role === "officer" ? [] : [eq(applications.applicantUserId, me.id)]),
+			// T17: drafts never appear in officer lists/queue; owners see them.
+			...(me.role === "officer" ? [sql`CAST(${applications.status} AS text) != 'draft'`] : []),
 			...(cursorAt
 				? [sql`(${applications.createdAt}, ${applications.id}) < (${cursorAt}, ${cursorId})`]
 				: []),
@@ -329,8 +344,12 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
 		const rows = await db.select().from(applications).where(eq(applications.id, id));
 		const row = rows[0];
-		// Cross-applicant access → 404, never 403 (FR-11.2).
+		// Cross-applicant access → 404, never 403 (FR-11.2). T17: officers
+		// get 404 on drafts — drafts are owner-only until submitted.
 		if (!row || (me.role !== "officer" && row.applicantUserId !== me.id)) {
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
+		if (row.status === "draft" && me.role === "officer") {
 			throw new HttpError(404, "NOT_FOUND", "not found");
 		}
 		const [checks, reports, docs, scoreRows, policyRows, decisionRows] = await Promise.all([
@@ -365,6 +384,9 @@ export function applicationsRoutes(deps: ApplicationsRouteDeps): ServiceApp {
 				documentProcessingConsent: row.documentProcessingConsent,
 				documentConsentAt: row.documentConsentAt?.toISOString() ?? null,
 				documentConsentVersion: row.documentConsentVersion,
+				contextAnalysisConsent: row.contextAnalysisConsent,
+				contextConsentAt: row.contextConsentAt?.toISOString() ?? null,
+				contextConsentVersion: row.contextConsentVersion,
 				/** T01 feature flag (SPEC-t01-t02 §10): the panel hides when
 				 * false; the mock `documents` checklist above is unaffected. */
 				documentsEnabled,

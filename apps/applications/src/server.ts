@@ -1,5 +1,6 @@
 import { createDb } from "@credit/db";
 import { createLogger, createTemporalGateway } from "@credit/service-kit";
+import { assertDemoBoot } from "@credit/core";
 import { createApp } from "./app.js";
 import { configFromEnv } from "./documents/index.js";
 import { startDocumentMaintenance } from "./documents/retention.js";
@@ -10,11 +11,25 @@ const logger = createLogger("applications");
 const { db, sql } = createDb(env.databaseUrl);
 const gateway = createTemporalGateway({ address: env.temporalAddress });
 
+// D2a boot gate (SPEC-t17-t18 §4/§5): reset-allowed in production refuses to
+// boot; in DEMO_MODE both blob roots must be demo-allowlisted (reset wipes
+// them, so a mispointed root must fail fast, not at 3am).
+assertDemoBoot({
+	demoMode: env.demo.mode,
+	nodeEnv: env.nodeEnv,
+	demoResetAllowed: env.demo.resetAllowed,
+	documentStorageDir: configFromEnv(env).storageDir,
+	customerStorageDir: env.customer.storageDir,
+});
+
 const app = createApp({ db, sql, env, gateway, logger });
 
 // D1b document maintenance (SPEC-t01-t02 §6): boot + daily sweep of
 // document orphans and retention. Retention runs even with the upload
 // feature flag off; the orphan sweep needs blob storage (dir + key).
+// T17: the app sweep stays scoped to the T01 application root — the
+// customer evidence root rides the separate D2a customer sweep (same
+// per-customer lock as reuse) below.
 const documentConfig = configFromEnv(env);
 startDocumentMaintenance({
 	db,
@@ -22,6 +37,10 @@ startDocumentMaintenance({
 	storageDir: documentConfig.storageDir,
 	uploadDeadlineMs: documentConfig.uploadDeadlineMs,
 	storageConfigured: documentConfig.storageDir.length > 0 && !!documentConfig.encryptionKey,
+	customerStorageDir: env.customer.storageDir,
+	// Fixture-owned customer rows expire on the fixture clock in demo mode;
+	// live rows always use the wall clock.
+	customerDemoAsOf: env.demo.mode ? env.demo.asOf : undefined,
 	logger,
 });
 

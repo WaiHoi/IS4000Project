@@ -26,7 +26,8 @@ export interface ApplicationDto {
 	identity: unknown;
 	financial: unknown;
 	business: unknown;
-	submittedAt: string;
+	// T17: null for drafts; worker paths only run post-submit (non-null).
+	submittedAt: string | null;
 	decidedAt: string | null;
 }
 

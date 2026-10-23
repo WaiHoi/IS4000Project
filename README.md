@@ -114,24 +114,60 @@ T16). E2E: `e2e/documents.spec.ts` (+ `e2e/fixtures/mismatch.pdf`) runs the
 full path when the stack above is configured, otherwise it skips with the
 required env.
 
+## Demo customer fixtures (T17/D2a, CLI-only)
+
+`fixtures/demo/manifest.json` is the checked-in source of truth
+(`DEMO_AS_OF=2026-06-30`, version + SHA-256 pinned in
+`scripts/lib/manifest.ts`): synthetic customer profiles, masked accounts,
+transactions, and text-PDF evidence for `breadtalk` (SME with stale
+statement/financials — the submit-blocker demo), `alex` (fresh individual),
+and `sparse` (verified KYC, no accounts — the insufficient-data persona).
+Customer evidence is encrypted under the disjoint `CUSTOMER_STORAGE_DIR`
+root with customer AAD; the T01 app sweep can never touch it (a separate
+customer sweep tombstones expired rows under the same per-customer lock the
+reuse path takes).
+
+```powershell
+pnpm demo:seed                      # DEMO_MODE + hash gate; idempotent, never touches drafts
+pnpm demo:case --persona=breadtalk  # draft + fresh id/registration copies + stale app copies (blocked)
+pnpm demo:verify --persona=breadtalk --phase=pre-refresh
+pnpm demo:refresh-evidence --persona=breadtalk  # fresh customer docs only — still blocked
+# applicant reuses the fresh docs via POST /api/applications/:id/documents/reuse, then:
+pnpm demo:submit --persona=breadtalk # real submit endpoint (409 until ready, one transition)
+pnpm demo:verify --persona=breadtalk --phase=post-submit
+pnpm demo:reset --dry-run           # preview; add --yes with DEMO_RESET_ALLOWED=true to run (never prod)
+```
+
+`demo:seed`/`demo:case` re-runs converge fixture-owned rows but skip any
+draft the applicant touched (uploads, edits, or submit). The T18 context
+analyst starts from a bounded officer-screen snapshot then drills in via a read-only internal tool loop (transactions,
+credit history, external reports, KYC checks, loans) — advisory only; the applicant UI arrives in D2b/D3; `demo:verify`
+reports those seams instead of failing on them.
+
 ## Command reference
 
-| Command                                           | What it does                                                                                                                              |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`                                        | gateway + 5 services + worker + web in parallel                                                                                           |
-| `pnpm dev:services`                               | gateway + 4 services (no research/worker/web)                                                                                             |
-| `pnpm typecheck`                                  | `tsc --noEmit` in every package + `scripts/` + `e2e/`                                                                                     |
-| `pnpm lint` / `pnpm format` / `pnpm format:check` | `oxlint` / `oxfmt .` / `oxfmt --check .`                                                                                                  |
-| `pnpm test`                                       | unit tests, compose-free (core 87 + db 9 + service-kit 14 + gateway 5 + research 73 + worker 28 = 216)                                    |
-| `pnpm test:integration`                           | gateway (15) + applications (11) + loans (5) + portfolio (5) + review (19) + worker (10) + research (38) integration = 103, needs compose |
-| `pnpm test:e2e`                                   | Playwright (5 specs), boots worker/gateway/services/web itself, needs compose                                                             |
-| `pnpm demo:check`                                 | scripted HTTP smoke (Maria/Sam/Tomás + monitoring/pay), needs the stack                                                                   |
-| `pnpm demo:monitor`                               | officer login + `POST /demo/monitoring/run`, prints counts                                                                                |
-| `pnpm db:wait`                                    | polls `pg_isready` in the postgres container (timeout `DB_WAIT_TIMEOUT_S`, default 120)                                                   |
-| `pnpm db:init`                                    | creates the 5 service DBs (+ Temporal pair) if missing — self-provisions existing clusters                                                |
-| `pnpm kafka:init`                                 | creates the 7 SPEC FR-10.1 topics (3 partitions, RF 1), idempotent                                                                        |
-| `pnpm setup`                                      | `db:wait && db:init && kafka:init && db:migrate && db:seed`                                                                               |
-| `pnpm build`                                      | recursive `--if-present` build                                                                                                            |
+| Command                                            | What it does                                                                                                                              |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                                         | gateway + 5 services + worker + web in parallel                                                                                           |
+| `pnpm dev:services`                                | gateway + 4 services (no research/worker/web)                                                                                             |
+| `pnpm typecheck`                                   | `tsc --noEmit` in every package + `scripts/` + `e2e/`                                                                                     |
+| `pnpm lint` / `pnpm format` / `pnpm format:check`  | `oxlint` / `oxfmt .` / `oxfmt --check .`                                                                                                  |
+| `pnpm test`                                        | unit tests, compose-free (core 87 + db 9 + service-kit 14 + gateway 5 + research 73 + worker 28 = 216)                                    |
+| `pnpm test:integration`                            | gateway (15) + applications (11) + loans (5) + portfolio (5) + review (19) + worker (10) + research (38) integration = 103, needs compose |
+| `pnpm test:e2e`                                    | Playwright (5 specs), boots worker/gateway/services/web itself, needs compose                                                             |
+| `pnpm demo:check`                                  | scripted HTTP smoke (Maria/Sam/Tomás + monitoring/pay), needs the stack                                                                   |
+| `pnpm demo:monitor`                                | officer login + `POST /demo/monitoring/run`, prints counts                                                                                |
+| `pnpm demo:seed`                                   | idempotent T17 fixture load (users/customers/evidence, `DEMO_MODE` + manifest hash gate), needs DB                                        |
+| `pnpm demo:case --persona=<key>`                   | deterministic fixture draft + initial evidence (BreadTalk blocks on stale docs), needs DB                                                 |
+| `pnpm demo:refresh-evidence --persona=<key>`       | add fresh customer evidence only (never attaches), needs DB                                                                               |
+| `pnpm demo:submit --persona=<key>`                 | submit the fixture draft via the real endpoint, needs the stack                                                                           |
+| `pnpm demo:verify --persona=<key> --phase=<phase>` | read-only fixture checks (`pre-refresh`/`post-refresh`/`post-attach`/`post-submit`), needs DB                                             |
+| `pnpm demo:reset --dry-run` / `--yes`              | guarded compose reset (volumes + roots + reseed); `--dry-run` prints the plan, `--yes` runs it — never in production                      |
+| `pnpm db:wait`                                     | polls `pg_isready` in the postgres container (timeout `DB_WAIT_TIMEOUT_S`, default 120)                                                   |
+| `pnpm db:init`                                     | creates the 5 service DBs (+ Temporal pair) if missing — self-provisions existing clusters                                                |
+| `pnpm kafka:init`                                  | creates the 7 SPEC FR-10.1 topics (3 partitions, RF 1), idempotent                                                                        |
+| `pnpm setup`                                       | `db:wait && db:init && kafka:init && db:migrate && db:seed`                                                                               |
+| `pnpm build`                                       | recursive `--if-present` build                                                                                                            |
 
 ## Ports & env
 

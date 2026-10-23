@@ -358,6 +358,57 @@ export function reviewRoutes(deps: ReviewRouteDeps): ServiceApp {
 		return c.json(await readUpstream(res), 201);
 	});
 
+	// T18 context proxies (SPEC-t17-t18 §3.5/§3.6, D4): officer-only, gated
+	// like every other research route. Retry resolves the latest run first
+	// (the research retry is run-scoped) and forwards its 202 — the stage
+	// runs in the background, so this never waits on a model call. Signal
+	// review appends and returns the updated signal (201).
+	app.post("/api/review/:id/research/context/retry", officer, async (c) => {
+		const id = c.req.param("id");
+		if (!UUID_RE.test(id)) throw new HttpError(404, "NOT_FOUND", "not found");
+		requireResearch();
+		// Latest 404s (no run, cross-officer) pass through untouched — the
+		// same non-disclosure as a direct research read.
+		const latest = (await readUpstream(
+			await get(researchUrl, `/internal/research/applications/${id}/latest`, c.var.user),
+		)) as { run?: { id?: unknown } };
+		const runId = latest?.run?.id;
+		if (typeof runId !== "string" || !UUID_RE.test(runId)) {
+			throw new HttpError(502, "BAD_GATEWAY", "upstream service unavailable");
+		}
+		const res = await post(
+			researchUrl,
+			`/internal/research/applications/${id}/runs/${runId}/context/retry`,
+			c.var.user,
+			{},
+		);
+		// 202 claimed (stage token/version — poll latest); 409 unless the
+		// run is terminal with a failed/skipped stage and a retry left.
+		return c.json(await readUpstream(res), 202);
+	});
+
+	app.post("/api/review/:id/research/context/signals/:signalId/review", officer, async (c) => {
+		const id = c.req.param("id");
+		const signalId = c.req.param("signalId");
+		if (!UUID_RE.test(id) || !UUID_RE.test(signalId)) {
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
+		requireResearch();
+		const parsed = findingReviewSchema.safeParse(await readJson(c));
+		if (!parsed.success) {
+			throw new HttpError(422, "VALIDATION_ERROR", "invalid review", zodFields(parsed.error));
+		}
+		const res = await post(
+			researchUrl,
+			`/internal/research/applications/${id}/context/signals/${signalId}/review`,
+			c.var.user,
+			parsed.data,
+		);
+		// 201 with the updated signal; 404 on signal/run/application
+		// mismatch; 409 on a superseded signal.
+		return c.json(await readUpstream(res), 201);
+	});
+
 	return app;
 }
 

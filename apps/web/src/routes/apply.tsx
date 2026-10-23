@@ -9,8 +9,17 @@ import {
 } from "@credit/core/browser";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, ErrorBox, Field, inputCls, Page } from "../components/ui";
-import { ApiError, api, apiErrorMessage, toast } from "../lib/api";
+import {
+	ApiError,
+	api,
+	apiErrorMessage,
+	createDraft,
+	fetchCustomerProfile,
+	toast,
+	type CustomerProfileResponse,
+} from "../lib/api";
 import { RequireAuth, useMe } from "../lib/auth";
 
 export const Route = createFileRoute("/apply")({
@@ -26,6 +35,12 @@ const dollars = (s: string): number | null => {
 	const n = Number(s);
 	return s.trim() !== "" && Number.isFinite(n) ? Math.round(n * 100) : null;
 };
+
+// T17 prefill coercions (module scope): profile values are strings for
+// identity, numbers for business cents/counts; empty stays empty.
+const profStr = (v: unknown): string => (typeof v === "string" ? v : "");
+const profCents = (v: unknown): string => (typeof v === "number" ? String(v / 100) : "");
+const profNum = (v: unknown): string => (typeof v === "number" ? String(v) : "");
 
 function Wizard() {
 	const me = useMe();
@@ -71,6 +86,60 @@ function Wizard() {
 	const [consents, setConsents] = useState([false, false, false]);
 	const [aiResearchConsent, setAiResearchConsent] = useState(false);
 	const [documentProcessingConsent, setDocumentProcessingConsent] = useState(false);
+	const [contextAnalysisConsent, setContextAnalysisConsent] = useState(false);
+	// T17 (SPEC-t17-t18 §2.4): profiled customers get prefilled fields and
+	// create a draft; legacy users without a profile keep direct create.
+	const profileQuery = useQuery({
+		queryKey: ["customer-profile"],
+		queryFn: fetchCustomerProfile,
+		retry: false,
+	});
+	const profile: CustomerProfileResponse | null = profileQuery.data ?? null;
+	const [profileApplied, setProfileApplied] = useState(false);
+	const [prefilled, setPrefilled] = useState<string[]>([]);
+
+	// Prefill once the profile lands (same render-guard idiom as the email
+	// sync below): values stay editable; edits are recorded as edited.
+	if (!profileApplied && profile) {
+		const profIdentity = (profile.profile.identity ?? {}) as Record<string, unknown>;
+		const business = (profile.profile.business ?? null) as Record<string, unknown> | null;
+		const marked: string[] = [];
+		const take = (field: string, value: string): string => {
+			if (value !== "") marked.push(field);
+			return value;
+		};
+		const nextIdentity = {
+			fullName: take("identity.fullName", profStr(profIdentity.fullName)),
+			dob: take("identity.dob", profStr(profIdentity.dob)),
+			nationalId: take("identity.nationalId", profStr(profIdentity.nationalId)),
+			email: take("identity.email", profStr(profIdentity.email)) || (me.data?.user.email ?? ""),
+			phone: take("identity.phone", profStr(profIdentity.phone)),
+			address: take("identity.address", profStr(profIdentity.address)),
+			city: take("identity.city", profStr(profIdentity.city)),
+		};
+		const nextSme = business
+			? {
+					companyName: take("sme.companyName", profStr(business.companyName)),
+					registrationNumber: take("sme.registrationNumber", profStr(business.registrationNumber)),
+					industry: take("sme.industry", profStr(business.industry) || "retail"),
+					yearsTrading: take("sme.yearsTrading", profNum(business.yearsTrading)),
+					employees: take("sme.employees", profNum(business.employees)),
+					annualRevenue: take("sme.annualRevenueCents", profCents(business.annualRevenueCents)),
+					monthlyFcf: take("sme.monthlyFcfCents", profCents(business.monthlyFcfCents)),
+					existingDebtService: take(
+						"sme.existingDebtServiceCents",
+						profCents(business.existingDebtServiceCents),
+					),
+				}
+			: null;
+		setProfileApplied(true);
+		setPrefilled(marked);
+		setIdentity(nextIdentity);
+		if (nextSme) {
+			setBorrowerType(profile.profile.segment === "sme" ? "sme" : "individual");
+			setSme(nextSme);
+		}
+	}
 	// ONE key per submission intent — retries reuse it (SPEC FR-1.7/1.9).
 	const [idemKey] = useState(() => crypto.randomUUID());
 	const [errors, setErrors] = useState<Errors>({});
@@ -141,6 +210,7 @@ function Wizard() {
 			consents,
 			aiResearchConsent,
 			documentProcessingConsent,
+			contextAnalysisConsent,
 			identity: { ...identity, fullName: identity.fullName.trim() },
 		};
 		return borrowerType === "individual"
@@ -175,6 +245,9 @@ function Wizard() {
 			setErrors({ consents: "all 3 consents are required" });
 			return;
 		}
+		// A profiled customer must never take the legacy direct path (the
+		// server 409s it with DRAFT_REQUIRED) — wait for the lookup first.
+		if (profileQuery.isPending) return;
 		const body = payload();
 		const parsed = applicationCreateSchema.safeParse(body);
 		if (!parsed.success) {
@@ -189,6 +262,52 @@ function Wizard() {
 		setBusy(true);
 		setServerError("");
 		try {
+			if (profile) {
+				// Advisory confirmations only: the server derives reused vs
+				// edited by canonical equality — a spoofed hash marks nothing
+				// reused. Only fields matching the profile are claimed.
+				const submitted = parsed.data;
+				const profileIdentity = (profile.profile.identity ?? {}) as Record<string, unknown>;
+				const profileBusiness = (profile.profile.business ?? null) as Record<
+					string,
+					unknown
+				> | null;
+				const smeForm: Record<string, unknown> = {
+					companyName: sme.companyName.trim(),
+					registrationNumber: sme.registrationNumber,
+					industry: sme.industry,
+					yearsTrading: Number(sme.yearsTrading),
+					employees: Number(sme.employees),
+					annualRevenueCents: dollars(sme.annualRevenue),
+					monthlyFcfCents: dollars(sme.monthlyFcf),
+					existingDebtServiceCents: dollars(sme.existingDebtService),
+				};
+				const candidates: Array<{ field: string; a: unknown; b: unknown }> = [
+					...Object.keys(submitted.identity).map((k) => ({
+						field: `identity.${k}`,
+						a: (submitted.identity as Record<string, unknown>)[k],
+						b: profileIdentity[k],
+					})),
+					...Object.keys(smeForm).map((k) => ({
+						field: `sme.${k}`,
+						a: smeForm[k],
+						b: profileBusiness?.[k],
+					})),
+				];
+				const profileConfirmations = candidates
+					.filter(
+						(c) =>
+							c.a !== undefined &&
+							c.a !== null &&
+							c.a !== "" &&
+							c.b !== undefined &&
+							JSON.stringify(c.a) === JSON.stringify(c.b),
+					)
+					.map((c) => ({ field: c.field, valueHash: "web-confirmed" }));
+				const res = await createDraft({ ...submitted, profileConfirmations }, idemKey);
+				await navigate({ to: "/applications/$id", params: { id: res.id } });
+				return;
+			}
 			const res = await api<{ id: string; reference: string }>("/api/applications", {
 				method: "POST",
 				body: parsed.data,
@@ -213,6 +332,31 @@ function Wizard() {
 		<Page>
 			<h1 className="mb-1 text-xl font-bold">New application</h1>
 			<p className="mb-4 text-sm text-gray-500">Step {step} of 3</p>
+			{profileQuery.isPending && (
+				<p className="mb-4 text-sm text-gray-500" aria-live="polite">
+					Checking your customer profile…
+				</p>
+			)}
+			{profile && (
+				<div
+					className="mb-4 rounded border border-blue-200 bg-blue-50 p-3 text-sm"
+					aria-live="polite"
+				>
+					<p className="font-medium text-blue-900">
+						Prefilled from your customer profile — review, confirm, or edit every field.
+					</p>
+					<p className="mt-1 text-xs text-blue-800">
+						KYC {profile.profile.kycStatus}
+						{profile.profile.kycFresh ? "" : " (not fresh)"}
+						{profile.profile.kycExpiresAt
+							? ` · expires ${new Date(profile.profile.kycExpiresAt).toLocaleDateString()}`
+							: ""}
+						{profile.accounts.length > 0
+							? ` · accounts on file: ${profile.accounts.map((a) => `${a.bankName} ${a.maskedNumber}`).join("; ")}`
+							: ""}
+					</p>
+				</div>
+			)}
 			{step === 1 && (
 				<Card title="Loan details">
 					<div className="grid gap-3 sm:grid-cols-2">
@@ -269,6 +413,16 @@ function Wizard() {
 			{step === 2 && (
 				<div className="space-y-4">
 					<Card title="Identity">
+						{prefilled.filter((f) => f.startsWith("identity.")).length > 0 && (
+							<p className="mb-2 text-xs text-gray-500">
+								From your customer profile (
+								{prefilled
+									.filter((f) => f.startsWith("identity."))
+									.map((f) => f.slice("identity.".length))
+									.join(", ")}
+								) — editable; changes are recorded as edited, not reused.
+							</p>
+						)}
 						<div className="grid gap-3 sm:grid-cols-2">
 							<Field label="Full name" error={errors["identity.fullName"]}>
 								<input
@@ -397,6 +551,16 @@ function Wizard() {
 						</Card>
 					) : (
 						<Card title="Business (SME)">
+							{prefilled.filter((f) => f.startsWith("sme.")).length > 0 && (
+								<p className="mb-2 text-xs text-gray-500">
+									From your customer profile (
+									{prefilled
+										.filter((f) => f.startsWith("sme."))
+										.map((f) => f.slice("sme.".length))
+										.join(", ")}
+									) — editable; changes are recorded as edited, not reused.
+								</p>
+							)}
 							<div className="grid gap-3 sm:grid-cols-2">
 								<Field label="Company name" error={errors["sme.companyName"]}>
 									<input
@@ -536,6 +700,15 @@ function Wizard() {
 						/>
 						Document processing consent (optional for now)
 					</label>
+					<label className="mt-2 flex items-center gap-2 py-1 text-sm">
+						<input
+							type="checkbox"
+							checked={contextAnalysisConsent}
+							onChange={(e) => setContextAnalysisConsent(e.target.checked)}
+							aria-label="Context analysis consent"
+						/>
+						Context analysis consent (optional)
+					</label>
 					{errors.consents && (
 						<p role="alert" className="mt-1 text-sm text-red-600">
 							{errors.consents}
@@ -583,10 +756,10 @@ function Wizard() {
 					<button
 						type="button"
 						onClick={submit}
-						disabled={busy}
+						disabled={busy || profileQuery.isPending}
 						className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
 					>
-						{busy ? "Submitting…" : "Submit application"}
+						{busy ? "Submitting…" : profile ? "Create draft" : "Submit application"}
 					</button>
 				)}
 			</div>

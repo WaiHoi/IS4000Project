@@ -1,0 +1,21 @@
+{
+	"name": "@credit/scripts",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@credit/core": "workspace:*",
+		"@credit/db": "workspace:*",
+		"@credit/service-kit": "workspace:*",
+		"dotenv": "catalog:",
+		"drizzle-orm": "catalog:",
+		"kafkajs": "catalog:"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}

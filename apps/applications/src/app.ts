@@ -16,7 +16,11 @@ import {
 	documentRoutes,
 	type DocumentAdapters,
 } from "./documents/index.js";
+import { resolveContextConfig, type ContextConfig } from "./context/index.js";
+import { type CustomerConfig } from "./customer/index.js";
 import { applicationsRoutes } from "./routes/applications.js";
+import { customerRoutes } from "./routes/customer.js";
+import { intakeRoutes } from "./routes/intake.js";
 import { internalRoutes } from "./routes/internal.js";
 
 export interface ApplicationsDeps {
@@ -27,17 +31,59 @@ export interface ApplicationsDeps {
 	logger: Logger;
 	/** Test seam: fake scanner/OCR + config overrides without touching env. */
 	documents?: DocumentAdapters;
+	/** Test seam: customer storage root/keys + T17 clock without touching env. */
+	customer?: {
+		config?: Partial<CustomerConfig>;
+		demoMode?: boolean;
+		demoAsOf?: Date;
+	};
+	/** Test seam: T18 context thresholds/window/caps without touching env. */
+	context?: Partial<ContextConfig>;
+	/** Test seam: research purge callback target without touching env. */
+	research?: { url?: string };
 }
 
 /** Test seam: pass fakes for gateway/db; the production server wires the real ones. */
 export function createApp(deps: ApplicationsDeps): ServiceApp {
 	const documentConfig = { ...configFromEnv(deps.env), ...deps.documents?.config };
+	// T17 customer evidence root: disjoint from the T01 app root — the
+	// orphan sweep below only ever receives the app root (D2 adds the
+	// separate customer sweep; sharing one root would delete evidence).
+	const customerConfig: CustomerConfig = {
+		storageDir: deps.env.customer.storageDir,
+		encryptionKey: documentConfig.encryptionKey,
+		keyId: documentConfig.keyId,
+		previousKeys: documentConfig.previousKeys,
+		retentionDays: deps.env.customer.retentionDays,
+		lockTimeoutMs: documentConfig.lockTimeoutMs,
+		...deps.customer?.config,
+	};
+	const t17 = {
+		demoMode: deps.customer?.demoMode ?? deps.env.demo.mode,
+		demoAsOf: deps.customer?.demoAsOf ?? deps.env.demo.asOf,
+		confirmationKey: deps.env.internalSecret,
+	};
 	const routes: ServiceApp = applicationsRoutes({
 		db: deps.db,
 		gateway: deps.gateway,
 		logger: deps.logger,
 		documentsEnabled: documentConfig.featureEnabled,
 	});
+	routes.route(
+		"/",
+		intakeRoutes({
+			db: deps.db,
+			gateway: deps.gateway,
+			logger: deps.logger,
+			t17,
+			researchUrl: deps.research?.url ?? deps.env.researchUrl,
+			internalSecret: deps.env.internalSecret,
+		}),
+	);
+	routes.route(
+		"/",
+		customerRoutes({ db: deps.db, demoMode: t17.demoMode, demoAsOf: t17.demoAsOf }),
+	);
 	routes.route(
 		"/",
 		internalRoutes({
@@ -47,6 +93,7 @@ export function createApp(deps: ApplicationsDeps): ServiceApp {
 				storageDir: documentConfig.storageDir,
 				lockTimeoutMs: documentConfig.lockTimeoutMs,
 			},
+			context: resolveContextConfig(deps.env, deps.context),
 		}),
 	);
 	const documentService = buildDocumentService(deps.db, documentConfig, deps.documents ?? {});
@@ -57,6 +104,9 @@ export function createApp(deps: ApplicationsDeps): ServiceApp {
 			config: documentConfig,
 			service: documentService,
 			logger: deps.logger,
+			customer: customerConfig,
+			t17,
+			appRetentionDays: documentConfig.retentionDays,
 		}),
 	);
 	return createService({

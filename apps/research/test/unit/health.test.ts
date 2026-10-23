@@ -6,6 +6,7 @@ import type { Sql } from "postgres";
 import { describe, expect, it } from "vitest";
 import { stubAgentRunner } from "../../src/agent.js";
 import { checkConfig, createApp, createLogger } from "../../src/app.js";
+import { stubContextRunner } from "../../src/context-agent.js";
 import { loadEnv } from "../../src/env.js";
 import { stubLanguageRepair } from "../../src/repair.js";
 import { stubSupportJudge } from "../../src/support.js";
@@ -31,6 +32,7 @@ function healthApp(overrides: Partial<ReturnType<typeof loadEnv>> = {}) {
 		judge: stubSupportJudge(),
 		repair: stubLanguageRepair(),
 		observability: degraded,
+		contextRunner: stubContextRunner({ outputs: [] }),
 	});
 }
 
@@ -47,6 +49,14 @@ describe("checkConfig", () => {
 		expect(checkConfig({ ...base, openrouterApiKey: "k", tavilyApiKey: "t" })).toEqual({
 			ok: true,
 		});
+	});
+
+	it("refuses a context budget above the external budget", () => {
+		const base = { ...loadEnv(), agentsEnabled: true, openrouterApiKey: "k", tavilyApiKey: "t" };
+		expect(checkConfig({ ...base, maxCostUsd: 0.15, contextMaxCostUsd: 0.1 })).toEqual({
+			ok: true,
+		});
+		expect(checkConfig({ ...base, maxCostUsd: 0.1, contextMaxCostUsd: 0.15 }).ok).toBe(false);
 	});
 });
 

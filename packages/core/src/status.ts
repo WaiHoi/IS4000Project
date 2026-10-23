@@ -1,5 +1,6 @@
 // Status machines (SPEC FR-10.9, FR-8.4).
 export const APPLICATION_STATUSES = [
+	"draft",
 	"submitted",
 	"processing",
 	"pending_review",
@@ -11,6 +12,8 @@ export const APPLICATION_STATUSES = [
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
 const TRANSITIONS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
+	// T17: drafts submit once via POST /:id/submit; nothing returns to draft.
+	draft: ["submitted"],
 	submitted: ["processing", "failed"],
 	processing: ["pending_review", "booked", "declined", "failed"],
 	pending_review: ["booked", "declined", "expired", "failed"],

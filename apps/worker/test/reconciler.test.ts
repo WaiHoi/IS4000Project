@@ -14,6 +14,7 @@ import {
 } from "../src/reconciler.js";
 
 interface FakeApp extends ReconcilerApp {
+	submittedAt: Date;
 	failedReason: string | null;
 }
 

@@ -9,6 +9,7 @@ import {
 } from "@credit/service-kit";
 import type { AgentRunner } from "./agent.js";
 import { getAutoTriggerStatus } from "./auto-trigger.js";
+import type { ContextAgentRunner } from "./context-agent.js";
 import type { ResearchEnv } from "./env.js";
 import { getObservability, type Observability } from "./observability.js";
 import type { LanguageRepair } from "./repair.js";
@@ -24,6 +25,9 @@ export interface ResearchDeps {
 	judge: SupportJudge;
 	repair: LanguageRepair;
 	observability?: Observability;
+	contextRunner: ContextAgentRunner;
+	/** Test seam: fresh context-consent probe; default reads research-context over HMAC. */
+	fetchContextConsent?: (applicationId: string) => Promise<boolean>;
 }
 
 /** Test seam: pass fakes for runner/judge/repair; production wires the real ones. */
@@ -37,6 +41,8 @@ export function createApp(deps: ResearchDeps): ServiceApp {
 		judge: deps.judge,
 		repair: deps.repair,
 		observability,
+		contextRunner: deps.contextRunner,
+		fetchContextConsent: deps.fetchContextConsent,
 	});
 	return createService({
 		name: "research",
@@ -68,6 +74,11 @@ export function checkConfig(env: ResearchEnv): { ok: boolean; error?: string } {
 	if (!env.agentsEnabled) return { ok: true };
 	if (!env.openrouterApiKey || !env.tavilyApiKey) {
 		return { ok: false, error: "research keys are not configured" };
+	}
+	// Boot guard (§5): the context stage budget must not exceed the
+	// external budget — auto caps reserve their sum per in-flight run.
+	if (env.contextMaxCostUsd > env.maxCostUsd) {
+		return { ok: false, error: "context stage budget exceeds the external budget" };
 	}
 	return { ok: true };
 }

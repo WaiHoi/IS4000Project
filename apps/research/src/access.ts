@@ -37,7 +37,16 @@ export type AuditAction =
 	| "access.denied"
 	| "auto.ensure"
 	| "auto.duplicate"
-	| "auto.skip";
+	| "auto.skip"
+	// T18 context stage (SPEC-t17-t18 §4): officer reads, denials, stage
+	// completion/failure, retry, and per-signal reviews. D0 allowlist only.
+	| "context.read"
+	| "context.denied"
+	| "context.completed"
+	| "context.failed"
+	| "context.retry"
+	| "context.signal_review"
+	| "context.purge";
 
 export interface AuditInput {
 	applicationId: string;

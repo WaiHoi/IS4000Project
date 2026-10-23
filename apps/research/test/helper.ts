@@ -16,6 +16,7 @@ import { createDb } from "@credit/db/research";
 import { createLogger, signInternalHeaders } from "@credit/service-kit";
 import { stubAgentRunner, type FetchedEvidence } from "../src/agent.js";
 import { createApp } from "../src/app.js";
+import { stubContextRunner } from "../src/context-agent.js";
 import { loadEnv } from "../src/env.js";
 import { resetObservability } from "../src/observability.js";
 import { stubLanguageRepair } from "../src/repair.js";
@@ -92,7 +93,9 @@ export function successFixture(): BriefFixture {
 			summary: "Registry shows timely filings; local press notes expansion.",
 			findings: [
 				{
-					claim: "Acme Ltd filed accounts for the year ending March 2025 on time.",
+					// Deliberately a paraphrase, not a verbatim quote: the
+					// validator may fast-path exact quotes without the judge.
+					claim: "Acme Ltd's accounts for the year ending March 2025 were filed on time.",
 					category: "registry",
 					whyItMatters: "Timely filing is part of the public record.",
 					allegationStatus: "unknown",
@@ -104,7 +107,7 @@ export function successFixture(): BriefFixture {
 					evidenceLocalIds: ["ev-1"],
 				},
 				{
-					claim: "Local paper notes Acme Ltd opened a second warehouse in Leeds.",
+					claim: "Local press reported that Acme Ltd opened a second warehouse in Leeds.",
 					category: "market",
 					whyItMatters: "Expansion is context for the application.",
 					allegationStatus: "unknown",
@@ -164,10 +167,16 @@ export function setupApp(
 		judge?: Parameters<typeof createApp>[0]["judge"];
 		repair?: Parameters<typeof createApp>[0]["repair"];
 		observability?: Parameters<typeof createApp>[0]["observability"];
+		contextRunner?: Parameters<typeof createApp>[0]["contextRunner"];
+		fetchContextConsent?: Parameters<typeof createApp>[0]["fetchContextConsent"];
+		env?: Partial<ReturnType<typeof loadEnv>>;
 	} = {},
 ): TestContext {
 	resetObservability();
-	const env = loadEnv();
+	// Context is off unless the test enables it, independent of the local
+	// .env. setupContext() flips it on for the context suites.
+	const env = { ...loadEnv(), agentsEnabled: true, contextEnabled: false };
+	Object.assign(env, overrides.env);
 	const { db, sql } = createDb(env.databaseUrl);
 	const use = fixture ?? successFixture();
 	const app = createApp({
@@ -184,6 +193,12 @@ export function setupApp(
 			trackModelCall: (_opts, fn) => fn(),
 			trackToolExecution: (_opts, fn) => fn(),
 		},
+		// Context is disabled unless the test enables it; the throwing
+		// default proves the stage never runs then.
+		contextRunner:
+			overrides.contextRunner ??
+			stubContextRunner({ outputs: [], throw: new Error("context stage must not run") }),
+		fetchContextConsent: overrides.fetchContextConsent,
 	});
 	return { app, db, sql, secret: env.internalSecret };
 }

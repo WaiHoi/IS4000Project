@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - scripts
 
 # Default catalog: every external dependency used across the workspace pins
 # one version here; each package.json references it via `"catalog:"`.

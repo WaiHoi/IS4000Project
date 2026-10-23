@@ -20,6 +20,12 @@ import { claimAssignedOfficer, resolveDocumentAccess } from "./access.js";
 import { createChaseDraft, getLatestCrosscheck, runDocumentCrosscheck } from "./crosscheck.js";
 import { LockTimeout, parseKind } from "./pipeline.js";
 import { contentDispositionFor } from "./storage.js";
+import {
+	getCustomerProfile,
+	reuseCustomerDocuments,
+	type CustomerConfig,
+} from "../customer/index.js";
+import { effectiveAsOf } from "../customer/requirements.js";
 import { DocumentService, type DocumentsConfig, type DocumentFileRow } from "./service.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,11 +37,25 @@ const chaseDraftSchema = z
 	})
 	.strict();
 
+// T17 reuse selection: explicit customer evidence ids (1–10) with an
+// optional kind filter that every selected row must match (422).
+const reuseSchema = z
+	.object({
+		customerDocumentIds: z.array(z.string().regex(UUID_RE)).min(1).max(10),
+		kind: z.string().min(1).max(50).optional(),
+	})
+	.strict();
+
 export interface DocumentRouteDeps {
 	db: Db;
 	config: DocumentsConfig;
 	service: DocumentService;
 	logger: Logger;
+	/** T17 customer evidence root/keys for copy-on-attach reuse. */
+	customer: CustomerConfig;
+	t17: { demoMode: boolean; demoAsOf: Date };
+	/** Application blob retention for reuse copies. */
+	appRetentionDays: number;
 }
 
 /** Metadata only — never page text, nonces, tags, or storage keys. */
@@ -91,7 +111,9 @@ export function documentRoutes(deps: DocumentRouteDeps): ServiceApp {
 		});
 	};
 
-	/** Feature → access → consent gate shared by every document route. */
+	/** Feature → access → consent gate shared by every document route.
+	 * T17: drafts are owner-only — officers (even assigned) 404, so drafts
+	 * never surface in document access, claim, or crosscheck. */
 	const gate = async (c: {
 		req: { param: (name: string) => string };
 		var: { user: { id: string; role: string } };
@@ -101,6 +123,10 @@ export function documentRoutes(deps: DocumentRouteDeps): ServiceApp {
 		if (!config.featureEnabled) throw new HttpError(404, "NOT_FOUND", "not found");
 		const resolved = await resolveDocumentAccess(db, applicationId, c.var.user);
 		if (!resolved) {
+			await auditDenied(applicationId, c.var.user, "document_read");
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
+		if (resolved.application.status === "draft" && resolved.access !== "owner") {
 			await auditDenied(applicationId, c.var.user, "document_read");
 			throw new HttpError(404, "NOT_FOUND", "not found");
 		}
@@ -138,6 +164,12 @@ export function documentRoutes(deps: DocumentRouteDeps): ServiceApp {
 		if (!config.featureEnabled) throw new HttpError(404, "NOT_FOUND", "not found");
 		const resolved = await resolveDocumentAccess(db, applicationId, c.var.user);
 		if (!resolved) {
+			await auditDenied(applicationId, c.var.user, "document_crosscheck");
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
+		// Drafts never cross-check (claim is draft-blocked, so no grant can
+		// exist — this is the belt to that suspenders).
+		if (resolved.application.status === "draft") {
 			await auditDenied(applicationId, c.var.user, "document_crosscheck");
 			throw new HttpError(404, "NOT_FOUND", "not found");
 		}
@@ -230,6 +262,58 @@ export function documentRoutes(deps: DocumentRouteDeps): ServiceApp {
 		noStore(c);
 		logger.info({ documentFileId: outcome.file.id, replayed: outcome.replayed }, "document upload");
 		return c.json({ file: presentFile(outcome.file) }, outcome.httpStatus as 200 | 201);
+	});
+
+	// T17 copy-on-attach reuse (SPEC-t17-t18 §2.3): owner-only, explicit
+	// `{customerDocumentIds, kind?}`. Clean/fresh evidence copies into new
+	// app-scoped blobs with provenance; stale/rejected/expired/unknown is
+	// 409/422 and a kind mismatch is 422. Idempotent per
+	// (application, source kind, bytes): 201 on copy, 200 on replay.
+	app.post("/api/applications/:id/documents/reuse", async (c) => {
+		const me = c.var.user;
+		const { applicationId, application } = await gate(c);
+		if (me.role !== "applicant" || application.applicantUserId !== me.id) {
+			await auditDenied(applicationId, me, "document_reuse");
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
+		const parsed = reuseSchema.safeParse(await readJson(c));
+		if (!parsed.success) {
+			throw new HttpError(400, "VALIDATION_ERROR", "invalid reuse", zodFields(parsed.error));
+		}
+		const kindFilter = parsed.data.kind === undefined ? undefined : parseKind(parsed.data.kind);
+		const profile = await getCustomerProfile(db, me.id);
+		if (!profile) throw new HttpError(404, "NOT_FOUND", "not found");
+		const asOf = effectiveAsOf({
+			appSource: application.source,
+			profileSource: profile.source,
+			demoMode: deps.t17.demoMode,
+			demoAsOf: deps.t17.demoAsOf,
+		});
+		const outcome = await reuseCustomerDocuments(
+			db,
+			{
+				storageDir: config.storageDir,
+				encryptionKey: config.encryptionKey,
+				keyId: config.keyId,
+				previousKeys: config.previousKeys,
+				lockTimeoutMs: config.lockTimeoutMs,
+			},
+			deps.customer,
+			{
+				applicationId,
+				userId: me.id,
+				customerDocumentIds: parsed.data.customerDocumentIds,
+				kindFilter,
+				asOf,
+				appRetentionDays: deps.appRetentionDays,
+			},
+		);
+		noStore(c);
+		logger.info(
+			{ applicationId, reused: outcome.files.length, created: outcome.created },
+			"document reuse",
+		);
+		return c.json({ files: outcome.files }, outcome.created ? 201 : 200);
 	});
 
 	app.get("/api/applications/:id/documents", async (c) => {
@@ -332,6 +416,15 @@ export function documentRoutes(deps: DocumentRouteDeps): ServiceApp {
 		if (!UUID_RE.test(applicationId)) throw new HttpError(404, "NOT_FOUND", "not found");
 		if (!config.featureEnabled) throw new HttpError(404, "NOT_FOUND", "not found");
 		if (me.role !== "officer") throw new HttpError(404, "NOT_FOUND", "not found");
+		// T17: drafts are owner-only — officers cannot claim or read a draft.
+		const target = await db
+			.select({ status: applications.status })
+			.from(applications)
+			.where(eq(applications.id, applicationId))
+			.limit(1);
+		if (!target[0] || target[0].status === "draft") {
+			throw new HttpError(404, "NOT_FOUND", "not found");
+		}
 		try {
 			const { assignment, idempotent } = await claimAssignedOfficer(db, {
 				applicationId,

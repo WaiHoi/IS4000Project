@@ -63,13 +63,30 @@ services:
       APPLICATIONS_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_applications
       TEMPORAL_ADDRESS: temporal:7233
       INTERNAL_SECRET: ${INTERNAL_SECRET}
+      # T18 consent-withdrawal purge callback (SPEC-t17-t18 §2.3): the
+      # applications service calls research inside the compose network.
+      RESEARCH_URL: http://research:4005
+      CONTEXT_HISTORY_MONTHS: ${CONTEXT_HISTORY_MONTHS:-6}
       PORT: "4001"
       HOST: 0.0.0.0
-      # T01 document workflow (SPEC-t01-t02 §10): encrypted blobs land on
-      # the `documents` volume (outside the repo in the container); the
-      # scanner resolves via container networking. Feature flag stays off
-      # until D1 lands, so these are inert until then.
+      # T01 document workflow (SPEC-t01-t02 §10): encrypted blobs land under
+      # /data/documents, bind-mounted to the host `.data/documents` tree so
+      # host CLIs (demo:seed/verify) and the containerized service read and
+      # write the same bytes. The scanner resolves via container networking.
+      # Feature flag stays off until D1 lands, so these are inert until then.
       DOCUMENT_STORAGE_DIR: /data/documents
+      # T17 customer evidence (SPEC-t17-t18 §2.2, D2a): disjoint
+      # host `.data/customer-documents` bind-mount, so the T01 app orphan
+      # sweep can never touch customer blobs; the D2a customer sweep owns
+      # this root.
+      CUSTOMER_STORAGE_DIR: /data/customer-documents
+      CUSTOMER_RETENTION_DAYS: ${CUSTOMER_RETENTION_DAYS:-90}
+      # D2a demo fixtures (SPEC-t17-t18 §2.5): the manifest owns DEMO_AS_OF;
+      # the service clock must agree with it or seed/verify refuse.
+      DEMO_MODE: ${DEMO_MODE:-true}
+      DEMO_AS_OF: ${DEMO_AS_OF:-2026-06-30}
+      DEMO_SEED_VERSION: ${DEMO_SEED_VERSION:-1}
+      DEMO_RESET_ALLOWED: ${DEMO_RESET_ALLOWED:-false}
       DOCUMENT_FEATURE_ENABLED: ${DOCUMENT_FEATURE_ENABLED:-false}
       DOCUMENT_ENCRYPTION_KEY: ${DOCUMENT_ENCRYPTION_KEY:-}
       DOCUMENT_KEY_ID: ${DOCUMENT_KEY_ID:-v1}
@@ -81,7 +98,11 @@ services:
     volumes:
       - .:/app
       - svc-node-modules:/app/node_modules
-      - documents:/data/documents
+      # Host/container storage consistency (SPEC-t17-t18 §2.5): the same
+      # `.data/` bytes the host seed/verify CLIs write are what the service
+      # reads — never a divergent named volume.
+      - ./.data/documents:/data/documents
+      - ./.data/customer-documents:/data/customer-documents
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -150,6 +171,7 @@ services:
     ports: ["4003:4003"]
     environment:
       LOANS_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_loans
+      APPLICATIONS_URL: http://applications:4001
       TEMPORAL_ADDRESS: temporal:7233
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       DEMO_MODE: ${DEMO_MODE:-true}
@@ -296,8 +318,20 @@ services:
       RESEARCH_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_research
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
+      AGENT_CASE_BRIEF_ENABLED: ${AGENT_CASE_BRIEF_ENABLED:-false}
+      CONTEXT_ANALYST_ENABLED: ${CONTEXT_ANALYST_ENABLED:-false}
+      CONTEXT_AGENT_MODEL: ${CONTEXT_AGENT_MODEL:-}
+      CONTEXT_AGENT_MAX_TOOL_CALLS: ${CONTEXT_AGENT_MAX_TOOL_CALLS:-16}
+      CONTEXT_AGENT_PREFLIGHT_TOOL_CALLS: ${CONTEXT_AGENT_PREFLIGHT_TOOL_CALLS:-16}
+      CONTEXT_AGENT_MAX_TURNS: ${CONTEXT_AGENT_MAX_TURNS:-16}
+      CONTEXT_AGENT_TEMPERATURE: ${CONTEXT_AGENT_TEMPERATURE:-0.1}
+      CONTEXT_AGENT_MAX_OUTPUT_TOKENS: ${CONTEXT_AGENT_MAX_OUTPUT_TOKENS:-6000}
+      CONTEXT_AGENT_TIMEOUT_MS: ${CONTEXT_AGENT_TIMEOUT_MS:-180000}
+      CONTEXT_AGENT_MAX_COST_USD: ${CONTEXT_AGENT_MAX_COST_USD:-1.5}
+      CONTEXT_HISTORY_MONTHS: ${CONTEXT_HISTORY_MONTHS:-6}
       AGENT_MODEL: ${AGENT_MODEL:-deepseek/deepseek-v4.1-flash-1017}
       APPLICATIONS_URL: http://applications:4001
+      LOANS_URL: http://loans:4003
       KAFKA_BROKERS: kafka:29092
       AGENT_AUTO_TRIGGER_ENABLED: ${AGENT_AUTO_TRIGGER_ENABLED:-false}
       AGENT_AUTO_TRIGGER_FROM_BEGINNING: ${AGENT_AUTO_TRIGGER_FROM_BEGINNING:-false}
@@ -305,13 +339,17 @@ services:
       AUTO_TRIGGER_SERVICE_EMAIL: ${AUTO_TRIGGER_SERVICE_EMAIL:-research-auto@internal.local}
       AUTO_TRIGGER_MAX_RUNS_PER_APPLICANT_DAY: ${AUTO_TRIGGER_MAX_RUNS_PER_APPLICANT_DAY:-2}
       AUTO_TRIGGER_MAX_RUNS_PER_DAY: ${AUTO_TRIGGER_MAX_RUNS_PER_DAY:-50}
-      AUTO_TRIGGER_DAILY_COST_BUDGET_USD: ${AUTO_TRIGGER_DAILY_COST_BUDGET_USD:-1}
+      AUTO_TRIGGER_DAILY_COST_BUDGET_USD: ${AUTO_TRIGGER_DAILY_COST_BUDGET_USD:-10}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       TAVILY_API_KEY: ${TAVILY_API_KEY}
       AGENT_MAX_SOURCES: ${AGENT_MAX_SOURCES:-6}
       AGENT_MAX_FETCHES: ${AGENT_MAX_FETCHES:-4}
       AGENT_TIMEOUT_MS: ${AGENT_TIMEOUT_MS:-90000}
-      AGENT_MAX_COST_USD: ${AGENT_MAX_COST_USD:-0.15}
+      AGENT_TEMPERATURE: ${AGENT_TEMPERATURE:-0.1}
+      AGENT_MAX_OUTPUT_TOKENS: ${AGENT_MAX_OUTPUT_TOKENS:-2000}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-8}
+      AGENT_MAX_TURNS: ${AGENT_MAX_TURNS:-12}
+      AGENT_MAX_COST_USD: ${AGENT_MAX_COST_USD:-2.0}
       AGENTO11Y_ENDPOINT: ${AGENTO11Y_ENDPOINT}
       AGENTO11Y_PROTOCOL: ${AGENTO11Y_PROTOCOL}
       AGENTO11Y_AUTH_MODE: ${AGENTO11Y_AUTH_MODE}
@@ -353,4 +391,3 @@ services:
 
 volumes:
   svc-node-modules:
-  documents:

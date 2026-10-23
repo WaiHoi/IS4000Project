@@ -5,10 +5,10 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { agentRuns, researchAccessGrants, researchAuditLog } from "@credit/db/research";
+import { agentRuns, createDb, researchAccessGrants, researchAuditLog } from "@credit/db/research";
 import { createLogger, resolveInternalUser } from "@credit/service-kit";
-import { eq, sql } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
 	classifyAutoMessage,
 	bootRecovery,
@@ -38,6 +38,26 @@ import {
 process.env.LOG_LEVEL ??= "silent";
 const testLogger = createLogger("research-auto-test");
 
+// The suite shares one database. Any auto run left queued/running by an
+// earlier test (or an earlier failed suite run) would reserve budget and make
+// the cap assertions non-deterministic. Delete only test-owned in-flight rows
+// before each case; spend rows are left alone and are included in `baseline`.
+beforeEach(async () => {
+	const { db, sql: raw } = createDb(loadEnv().databaseUrl);
+	await db
+		.delete(agentRuns)
+		.where(
+			and(
+				eq(agentRuns.trigger, "auto"),
+				or(
+					inArray(agentRuns.status, ["queued", "running"]),
+					and(eq(agentRuns.contextStatus, "running"), isNotNull(agentRuns.contextStageToken)),
+				),
+			),
+		);
+	await raw.end();
+});
+
 const degraded = {
 	status: "degraded" as const,
 	hooksFor: () => ({ detach: () => {} }),
@@ -49,6 +69,7 @@ const degraded = {
 function autoEnv() {
 	return {
 		...loadEnv(),
+		agentsEnabled: true,
 		autoTriggerMaxRunsPerApplicantDay: 1000,
 		autoTriggerMaxRunsPerDay: 100_000,
 		autoTriggerDailyCostBudgetUsd: 1000,
@@ -87,10 +108,11 @@ function depsFor(
 function contextFor(
 	facts: CaseFactsPayload,
 	applicantUserId: string = randomUUID(),
+	contextConsent = true,
 ): (applicationId: string) => Promise<ResearchContextResult> {
 	return async (applicationId: string) => {
 		if (applicationId !== facts.applicationId) return { ok: false, status: 404 };
-		return { ok: true, caseFacts: facts, applicantUserId };
+		return { ok: true, caseFacts: facts, applicantUserId, contextConsent };
 	};
 }
 
@@ -548,7 +570,12 @@ describe("durable auto-event log (redelivery after change)", () => {
 			const mismatched = await handleReviewRequested(
 				depsFor(ctx, async () => {
 					fetches += 1;
-					return { ok: true, caseFacts: other, applicantUserId: randomUUID() };
+					return {
+						ok: true,
+						caseFacts: other,
+						applicantUserId: randomUUID(),
+						contextConsent: true,
+					};
 				}),
 				envelope(facts.applicationId, eventId),
 			);
@@ -560,6 +587,7 @@ describe("durable auto-event log (redelivery after change)", () => {
 					ok: true,
 					caseFacts: badFacts,
 					applicantUserId: "not-a-uuid",
+					contextConsent: true,
 				})),
 				envelope(badFacts.applicationId),
 			);
@@ -570,7 +598,12 @@ describe("durable auto-event log (redelivery after change)", () => {
 			const again = await handleReviewRequested(
 				depsFor(ctx, async () => {
 					fetches += 1;
-					return { ok: true, caseFacts: other, applicantUserId: randomUUID() };
+					return {
+						ok: true,
+						caseFacts: other,
+						applicantUserId: randomUUID(),
+						contextConsent: true,
+					};
 				}),
 				envelope(facts.applicationId, eventId),
 			);
@@ -680,7 +713,12 @@ describe("durable auto-event log (redelivery after change)", () => {
 			const ensureCall = handleReviewRequested(
 				depsFor(ctx, async () => {
 					await skipCall;
-					return { ok: true as const, caseFacts: ensureFacts, applicantUserId };
+					return {
+						ok: true as const,
+						caseFacts: ensureFacts,
+						applicantUserId,
+						contextConsent: true,
+					};
 				}),
 				envelope(applicationId, eventId),
 			);
@@ -936,6 +974,113 @@ describe("durable auto-event log (redelivery after change)", () => {
 			);
 			expect(out.handled).toBe("ensured");
 			await waitRun(ctx, (out as { runId: string }).runId);
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("prior-day runs: live context stages reserve, today's retry spend counts once", async () => {
+		const ctx = setupApp();
+		try {
+			const env = autoEnv();
+			const spendToday = async (): Promise<number> => {
+				const rows = (await ctx.db.execute(
+					sql`SELECT coalesce(sum(CASE WHEN usage->>'costUsd' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (usage->>'costUsd')::double precision ELSE 0 END), 0)::float8 AS total FROM agent_runs WHERE trigger = 'auto' AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`,
+				)) as unknown as Array<{ total: number }>;
+				return rows[0]?.total ?? 0;
+			};
+			const baseline = await spendToday();
+			const yesterday = new Date(Date.now() - 86_400_000);
+			const seedPrior = async (over: Partial<typeof agentRuns.$inferInsert>) => {
+				const facts = caseFacts();
+				const [row] = await ctx.db
+					.insert(agentRuns)
+					.values({
+						applicationId: facts.applicationId,
+						feature: "case_brief",
+						status: "failed",
+						trigger: "auto",
+						requestedBy: env.autoTriggerServiceUserId,
+						requestedByRole: "service",
+						applicantUserId: randomUUID(),
+						caseFacts: {},
+						model: "deepseek/deepseek-v4.1-flash-1017",
+						agentVersion: "vtest",
+						promptVersion: "vtest",
+						promptHash: "x",
+						asOf: new Date(facts.asOf),
+						grafanaConversationId: randomUUID(),
+						usage: {},
+						timeoutAt: new Date(),
+						finishedAt: new Date(),
+						createdAt: yesterday,
+						...over,
+					})
+					.returning({ id: agentRuns.id });
+				return row;
+			};
+
+			// A prior-day run with a live retry stage reserves today's budget
+			// even though its created_at is yesterday.
+			const running = await seedPrior({
+				contextStatus: "running",
+				contextStageToken: randomUUID(),
+				contextStartedAt: new Date(),
+			});
+			try {
+				expect(
+					await checkAutoCaps(
+						ctx.db,
+						{
+							...env,
+							maxCostUsd: 5,
+							contextMaxCostUsd: 5,
+							autoTriggerDailyCostBudgetUsd: baseline + 5,
+						},
+						randomUUID(),
+					),
+				).toEqual({ ok: false, reason: "daily_cost_budget" });
+			} finally {
+				await ctx.db.execute(sql`DELETE FROM agent_runs WHERE id = ${running.id}`);
+			}
+
+			// A prior-day run retried today counts its context_usage spend
+			// today (the merged usage ledger is keyed by created_at, so it
+			// would otherwise read as free).
+			const retried = await seedPrior({
+				contextStatus: "succeeded",
+				contextUsage: { costUsd: 25 },
+				contextStartedAt: new Date(),
+			});
+			try {
+				expect(
+					await checkAutoCaps(
+						ctx.db,
+						{ ...env, autoTriggerDailyCostBudgetUsd: baseline + 10 },
+						randomUUID(),
+					),
+				).toEqual({ ok: false, reason: "daily_cost_budget" });
+			} finally {
+				await ctx.db.execute(sql`DELETE FROM agent_runs WHERE id = ${retried.id}`);
+			}
+
+			// Prior-day spend alone (no retry today) stays out of the budget.
+			const old = await seedPrior({
+				usage: { costUsd: 25 },
+				contextUsage: { costUsd: 25 },
+				contextStartedAt: yesterday,
+			});
+			try {
+				expect(
+					await checkAutoCaps(
+						ctx.db,
+						{ ...env, autoTriggerDailyCostBudgetUsd: baseline + 10 },
+						randomUUID(),
+					),
+				).toEqual({ ok: true });
+			} finally {
+				await ctx.db.execute(sql`DELETE FROM agent_runs WHERE id = ${old.id}`);
+			}
 		} finally {
 			await teardown(ctx);
 		}

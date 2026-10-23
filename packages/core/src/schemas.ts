@@ -109,6 +109,19 @@ export const consentsSchema = z
 /** Document-processing policy version recorded with consent (T01/D0). */
 export const DOCUMENT_CONSENT_VERSION = "document-consent-v1";
 
+/** Context-analysis policy version recorded with consent (T17/D0). */
+export const CONTEXT_CONSENT_VERSION = "context-consent-v1";
+
+// T17 prefill confirmations: client hashes are advisory only — the server
+// derives reused vs edited by comparing canonical values (D1). Strict, max
+// 20; unknown fields fail at the allowlist (D1).
+export const profileConfirmationSchema = z
+	.object({
+		field: z.string().min(1).max(100),
+		valueHash: z.string().min(1).max(200),
+	})
+	.strict();
+
 export const applicationCreateSchema = z
 	.object({
 		type: applicationTypeSchema,
@@ -119,6 +132,8 @@ export const applicationCreateSchema = z
 		consents: consentsSchema,
 		aiResearchConsent: z.boolean().default(false),
 		documentProcessingConsent: z.boolean().default(false),
+		contextAnalysisConsent: z.boolean().optional(),
+		profileConfirmations: z.array(profileConfirmationSchema).max(20).optional(),
 		identity: identitySchema,
 		individual: individualBlockSchema.optional(),
 		sme: smeBlockSchema.optional(),

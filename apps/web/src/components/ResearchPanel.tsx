@@ -17,10 +17,14 @@ import {
 	fetchResearchAudit,
 	formatDateOnly,
 	formatDateTime,
+	retryResearchContext,
+	reviewContextSignal,
 	reviewResearchFinding,
 	viewResearch,
 	type ResearchAggregate,
 	type ResearchAuditEntry,
+	type ResearchContext,
+	type ResearchContextSignal,
 	type ResearchEvidenceItem,
 	type ResearchFindingItem,
 	type ResearchSelection,
@@ -308,6 +312,312 @@ function FindingCard({
 				</button>
 			</div>
 		</li>
+	);
+}
+
+// --- T18 internal context (SPEC-t17-t18 §3.6, D4). Renders `latest.context`
+// after the external brief: stage status (not_run/pending/ready/failed/
+// skipped — never implying "no anomalies"), the server-composed summary and
+// claims, signals with evidence *ids* only, gaps/limitations, and the policy
+// version. Per-signal accept/dismiss with an optional note is append-only.
+// A failed stage shows the sanitized error code plus an officer Retry (202,
+// then poll); no Retry when the case is decided or consent is off. Advisory
+// only — no decision, chase, score, or status change. ---
+
+function SignalEvidence({ signal }: { signal: ResearchContextSignal }) {
+	const items = Array.isArray(signal.evidence) ? signal.evidence : [];
+	if (items.length === 0) return <span className="text-gray-400">none listed</span>;
+	return (
+		<span>
+			{items.map((e, i) => (
+				<span key={`${e.kind ?? "?"}-${e.id ?? i}`}>
+					{i > 0 ? "; " : ""}
+					<span className="font-mono text-xs">
+						{e.kind ?? "?"}:{typeof e.id === "string" ? e.id.slice(0, 8) : "?"}
+					</span>
+				</span>
+			))}
+		</span>
+	);
+}
+
+function SignalCard({
+	applicationId,
+	signal,
+}: {
+	applicationId: string;
+	signal: ResearchContextSignal;
+}) {
+	const queryClient = useQueryClient();
+	const [busy, setBusy] = useState<"accepted" | "rejected" | null>(null);
+	const [note, setNote] = useState("");
+	const [error, setError] = useState("");
+	const status = signal.reviewStatus ?? "pending";
+
+	async function review(action: "accepted" | "rejected") {
+		setBusy(action);
+		setError("");
+		try {
+			await reviewContextSignal(applicationId, signal.id, action, note.trim() || undefined);
+			setNote("");
+			await queryClient.invalidateQueries({ queryKey: ["research", applicationId] });
+		} catch (err) {
+			setError(apiErrorMessage(err));
+		} finally {
+			setBusy(null);
+		}
+	}
+
+	return (
+		<li className="rounded border border-gray-200 p-3">
+			<p className="text-sm font-medium text-gray-900">
+				{signal.type}{" "}
+				<span className="font-normal text-gray-500">
+					· {signal.metric} · observed {signal.observed ?? "—"} · expected {signal.expected ?? "—"}
+				</span>
+			</p>
+			<dl className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-600">
+				<div>
+					<dt className="inline font-medium">Period: </dt>
+					<dd className="inline">
+						{signal.periodStart ?? "—"} → {signal.periodEnd ?? "—"}
+					</dd>
+				</div>
+				<div>
+					<dt className="inline font-medium">Confidence: </dt>
+					<dd className="inline">{signal.confidence}</dd>
+				</div>
+				<div>
+					<dt className="inline font-medium">Signal: </dt>
+					<dd className="inline">{signal.status}</dd>
+				</div>
+				<div>
+					<dt className="inline font-medium">Policy: </dt>
+					<dd className="inline font-mono">{signal.policyVersion}</dd>
+				</div>
+				<div>
+					<dt className="inline font-medium">Scope: </dt>
+					<dd className="inline font-mono">
+						{signal.accountScope === "all" ? "all accounts" : signal.accountScope.slice(0, 8)}
+					</dd>
+				</div>
+				<div>
+					<dt className="inline font-medium">Evidence: </dt>
+					<dd className="inline">
+						<SignalEvidence signal={signal} />
+					</dd>
+				</div>
+				<div>
+					<dt className="inline font-medium">Review: </dt>
+					<dd className="inline" aria-live="polite">
+						<span
+							className={`rounded px-1.5 py-0.5 font-medium ${status === "accepted" ? "bg-green-100 text-green-800" : status === "rejected" ? "bg-gray-200 text-gray-700" : "bg-yellow-100 text-yellow-800"}`}
+						>
+							{status}
+						</span>
+					</dd>
+				</div>
+			</dl>
+			{signal.explanation && <p className="mt-1 text-sm text-gray-600">{signal.explanation}</p>}
+			{error && (
+				<div className="mt-2">
+					<ErrorBox message={error} />
+				</div>
+			)}
+			<div className="mt-2 flex flex-wrap items-center gap-2">
+				<label className="sr-only" htmlFor={`signal-note-${signal.id}`}>
+					Note for signal {signal.type} (optional)
+				</label>
+				<input
+					id={`signal-note-${signal.id}`}
+					type="text"
+					value={note}
+					maxLength={1000}
+					onChange={(e) => setNote(e.target.value)}
+					placeholder="Note (optional)"
+					className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+				/>
+				<button
+					type="button"
+					onClick={() => void review("accepted")}
+					disabled={busy !== null}
+					aria-label={`Accept signal: ${signal.type}`}
+					className="rounded border border-green-600 px-3 py-1 text-sm text-green-800 disabled:opacity-50"
+				>
+					{busy === "accepted" ? "Accepting…" : "Accept"}
+				</button>
+				<button
+					type="button"
+					onClick={() => void review("rejected")}
+					disabled={busy !== null}
+					aria-label={`Dismiss signal: ${signal.type}`}
+					className="rounded border border-gray-400 px-3 py-1 text-sm text-gray-700 disabled:opacity-50"
+				>
+					{busy === "rejected" ? "Dismissing…" : "Dismiss"}
+				</button>
+			</div>
+		</li>
+	);
+}
+
+function ContextSection({
+	applicationId,
+	context,
+	canRetry,
+}: {
+	applicationId: string;
+	context: ResearchContext | null | undefined;
+	canRetry: boolean;
+}) {
+	const queryClient = useQueryClient();
+	const [retrying, setRetrying] = useState(false);
+	const [retryError, setRetryError] = useState("");
+
+	// Poll latest while the stage is active — the run itself may already be
+	// terminal (context is a stage, not the run), so the panel-level run
+	// poll does not cover it.
+	useEffect(() => {
+		if (context?.status !== "queued" && context?.status !== "running") return;
+		const timer = setInterval(() => {
+			void queryClient.invalidateQueries({ queryKey: ["research", applicationId] });
+		}, 2000);
+		return () => clearInterval(timer);
+	}, [context?.status, queryClient, applicationId]);
+
+	async function retry() {
+		setRetrying(true);
+		setRetryError("");
+		try {
+			// 202: the stage runs in the background; the poll above picks up
+			// the new stage version. No long synchronous wait here.
+			await retryResearchContext(applicationId);
+			await queryClient.invalidateQueries({ queryKey: ["research", applicationId] });
+		} catch (err) {
+			setRetryError(apiErrorMessage(err));
+		} finally {
+			setRetrying(false);
+		}
+	}
+
+	const claims = context?.brief?.claims ?? [];
+	const gaps = context?.brief?.dataGaps ?? [];
+	const limitations = context?.brief?.limitations ?? [];
+
+	let body: React.ReactNode;
+	switch (context?.status) {
+		case "succeeded":
+			body = (
+				<div className="space-y-3">
+					{context.brief?.summary ? (
+						<p className="text-sm text-gray-800">{context.brief.summary}</p>
+					) : (
+						<p className="text-sm text-gray-600">No summary — nothing supported was found.</p>
+					)}
+					{claims.length > 0 && (
+						<div>
+							<h4 className="text-sm font-semibold">Claims</h4>
+							<ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
+								{claims.map((claim) => (
+									<li key={claim.text}>{claim.text}</li>
+								))}
+							</ul>
+						</div>
+					)}
+					{context.signals.length === 0 ? (
+						<p className="text-sm text-gray-600">
+							No signals met the evidence bar — this is not an all-clear; see gaps below.
+						</p>
+					) : (
+						<ul className="space-y-3">
+							{context.signals.map((s) => (
+								<SignalCard key={s.id} applicationId={applicationId} signal={s} />
+							))}
+						</ul>
+					)}
+					{gaps.length > 0 && (
+						<div>
+							<h4 className="text-sm font-semibold">Data gaps</h4>
+							<ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
+								{gaps.map((g) => (
+									<li key={g}>{g}</li>
+								))}
+							</ul>
+						</div>
+					)}
+					{limitations.length > 0 && (
+						<div>
+							<h4 className="text-sm font-semibold">Limitations</h4>
+							<ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
+								{limitations.map((l) => (
+									<li key={l}>{l}</li>
+								))}
+							</ul>
+						</div>
+					)}
+				</div>
+			);
+			break;
+		case "failed":
+			body = (
+				<div className="space-y-3">
+					<ErrorBox
+						message={`Internal context ${context.errorCode ? `failed (${context.errorCode})` : "failed"}. The case remains fully decidable without it.`}
+					/>
+					{canRetry ? (
+						<button
+							type="button"
+							onClick={() => void retry()}
+							disabled={retrying}
+							className="rounded border border-gray-300 px-4 py-2 text-sm disabled:opacity-50"
+						>
+							{retrying ? "Retrying…" : "Retry internal context"}
+						</button>
+					) : (
+						<p className="text-sm text-gray-600">
+							Retry is unavailable — context analysis consent was not given or the case no longer
+							awaits review.
+						</p>
+					)}
+					{retryError && <ErrorBox message={retryError} />}
+				</div>
+			);
+			break;
+		case "queued":
+		case "running":
+			body = (
+				<output className="block text-sm text-gray-600" aria-live="polite">
+					Internal context is being analysed… This section updates automatically.
+				</output>
+			);
+			break;
+		case "skipped":
+			body = (
+				<p className="text-sm text-gray-600">
+					Internal context was skipped — context analysis consent was not given or the stage is
+					disabled. External research above is unaffected.
+				</p>
+			);
+			break;
+		default:
+			body = (
+				<p className="text-sm text-gray-600">
+					Internal context did not run for this case. This is not an all-clear.
+				</p>
+			);
+	}
+
+	return (
+		<section
+			aria-label="Internal context"
+			className="rounded-lg border border-gray-200 bg-gray-50 p-4 sm:p-5"
+		>
+			<h3 className="text-base font-semibold">Internal context</h3>
+			<p className="mt-0.5 text-xs text-gray-500">
+				Advisory only — evidence-backed cashflow and behaviour signals. It never decides the case,
+				requests documents, or changes any status.
+			</p>
+			<div className="mt-3">{body}</div>
+		</section>
 	);
 }
 
@@ -632,6 +942,12 @@ export function ResearchPanel({
 						</p>
 					)}
 					{runError && <ErrorBox message={runError} />}
+					{/* External failure never hides a persisted context stage. */}
+					<ContextSection
+						applicationId={applicationId}
+						context={data?.context}
+						canRetry={runAllowed}
+					/>
 				</div>
 			) : (
 				<div className="mt-3 space-y-4">
@@ -687,6 +1003,13 @@ export function ResearchPanel({
 							</ul>
 						</div>
 					)}
+
+					{/* Internal context (T18) rides the same run, after the external brief. */}
+					<ContextSection
+						applicationId={applicationId}
+						context={data?.context}
+						canRetry={runAllowed}
+					/>
 
 					<p className="text-xs text-gray-500">
 						What was searched: {data?.usage?.searches ?? 0} queries · {data?.usage?.extracts ?? 0}{" "}

@@ -85,6 +85,18 @@ pnpm demo:check
 pnpm test:e2e
 ```
 
+## Tune agent settings with the settings eval
+
+Research agent defaults (`AGENT_*`, `CONTEXT_AGENT_*` in `../reference/configuration.md`) come from `apps/research/eval/settings-eval.ts`. Web mode runs the real case-brief agent against a deterministic Tavily fixture (no Tavily key needed); context mode runs the real context analyst against the seeded BreadTalk (rich) and Sparse (no accounts) demo cases and validates only the winner on Alex. Both modes need a model key (`OPENROUTER_API_KEY`); context mode also needs the applications database with seeded customer profiles (`pnpm demo:seed`).
+
+```powershell
+pnpm --filter @credit/research eval:settings -- --mode=web
+pnpm --filter @credit/research eval:settings -- --mode=context
+pnpm --filter @credit/research eval:settings -- --mode=all --repeats=3
+```
+
+Scores are directional only: the web harness checks the raw brief shape (not the production validator) and each config runs once by default (`--repeats=N` reports median/mean). Results print to stdout and land under `apps/research/eval/results/`. Do not claim statistical significance from a single run.
+
 ## Related
 
 - [Architecture](../explanation/architecture.md) — trust boundary and failure domains

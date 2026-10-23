@@ -9,6 +9,7 @@ import * as applicationsSchema from "../src/applications.js";
 import * as authSchema from "../src/auth.js";
 import * as loansSchema from "../src/loans.js";
 import * as portfolioSchema from "../src/portfolio.js";
+import * as researchSchema from "../src/research.js";
 import * as root from "../src/index.js";
 
 describe("password", () => {
@@ -46,6 +47,24 @@ describe("schema", () => {
 			applicationsSchema.idempotencyKeys,
 			applicationsSchema.auditLog,
 			applicationsSchema.outboxEvents,
+			// T17 customer master + reusable evidence (SPEC-t17-t18 §2.2).
+			applicationsSchema.customerProfiles,
+			applicationsSchema.customerAccounts,
+			applicationsSchema.customerTransactions,
+			applicationsSchema.customerDocuments,
+			applicationsSchema.customerDocumentPages,
+			applicationsSchema.customerLegalHolds,
+			applicationsSchema.applicationProfileConfirmations,
+		]) {
+			expect(table).toBeDefined();
+		}
+	});
+
+	it("research owns agent runs + T18 context tables", () => {
+		for (const table of [
+			researchSchema.agentRuns,
+			researchSchema.contextSignals,
+			researchSchema.contextSignalReviews,
 		]) {
 			expect(table).toBeDefined();
 		}

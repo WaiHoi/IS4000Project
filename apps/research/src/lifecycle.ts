@@ -2,7 +2,7 @@
 // execution, conditional finalize, and a SKIP LOCKED reaper. No partial
 // writes: evidence/findings persist in the same transaction as success.
 import { randomUUID } from "node:crypto";
-import { agentRuns, withTx, type Db, type Tx } from "@credit/db/research";
+import { agentRuns, contextSignals, withTx, type Db, type Tx } from "@credit/db/research";
 import { HttpError } from "@credit/service-kit";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { ResearchEnv } from "./env.js";
@@ -59,6 +59,12 @@ export function summarizeRun(run: RunRow): Record<string, unknown> {
 		createdAt: run.createdAt.toISOString(),
 		startedAt: run.startedAt?.toISOString() ?? null,
 		finishedAt: run.finishedAt?.toISOString() ?? null,
+		// T18 context stage (§3.1/§3.6): stage outcome rides the same run
+		// row; the brief/signals join the aggregate in routes.ts.
+		contextStatus: run.contextStatus,
+		contextStageVersion: run.contextStageVersion,
+		contextErrorCode: run.contextErrorCode,
+		contextModel: run.contextModel,
 	};
 }
 
@@ -196,7 +202,8 @@ export async function ensureRunTx(
 			grafanaConversationId: id,
 			observability: "degraded",
 			usage: {},
-			timeoutAt: new Date(Date.now() + env.timeoutMs + 30_000),
+			// T18 combined lease (§3.5): external + context stage + grace.
+			timeoutAt: new Date(Date.now() + env.timeoutMs + env.contextTimeoutMs + 30_000),
 		})
 		.returning();
 	return { run: row, inserted: true };
@@ -353,3 +360,382 @@ export async function resumeQueuedRuns(db: Db): Promise<Array<{ id: string; runT
 
 /** Grace window a recovered queued run gets before the reaper may fail it. */
 const RECOVERY_LEASE_MS = 5 * 60_000;
+
+// --- T18 context stage lifecycle (SPEC-t17-t18 §3.1/§3.5, D3b). ---
+//
+// The stage token (not run status) is authoritative: stage writers persist
+// with `status IN ('running','succeeded','failed') AND
+// context_status='running' AND context_stage_token=...`, so an external
+// failure never blocks context persistence and a retry after terminal never
+// touches the external brief. No `partial` run status exists.
+
+export type ContextStatus =
+	| "not_applicable"
+	| "queued"
+	| "running"
+	| "succeeded"
+	| "failed"
+	| "skipped";
+
+/** Max context stage attempts per run: the initial stage + one retry. */
+export const MAX_CONTEXT_STAGES = 2;
+
+export interface PersistedContextSignal {
+	type: string;
+	periodStart: string;
+	periodEnd: string;
+	metric: string;
+	observed: number | null;
+	expected: number | null;
+	evidence: Array<{ kind: string; id: string; page?: number }>;
+	confidence: "low" | "medium" | "high";
+	status: "review" | "needs_chase" | "insufficient_data";
+	policyVersion: string;
+	accountScope: string;
+	explanation: string;
+}
+
+/**
+ * Initialize the stage right after the run claim: `queued` when the stage
+ * will run, otherwise its terminal skip state. Predicate: running + token.
+ */
+export async function initContextStage(
+	db: Db,
+	env: ResearchEnv,
+	runId: string,
+	token: string,
+	status: "queued" | "not_applicable" | "skipped",
+): Promise<boolean> {
+	if (!tokenMatch(runId, token)) return false;
+	const rows = await db
+		.update(agentRuns)
+		.set({
+			contextStatus: status,
+			...(status === "queued"
+				? { contextTimeoutAt: new Date(Date.now() + env.contextTimeoutMs + 30_000) }
+				: {}),
+		})
+		.where(
+			and(eq(agentRuns.id, runId), eq(agentRuns.status, "running"), eq(agentRuns.runToken, token)),
+		)
+		.returning({ id: agentRuns.id });
+	return rows.length > 0;
+}
+
+/**
+ * Terminal skip of a queued stage (consent withdrawn/missing): predicate
+ * running + run token + queued. External research is unaffected.
+ */
+export async function skipContextStage(db: Db, runId: string, token: string): Promise<boolean> {
+	if (!tokenMatch(runId, token)) return false;
+	const rows = await db
+		.update(agentRuns)
+		.set({ contextStatus: "skipped" })
+		.where(
+			and(
+				eq(agentRuns.id, runId),
+				eq(agentRuns.status, "running"),
+				eq(agentRuns.runToken, token),
+				eq(agentRuns.contextStatus, "queued"),
+			),
+		)
+		.returning({ id: agentRuns.id });
+	return rows.length > 0;
+}
+/**
+ * Claim the queued stage for execution: sets running + a fresh stage token,
+ * refreshes the combined run lease, and supersedes prior signals (a new
+ * stage version owns the reads). False unless running + token + queued.
+ */
+export async function claimContextStage(
+	db: Db,
+	env: ResearchEnv,
+	runId: string,
+	token: string,
+	opts: { promptVersion: string; model: string },
+): Promise<string | null> {
+	if (!tokenMatch(runId, token)) return null;
+	const stageToken = randomUUID();
+	const claimed = await withTx(db, async (tx) => {
+		const rows = await tx
+			.update(agentRuns)
+			.set({
+				contextStatus: "running",
+				contextStageToken: stageToken,
+				contextStartedAt: new Date(),
+				contextHeartbeatAt: new Date(),
+				contextTimeoutAt: new Date(Date.now() + env.contextTimeoutMs + 30_000),
+				contextPromptVersion: opts.promptVersion,
+				contextModel: opts.model,
+				timeoutAt: new Date(Date.now() + env.contextTimeoutMs + 30_000),
+			})
+			.where(
+				and(
+					eq(agentRuns.id, runId),
+					eq(agentRuns.status, "running"),
+					eq(agentRuns.runToken, token),
+					eq(agentRuns.contextStatus, "queued"),
+				),
+			)
+			.returning({ id: agentRuns.id });
+		if (rows.length === 0) return null;
+		await tx
+			.update(contextSignals)
+			.set({ supersededAt: new Date() })
+			.where(and(eq(contextSignals.runId, runId), sql`${contextSignals.supersededAt} IS NULL`));
+		return stageToken;
+	});
+	return claimed;
+}
+
+export async function heartbeatContextStage(
+	db: Db,
+	runId: string,
+	stageToken: string,
+): Promise<void> {
+	if (!tokenMatch(runId, stageToken)) return;
+	await db
+		.update(agentRuns)
+		.set({ contextHeartbeatAt: new Date() })
+		.where(
+			and(
+				eq(agentRuns.id, runId),
+				eq(agentRuns.contextStatus, "running"),
+				eq(agentRuns.contextStageToken, stageToken),
+			),
+		);
+}
+
+interface StageGuard {
+	id: string;
+	status: string;
+	contextStatus: string;
+	contextStageToken: string | null;
+	contextStageVersion: number;
+}
+
+async function loadStageGuard(tx: Tx, runId: string): Promise<StageGuard | null> {
+	const rows = (await tx.execute(
+		sql`SELECT id, status, context_status, context_stage_token, context_stage_version FROM agent_runs WHERE id = ${runId} FOR UPDATE`,
+	)) as unknown as Array<{
+		id: string;
+		status: string;
+		context_status: string;
+		context_stage_token: string | null;
+		context_stage_version: number;
+	}>;
+	const row = rows[0];
+	if (!row) return null;
+	return {
+		id: row.id,
+		status: row.status,
+		contextStatus: row.context_status,
+		contextStageToken: row.context_stage_token,
+		contextStageVersion: row.context_stage_version,
+	};
+}
+
+/** Stage-writer predicate: terminal runs stay writable via the stage token. */
+function stageTokenMatches(guard: StageGuard, stageToken: string): boolean {
+	return (
+		tokenMatch(guard.id, stageToken) &&
+		(guard.status === "running" || guard.status === "succeeded" || guard.status === "failed") &&
+		guard.contextStatus === "running" &&
+		guard.contextStageToken === stageToken
+	);
+}
+
+/**
+ * Persist a succeeded stage: supersede-then-insert signals (old rows are
+ * never mutated — the unique key rides the new stage version), set the
+ * server-composed brief, clear the token. Never changes run status or the
+ * external brief. False when the token turned over (stale).
+ *
+ * `opts.consent === false` aborts inside the transaction with zero writes:
+ * the caller re-probes live consent just before persisting and passes it
+ * here, so a withdrawal racing the model call cannot land persisted context.
+ */
+export async function persistContextSuccess(
+	db: Db,
+	runId: string,
+	stageToken: string,
+	data: {
+		brief: Record<string, unknown>;
+		validation: Record<string, unknown>;
+		usage: Record<string, unknown>;
+		signals: PersistedContextSignal[];
+	},
+	opts: { consent?: boolean } = {},
+): Promise<boolean> {
+	return withTx(db, async (tx) => {
+		const guard = await loadStageGuard(tx, runId);
+		if (!guard || !stageTokenMatches(guard, stageToken)) return false;
+		if (opts.consent === false) return false;
+		await tx
+			.update(contextSignals)
+			.set({ supersededAt: new Date() })
+			.where(and(eq(contextSignals.runId, runId), sql`${contextSignals.supersededAt} IS NULL`));
+		// Dedupe by the row unique key (scope/type/period/metric): a model
+		// emitting the same candidate twice must not 23505 the insert.
+		const deduped = new Map<string, (typeof data.signals)[number]>();
+		for (const s of data.signals) {
+			const key = [s.accountScope, s.type, s.periodStart, s.periodEnd, s.metric].join("\n");
+			if (!deduped.has(key)) deduped.set(key, s);
+		}
+		const signals = [...deduped.values()];
+		if (signals.length > 0) {
+			await tx.insert(contextSignals).values(
+				signals.map((s) => ({
+					runId,
+					stageVersion: guard.contextStageVersion,
+					accountId: s.accountScope === "all" ? null : s.accountScope,
+					accountScope: s.accountScope,
+					type: s.type,
+					periodStart: s.periodStart,
+					periodEnd: s.periodEnd,
+					metric: s.metric,
+					observed: s.observed === null ? null : String(s.observed),
+					expected: s.expected === null ? null : String(s.expected),
+					confidence: s.confidence,
+					status: s.status,
+					policyVersion: s.policyVersion,
+					explanation: s.explanation,
+					evidence: s.evidence,
+				})),
+			);
+		}
+		await tx
+			.update(agentRuns)
+			.set({
+				contextStatus: "succeeded",
+				contextBrief: data.brief,
+				contextValidation: data.validation,
+				contextUsage: data.usage,
+				contextFinishedAt: new Date(),
+				contextHeartbeatAt: new Date(),
+				contextStageToken: null,
+			})
+			.where(eq(agentRuns.id, runId));
+		return true;
+	});
+}
+
+/**
+ * Persist a failed stage with a sanitized code. Same stale-token predicate
+ * as success; never touches run status or the external brief.
+ */
+export async function persistContextFailure(
+	db: Db,
+	runId: string,
+	stageToken: string,
+	code: string,
+	usage?: Record<string, unknown>,
+): Promise<boolean> {
+	if (!tokenMatch(runId, stageToken)) return false;
+	const rows = await db
+		.update(agentRuns)
+		.set({
+			contextStatus: "failed",
+			contextErrorCode: code,
+			...(usage !== undefined ? { contextUsage: usage } : {}),
+			contextFinishedAt: new Date(),
+			contextStageToken: null,
+		})
+		.where(
+			and(
+				eq(agentRuns.id, runId),
+				inArray(agentRuns.status, ["running", "succeeded", "failed"]),
+				eq(agentRuns.contextStatus, "running"),
+				eq(agentRuns.contextStageToken, stageToken),
+			),
+		)
+		.returning({ id: agentRuns.id });
+	return rows.length > 0;
+}
+
+/**
+ * Retry claim (D3 internal seam; the D4 review route proxies it): only for a
+ * terminal run whose stage is terminal-failed/skipped with no live token,
+ * and only once (stage_version 1 → 2). Starts a new stage version and
+ * supersedes prior signals. Returns the new token/version, or null.
+ *
+ * The tx-scoped core composes with a caller's transaction so budget guards
+ * and the claim commit atomically (no concurrent-retry budget bypass).
+ */
+export async function claimContextRetry(
+	db: Db,
+	env: ResearchEnv,
+	runId: string,
+): Promise<{ stageToken: string; stageVersion: number } | null> {
+	if (!UUID_RE.test(runId)) return null;
+	return withTx(db, (tx) => claimContextRetryTx(tx, env, runId));
+}
+
+export async function claimContextRetryTx(
+	tx: Tx,
+	env: ResearchEnv,
+	runId: string,
+): Promise<{ stageToken: string; stageVersion: number } | null> {
+	if (!UUID_RE.test(runId)) return null;
+	const guard = await loadStageGuard(tx, runId);
+	if (!guard) return null;
+	if (
+		(guard.status !== "succeeded" && guard.status !== "failed") ||
+		(guard.contextStatus !== "failed" && guard.contextStatus !== "skipped") ||
+		guard.contextStageToken !== null ||
+		guard.contextStageVersion >= MAX_CONTEXT_STAGES
+	) {
+		return null;
+	}
+	const stageToken = randomUUID();
+	const version = guard.contextStageVersion + 1;
+	await tx
+		.update(agentRuns)
+		.set({
+			contextStatus: "running",
+			contextStageToken: stageToken,
+			contextStageVersion: version,
+			contextStartedAt: new Date(),
+			contextFinishedAt: null,
+			contextHeartbeatAt: new Date(),
+			contextTimeoutAt: new Date(Date.now() + env.contextTimeoutMs + 30_000),
+			contextErrorCode: null,
+		})
+		.where(eq(agentRuns.id, runId));
+	await tx
+		.update(contextSignals)
+		.set({ supersededAt: new Date() })
+		.where(and(eq(contextSignals.runId, runId), sql`${contextSignals.supersededAt} IS NULL`));
+	return { stageToken, stageVersion: version };
+}
+
+/**
+ * Context-stage reaper: expired queued/running stages on running AND
+ * terminal runs fail closed with the token cleared. Never rewrites a
+ * succeeded external brief, evidence, or findings.
+ */
+export async function reapContextStages(db: Db): Promise<string[]> {
+	return withTx(db, async (tx) => {
+		const stale = (await tx.execute(sql`SELECT id FROM agent_runs
+			WHERE context_status IN ('queued', 'running')
+			  AND context_timeout_at IS NOT NULL AND context_timeout_at < now()
+			FOR UPDATE SKIP LOCKED`)) as unknown as Array<{ id: string }>;
+		const heartbeatStale = (await tx.execute(sql`SELECT id FROM agent_runs
+			WHERE context_status = 'running'
+			  AND context_heartbeat_at IS NOT NULL
+			  AND context_heartbeat_at < now() - INTERVAL '90 seconds'
+			FOR UPDATE SKIP LOCKED`)) as unknown as Array<{ id: string }>;
+		const ids = [...new Set([...stale, ...heartbeatStale].map((r) => r.id))];
+		if (ids.length === 0) return [];
+		await tx
+			.update(agentRuns)
+			.set({
+				contextStatus: "failed",
+				contextErrorCode: "timeout",
+				contextFinishedAt: new Date(),
+				contextStageToken: null,
+			})
+			.where(inArray(agentRuns.id, ids));
+		return ids;
+	});
+}

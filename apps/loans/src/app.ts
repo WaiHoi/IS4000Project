@@ -19,6 +19,8 @@ export interface LoansDeps {
 	env: LoansEnv;
 	gateway: WorkflowGateway;
 	logger: Logger;
+	/** Test seam: stub the applications binding check. */
+	fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 /** Test seam: pass fakes for gateway/db; the production server wires the real ones. */

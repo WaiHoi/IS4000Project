@@ -12,6 +12,7 @@ import { generateReference } from "@credit/core";
 import { createDb, installments, loans } from "@credit/db/loans";
 import { createLogger, signInternalHeaders } from "@credit/service-kit";
 import { stubGateway, type FakeGateway } from "@credit/service-kit/test";
+import { eq } from "drizzle-orm";
 import { createApp } from "../src/app.js";
 import { loadEnv } from "../src/env.js";
 
@@ -29,22 +30,57 @@ export interface TestContext {
 	sql: ReturnType<typeof createDb>["sql"];
 	gateway: FakeGateway;
 	secret: string;
+	/** Mutable stub for the applications binding check (research-context).
+	 * Tests swap `.fetch` to simulate consent withdrawal or mismatch. */
+	applicationsStub: {
+		fetch: (url: string, init: RequestInit) => Promise<Response>;
+	};
 }
 
-export function setupApp(overrides: { demoMode?: boolean } = {}): TestContext {
+export type ApplicationsFetch = (url: string, init: RequestInit) => Promise<Response>;
+
+/** Default stub: mirrors the real binding check against seeded loan rows —
+ * consent true, applicant from the loan with this applicationId, the case
+ * as-of as today, 404 for unknown applications. No applications service needed. */
+function defaultApplicationsFetch(db: ReturnType<typeof createDb>["db"]): ApplicationsFetch {
+	return async (url: string, _init: RequestInit): Promise<Response> => {
+		const match = url.match(/\/internal\/applications\/([^/?]+)\/research-context/);
+		const rows = match
+			? await db
+					.select({ applicantUserId: loans.applicantUserId })
+					.from(loans)
+					.where(eq(loans.applicationId, match[1]))
+			: [];
+		if (rows.length === 0) return Response.json({}, { status: 404 });
+		return Response.json({
+			caseFacts: { asOf: new Date().toISOString() },
+			contextAnalysisConsent: true,
+			applicantUserId: rows[0].applicantUserId,
+		});
+	};
+}
+
+export function setupApp(
+	overrides: { demoMode?: boolean; applicationsFetch?: ApplicationsFetch } = {},
+): TestContext {
 	// Clone: loadEnv() is the validated singleton, and mutating it would
 	// leak demoMode=false into later cases (caught by the age/monitoring test).
-	const env = { ...loadEnv(), ...overrides };
+	const { applicationsFetch, ...envOverrides } = overrides;
+	const env = { ...loadEnv(), ...envOverrides };
 	const { db, sql } = createDb(env.databaseUrl);
 	const gateway = stubGateway();
+	const applicationsStub = {
+		fetch: applicationsFetch ?? defaultApplicationsFetch(db),
+	};
 	const app = createApp({
 		db,
 		sql,
 		env,
 		gateway,
 		logger: createLogger("loans-test"),
+		fetchImpl: (url: string, init: RequestInit) => applicationsStub.fetch(url, init),
 	});
-	return { app, db, sql, gateway, secret: env.internalSecret };
+	return { app, db, sql, gateway, secret: env.internalSecret, applicationsStub };
 }
 
 // Identity is signed headers only in this DB (applicant_user_id is a plain

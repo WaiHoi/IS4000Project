@@ -21,6 +21,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { Kafka } from "kafkajs";
 import { auditResearch } from "./access.js";
 import type { AgentRunner } from "./agent.js";
+import type { ContextAgentRunner } from "./context-agent.js";
 import type { ResearchEnv } from "./env.js";
 import {
 	ensureRunTx,
@@ -46,12 +47,16 @@ export interface AutoTriggerDeps {
 	judge: SupportJudge;
 	repair: LanguageRepair;
 	observability: Observability;
+	/** Optional: absent fails the context stage closed (never the external brief). */
+	contextRunner?: ContextAgentRunner;
 	/** Test seam: fake applications context; default fetches over HMAC. */
 	fetchResearchContext?: (applicationId: string) => Promise<ResearchContextResult>;
+	/** Test seam: fresh context-consent probe; default reads research-context over HMAC. */
+	fetchContextConsent?: (applicationId: string) => Promise<boolean>;
 }
 
 export type ResearchContextResult =
-	| { ok: true; caseFacts: CaseFactsPayload; applicantUserId: string }
+	| { ok: true; caseFacts: CaseFactsPayload; applicantUserId: string; contextConsent: boolean }
 	| { ok: false; status: number };
 
 export type AutoOutcome =
@@ -113,9 +118,13 @@ export function fetchResearchContextOverHttp(
 		}
 		if (res.status >= 400 && res.status < 500) return { ok: false as const, status: res.status };
 		if (!res.ok) throw new Error(`research-context returned ${res.status}`);
-		let body: { caseFacts?: unknown; applicantUserId?: unknown };
+		let body: { caseFacts?: unknown; applicantUserId?: unknown; contextAnalysisConsent?: unknown };
 		try {
-			body = (await res.json()) as { caseFacts?: unknown; applicantUserId?: unknown };
+			body = (await res.json()) as {
+				caseFacts?: unknown;
+				applicantUserId?: unknown;
+				contextAnalysisConsent?: unknown;
+			};
 		} catch {
 			return { ok: false as const, status: 422 };
 		}
@@ -123,7 +132,14 @@ export function fetchResearchContextOverHttp(
 		if (!facts.success || typeof body.applicantUserId !== "string") {
 			return { ok: false as const, status: 422 };
 		}
-		return { ok: true as const, caseFacts: facts.data, applicantUserId: body.applicantUserId };
+		// Context consent rides beside (never inside) the strict case facts;
+		// absent fails closed to false — the stage skips, external unaffected.
+		return {
+			ok: true as const,
+			caseFacts: facts.data,
+			applicantUserId: body.applicantUserId,
+			contextConsent: body.contextAnalysisConsent === true,
+		};
 	})();
 }
 
@@ -133,9 +149,16 @@ const UTC_DAY_START = sql`date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZO
 /**
  * Daily run/cost guards, all UTC-calendar-day scoped and auto-only
  * (`trigger='auto'` — officer runs never consume the automation budget).
- * In-flight (queued/running) auto runs reserve `AGENT_MAX_COST_USD` each
- * against the cost budget. Returns the first exhausted guard's
- * machine-readable reason (audited, never PII).
+ * In-flight (queued/running) auto runs reserve
+ * `AGENT_MAX_COST_USD + CONTEXT_AGENT_MAX_COST_USD` each against the cost
+ * budget, as does a claimed retry stage on a terminal run (terminal +
+ * context running with a live stage token) — regardless of the run's
+ * `created_at`, so a prior-day run retried today still reserves. Retry spend
+ * merges into the single `usage` ledger (counted by the `created_at` spend
+ * query for same-day runs); a prior-day run retried today additionally
+ * counts its `context_usage` by `context_started_at`, so today's retry spend
+ * is never free and never double-counted. Returns the first exhausted
+ * guard's machine-readable reason (audited, never PII).
  */
 export async function checkAutoCaps(
 	db: Db | Tx,
@@ -158,10 +181,21 @@ export async function checkAutoCaps(
 	const cost = (await db.execute(
 		sql`SELECT coalesce(sum(CASE WHEN usage->>'costUsd' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (usage->>'costUsd')::double precision ELSE 0 END), 0)::float8 AS total FROM agent_runs WHERE trigger = 'auto' AND created_at >= ${UTC_DAY_START}`,
 	)) as unknown as Array<{ total: number }>;
+	// Retry spend on prior-day runs: the merged `usage` ledger above is
+	// keyed by `created_at`, so a yesterday run retried today would read as
+	// free. Count its `context_usage` by `context_started_at` instead — the
+	// `created_at < day` guard keeps same-day runs (already counted via
+	// `usage`) from double-counting.
+	const retryCost = (await db.execute(
+		sql`SELECT coalesce(sum(CASE WHEN context_usage->>'costUsd' ~ '^[0-9]+(\\.[0-9]+)?$' THEN (context_usage->>'costUsd')::double precision ELSE 0 END), 0)::float8 AS total FROM agent_runs WHERE trigger = 'auto' AND context_started_at >= ${UTC_DAY_START} AND created_at < ${UTC_DAY_START}`,
+	)) as unknown as Array<{ total: number }>;
 	const inFlight = (await db.execute(
-		sql`SELECT count(*)::int AS n FROM agent_runs WHERE trigger = 'auto' AND status IN ('queued', 'running') AND created_at >= ${UTC_DAY_START}`,
+		sql`SELECT count(*)::int AS n FROM agent_runs WHERE trigger = 'auto' AND ((created_at >= ${UTC_DAY_START} AND status IN ('queued', 'running')) OR (context_status = 'running' AND context_stage_token IS NOT NULL))`,
 	)) as unknown as Array<{ n: number }>;
-	const spent = (cost[0]?.total ?? 0) + (inFlight[0]?.n ?? 0) * env.maxCostUsd;
+	const spent =
+		(cost[0]?.total ?? 0) +
+		(retryCost[0]?.total ?? 0) +
+		(inFlight[0]?.n ?? 0) * (env.maxCostUsd + env.contextMaxCostUsd);
 	if (spent >= env.autoTriggerDailyCostBudgetUsd) {
 		return { ok: false, reason: "daily_cost_budget" };
 	}
@@ -274,6 +308,11 @@ export async function handleReviewRequested(
 		return row;
 	});
 	if (prior) return storedOutcome(prior);
+	// AGENTS_ENABLED=false gates the auto LLM path: permanent audited skip,
+	// no run, no paid calls.
+	if (!env.agentsEnabled) {
+		return skipAndRecord(deps, applicationId, envelope.id, "agents_disabled");
+	}
 	const fetchContext =
 		deps.fetchResearchContext ?? ((id: string) => fetchResearchContextOverHttp(env, id));
 	const ctx = await fetchContext(applicationId);
@@ -407,6 +446,8 @@ export async function handleReviewRequested(
 						judge: deps.judge,
 						repair: deps.repair,
 						observability: deps.observability,
+						contextRunner: deps.contextRunner,
+						fetchContextConsent: deps.fetchContextConsent,
 					},
 					runId,
 					token,

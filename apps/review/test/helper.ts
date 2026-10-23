@@ -57,6 +57,10 @@ export interface ResearchStub {
 	bundles: Map<string, unknown>;
 	/** Finding reviews by finding id: run, owning app, run status. */
 	findings: Map<string, { runId: string; applicationId: string; status: string }>;
+	/** Context signals by signal id: run, owning app, superseded flag. */
+	signals: Map<string, { runId: string; applicationId: string; superseded: boolean }>;
+	/** Run ids whose context retry is claimed/exhausted (→ 409). */
+	retryBlocked: Set<string>;
 	/** When true, every research call fails transport (→ 502/503). */
 	down: boolean;
 }
@@ -129,6 +133,8 @@ export function setupApp(opts: SetupOptions = {}): TestContext {
 		runs: new Map(),
 		bundles: new Map(),
 		findings: new Map(),
+		signals: new Map(),
+		retryBlocked: new Set(),
 		down: false,
 	};
 	const fetchImpl = (async (
@@ -248,6 +254,46 @@ export function setupApp(opts: SetupOptions = {}): TestContext {
 				}
 				const body = JSON.parse(String(init?.body ?? "{}")) as { action: string };
 				return jsonResponse(201, { id: randomUUID(), findingId: match[2], action: body.action });
+			}
+			match = path.match(
+				/^\/internal\/research\/applications\/([^/]+)\/runs\/([^/]+)\/context\/retry$/,
+			);
+			if (match && method === "POST") {
+				const run = research.runs.get(match[2]);
+				if (!run || run.applicationId !== match[1]) {
+					return jsonResponse(404, { error: { code: "NOT_FOUND", message: "not found" } });
+				}
+				if (research.retryBlocked.has(match[2])) {
+					return jsonResponse(409, {
+						error: { code: "RETRY_UNAVAILABLE", message: "context retry is not available" },
+					});
+				}
+				return jsonResponse(202, {
+					runId: match[2],
+					contextStageToken: randomUUID(),
+					contextStageVersion: 2,
+				});
+			}
+			match = path.match(
+				/^\/internal\/research\/applications\/([^/]+)\/context\/signals\/([^/]+)\/review$/,
+			);
+			if (match && method === "POST") {
+				const signal = research.signals.get(match[2]);
+				if (!signal || signal.applicationId !== match[1]) {
+					return jsonResponse(404, { error: { code: "NOT_FOUND", message: "not found" } });
+				}
+				if (signal.superseded) {
+					return jsonResponse(409, {
+						error: { code: "SIGNAL_SUPERSEDED", message: "signal was superseded" },
+					});
+				}
+				const body = JSON.parse(String(init?.body ?? "{}")) as { action: string };
+				return jsonResponse(201, {
+					id: randomUUID(),
+					signalId: match[2],
+					action: body.action,
+					signal: { id: match[2], reviewStatus: body.action },
+				});
 			}
 		}
 		return jsonResponse(404, { error: "not found" });
