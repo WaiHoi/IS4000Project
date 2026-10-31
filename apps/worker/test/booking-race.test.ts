@@ -4,7 +4,7 @@
 // request, must throw DecisionConflict and never reach the loan step.
 // The race window cannot be forced on real Postgres (the application row
 // lock serializes bookLoan callers), so the transaction is stubbed.
-import { decisions } from "@credit/db/applications";
+import { applications, decisions } from "@credit/db/applications";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const APP_ID = "33333333-3333-4333-8333-333333333333";
@@ -13,6 +13,7 @@ const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
 interface FakeTx {
 	selectResults: unknown[][];
 	inserts: unknown[];
+	updates: unknown[];
 }
 
 const state = vi.hoisted(() => ({
@@ -21,10 +22,14 @@ const state = vi.hoisted(() => ({
 	withTxDbs: [] as unknown[],
 }));
 
-function fakeTx(selectResults: unknown[][]): FakeTx & Record<string, unknown> {
+function fakeTx(
+	selectResults: unknown[][],
+	opts: { allowUpdate?: boolean } = {},
+): FakeTx & Record<string, unknown> {
 	const tx: FakeTx & Record<string, unknown> = {
 		selectResults,
 		inserts: [],
+		updates: [],
 		select: () => ({
 			from: () => ({
 				where: () => {
@@ -42,8 +47,11 @@ function fakeTx(selectResults: unknown[][]): FakeTx & Record<string, unknown> {
 				}),
 			};
 		},
-		update: () => {
-			throw new Error("unexpected update");
+		update: (table: unknown) => {
+			if (!opts.allowUpdate) throw new Error("unexpected update");
+			tx.updates.push(table);
+			// The terminal flip finds nothing to flip: no audit is written.
+			return { set: () => ({ where: () => ({ returning: async () => [] }) }) };
 		},
 	};
 	return tx;
@@ -141,6 +149,38 @@ describe("bookLoan decision insert race", () => {
 		expect(appsTx.inserts).toEqual([decisions]);
 		// The loan step never ran.
 		expect(state.withTxDbs).toEqual([appsTx]);
+		expect(loansTx.inserts).toEqual([]);
+	});
+
+	it("officer route, approved same-request winner: returns winner.id and proceeds", async () => {
+		const appsTx = fakeTx(
+			[
+				[{ id: APP_ID, reference: "APP-2026-RACE01", status: "pending_review" }],
+				[],
+				[{ id: "d-1", outcome: "approved", requestId: REQUEST_ID }],
+			],
+			{ allowUpdate: true },
+		);
+		// The loan step replays an existing loan, so it writes nothing.
+		const loansTx = fakeTx([
+			[{ id: "loan-1", principalCents: 800_000, termMonths: 36, rateBps: 1_000 }],
+		]);
+		state.apps = appsTx;
+		state.loans = loansTx;
+
+		const result = await bookLoan({
+			applicationId: APP_ID,
+			route: "officer",
+			requestId: REQUEST_ID,
+			officerUserId: "officer-1",
+		});
+
+		expect(result).toMatchObject({ decisionId: "d-1", loanId: "loan-1", replayed: true });
+		// No second decision, audit or outbox: only the losing insert.
+		expect(appsTx.inserts).toEqual([decisions]);
+		// Decision step, loan step, then the terminal flip.
+		expect(state.withTxDbs).toEqual([appsTx, loansTx, appsTx]);
+		expect(appsTx.updates).toEqual([applications]);
 		expect(loansTx.inserts).toEqual([]);
 	});
 });
