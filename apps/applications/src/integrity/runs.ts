@@ -388,8 +388,12 @@ export async function failIntegrityRun(
 /** Bound on one workflow start; it runs on the request path. */
 export const INTEGRITY_START_TIMEOUT_MS = 2_000;
 
-/** `exists`: the workflow was already started (a re-issued start is a no-op). */
-export type IntegrityStartOutcome = "started" | "exists" | "failed" | "skipped";
+/**
+ * `exists`: the workflow was already started and is still running (a
+ * re-issued start is a no-op). `closed`: the workflow already finished and
+ * will never process the row again.
+ */
+export type IntegrityStartOutcome = "started" | "exists" | "closed" | "failed" | "skipped";
 
 class StartTimeout extends Error {
 	constructor() {
@@ -429,7 +433,8 @@ export async function startIntegrityRun(
 			);
 		});
 		const result = await Promise.race([pending, timeout]);
-		return result.started ? "started" : "exists";
+		if (result.started) return "started";
+		return result.closed ? "closed" : "exists";
 	} catch (err) {
 		deps.logger.warn(
 			{ runId: run.id, error: err instanceof Error ? err.name : "unknown" },

@@ -5,8 +5,10 @@
 // The sweep never fails work a live workflow still owns:
 //   - a queued row is failed only when its workflow cannot be started (the
 //     re-issued start failed, or this worker does not dispatch) and it is
-//     older than the whole-run horizon. A queued row whose workflow exists
-//     is backlog waiting for a worker slot and is left alone (up to a day).
+//     older than the whole-run horizon, or at once when its workflow already
+//     closed (it will never claim the row). A queued row whose workflow is
+//     still running is backlog waiting for a worker slot and is left alone
+//     (up to a day).
 //   - a running row is failed only when its lease went stale beyond the
 //     whole-run horizon (the workflow and its cleanup were lost), fenced on
 //     the stale lease token so a re-lease wins.
@@ -91,8 +93,9 @@ async function orphanedRunning(
 
 /**
  * Re-issues the idempotent start for queued rows older than 10s (when
- * `dispatch`), fails queued rows that cannot be started past the run
- * horizon, and fails running rows orphaned past it.
+ * `dispatch`), fails queued rows whose workflow already closed, fails queued
+ * rows that cannot be started past the run horizon, and fails running rows
+ * orphaned past it.
  */
 export async function sweepQueuedIntegrityRuns(
 	deps: IntegrityRunDeps,
@@ -108,6 +111,19 @@ export async function sweepQueuedIntegrityRuns(
 		let startable = false;
 		if (canStart) {
 			const outcome = await startIntegrityRun(deps, row);
+			if (outcome === "closed") {
+				// The workflow finished without claiming the row: no live owner,
+				// so the row is not backlog. Fail it now (status-guarded, so a row
+				// claimed meanwhile is left alone).
+				if (
+					await failIntegrityRun(deps, row.id, "LEASE_EXPIRED", "workflow closed", {
+						onlyStatus: "queued",
+					})
+				) {
+					failed++;
+				}
+				continue;
+			}
 			startable = outcome === "started" || outcome === "exists";
 			if (startable) restarted++;
 		}

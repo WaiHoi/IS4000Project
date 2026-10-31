@@ -119,7 +119,9 @@ Temporal workflows instead of in-process fire-and-forget jobs.
   never started, terminated, or orphaned. Research also fails stages left
   running on a terminal run, and integrity fails `running` rows whose
   lease went stale. Live retries inside the horizon are never killed, and
-  the integrity sweep leaves a startable backlog queued for up to 24h.
+  the integrity sweep leaves a backlog whose workflow is still running
+  queued for up to 24h. A queued integrity row whose workflow already
+  closed is failed at once.
   The UI always reaches a terminal state, even when Temporal is
   unreachable.
 - **Research retries** (`rotateRunForRetry`) rotate `run_token`, reset the

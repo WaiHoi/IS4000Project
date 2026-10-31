@@ -988,6 +988,49 @@ describe("integrity run dispatch", () => {
 		await clearQueuedBacklog();
 	});
 
+	it("sweep fails a stale queued row at once when its workflow already closed", async () => {
+		await clearQueuedBacklog();
+		const { appId } = await newCase();
+		const deps = runDeps(ctx);
+		const inputHash = randomUUID();
+		const { run } = await createIntegrityRun(deps, {
+			applicationId: appId,
+			inputHash,
+			documentSha256: [],
+			requestedBy: randomUUID(),
+			now: new Date(Date.now() - 20_000),
+		});
+		// Well inside the run horizon: only `closed` may fail it this early.
+		const live = await insertQueuedRun(appId, 20_000);
+		const fresh = await insertQueuedRun(appId, 1_000);
+		const previous = startImpl;
+		startImpl = async (input) => ({
+			started: false,
+			closed: input.runId !== live,
+			workflowId: `${input.kind}:${input.runId}:${input.token}`,
+		});
+		try {
+			const result = await sweepQueuedIntegrityRuns(deps, { dispatch: true });
+			expect(result.failed).toBeGreaterThanOrEqual(1);
+		} finally {
+			startImpl = previous;
+		}
+		expect(await runRow(run.id)).toMatchObject({ status: "failed", errorCode: "LEASE_EXPIRED" });
+		expect((await runRow(live)).status).toBe("queued");
+		expect((await runRow(fresh)).status).toBe("queued");
+
+		// The same evidence is no longer replayed onto the dead row.
+		const rerun = await createIntegrityRun(deps, {
+			applicationId: appId,
+			inputHash,
+			documentSha256: [],
+			requestedBy: randomUUID(),
+		});
+		expect(rerun.replayed).toBe(false);
+		expect(rerun.run.id).not.toBe(run.id);
+		await clearQueuedBacklog();
+	});
+
 	it("the queued-overdue path never fails a row claimed after selection", async () => {
 		const { appId } = await newCase();
 		const deps = runDeps(ctx);
