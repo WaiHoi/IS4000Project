@@ -49,10 +49,12 @@ export function integrityLeaseSeconds(config: Pick<IntegrityConfig, "timeoutMs">
  * Failure codes a later attempt can plausibly clear (model, transport or
  * output flakiness, unexpected errors). Everything else (no runner, budget,
  * consent, flags, evidence or review changes) is final on the first attempt.
+ * TIMEOUT is final too: the attempt spent its whole time budget, and a retry
+ * would re-spend it for the same outcome (agent-kit does not retry
+ * START_TO_CLOSE either).
  */
 export const RETRYABLE_INTEGRITY_ERROR_CODES: ReadonlySet<string> = new Set([
 	"MODEL_ERROR",
-	"TIMEOUT",
 	"INVALID_OUTPUT",
 	"NO_TOOL_USE",
 	"STEP_LIMIT",

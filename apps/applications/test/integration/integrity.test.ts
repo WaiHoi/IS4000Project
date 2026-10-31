@@ -44,7 +44,11 @@ import {
 	SWEEP_ABANDON_AFTER_MS,
 	sweepQueuedIntegrityRuns,
 } from "../../src/integrity/sweep.js";
-import type { IntegrityAgentRunner, IntegrityConfig } from "../../src/integrity/types.js";
+import {
+	IntegrityAgentError,
+	type IntegrityAgentRunner,
+	type IntegrityConfig,
+} from "../../src/integrity/types.js";
 import {
 	createUser,
 	individualPayload,
@@ -875,6 +879,25 @@ describe("integrity run dispatch", () => {
 			errorCode: "AGENT_UNAVAILABLE",
 			attempts: 1,
 		});
+		expect(await failedAudits(appId)).toHaveLength(1);
+	});
+
+	it("finalizes TIMEOUT on the first attempt: a spent time budget is not retried", async () => {
+		const { appId, runId } = await analysisCase();
+		const deps = {
+			...runDeps(ctx),
+			runner: {
+				async run() {
+					throw new IntegrityAgentError("TIMEOUT");
+				},
+			} satisfies IntegrityAgentRunner,
+		};
+		const claim = await claimIntegrityRunById(deps, runId, 1);
+		if (claim.kind !== "claimed") throw new Error("expected claim");
+		await executeIntegrityRun(deps, claim.row);
+		const row = await runRow(runId);
+		expect(row).toMatchObject({ status: "failed", errorCode: "TIMEOUT", attempts: 1 });
+		expect(row.maxAttempts).toBeGreaterThan(1);
 		expect(await failedAudits(appId)).toHaveLength(1);
 	});
 

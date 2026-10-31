@@ -158,10 +158,12 @@ is failed (`LEASE_EXPIRED`) at once, so a re-run for that evidence is not
 blocked. Past the run horizon (lease x `max_attempts` + backoff + 5 min) it
 fails (`LEASE_EXPIRED`) a queued row whose start still fails, a queued row
 older than 24h, and a `running` row whose lease went stale (workflow lost).
-Transient failures (`MODEL_ERROR`, `TIMEOUT`, `INVALID_OUTPUT`, `NO_TOOL_USE`,
+Transient failures (`MODEL_ERROR`, `INVALID_OUTPUT`, `NO_TOOL_USE`,
 `STEP_LIMIT`, `TOOL_CALL_LIMIT`, `INTERNAL_ERROR`) before the last attempt
 keep the row `running` with the error recorded and are retried with backoff;
-other failures, and any failure on the last attempt, finalize the row as
+other failures (including `TIMEOUT`: the attempt spent its whole time budget,
+so a retry would re-spend it for the same outcome), and any failure on the
+last attempt, finalize the row as
 `failed` with one `integrity.analysis_failed` audit. A crash or lost heartbeat
 also retries, and attempt 2 re-leases the row with a new token. A cancelled
 attempt (worker shutdown) leaves the row for the next attempt. Within an
