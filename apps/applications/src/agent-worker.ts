@@ -10,7 +10,7 @@ import { createDb } from "@credit/db";
 import { createLogger } from "@credit/service-kit";
 import { loadEnv } from "./env.js";
 import { createIntegrityActivities } from "./integrity/activities.js";
-import { sweepQueuedIntegrityRuns } from "./integrity/sweep.js";
+import { createIntegritySweepCursor, sweepQueuedIntegrityRuns } from "./integrity/sweep.js";
 import {
 	createIntegrityRunnerFromEnv,
 	integrityDispatchEnabled,
@@ -40,11 +40,12 @@ const { worker, connection } = await createAgentWorker({
 });
 
 let sweeping = false;
+const sweepCursor = createIntegritySweepCursor();
 async function sweep(): Promise<void> {
 	if (sweeping) return;
 	sweeping = true;
 	try {
-		await sweepQueuedIntegrityRuns(deps, { dispatch });
+		await sweepQueuedIntegrityRuns(deps, { dispatch, cursor: sweepCursor });
 	} catch (err) {
 		logger.warn({ error: err instanceof Error ? err.name : "unknown" }, "integrity sweep failed");
 	} finally {

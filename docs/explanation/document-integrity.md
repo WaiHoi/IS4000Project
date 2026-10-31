@@ -152,7 +152,8 @@ Node `agent-worker` claims that run by id, bumps `attempts` (`max_attempts` 2)
 and finalizes under a lease token; the workflow runs the row's `max_attempts`.
 The API bounds the start at 2s. If the start fails or times out the row stays
 `queued`; the worker sweep (every 15s) re-issues starts for rows older than
-10s. A queued row whose workflow already closed (it never claimed the row)
+10s, 50 per sweep through a rotating cursor so a long-lived backlog cannot
+starve newer rows. A queued row whose workflow already closed (it never claimed the row)
 is failed (`LEASE_EXPIRED`) at once, so a re-run for that evidence is not
 blocked. Past the run horizon (lease x `max_attempts` + backoff + 5 min) it
 fails (`LEASE_EXPIRED`) a queued row whose start still fails, a queued row

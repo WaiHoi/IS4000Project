@@ -9,12 +9,14 @@
 //     closed (it will never claim the row). A queued row whose workflow is
 //     still running is backlog waiting for a worker slot and is left alone
 //     (up to a day).
+//   - queued rows are visited in batches through a rotating cursor, so a
+//     long-lived backlog cannot starve newer rows of a re-issued start.
 //   - a running row is failed only when its lease went stale beyond the
 //     whole-run horizon (the workflow and its cleanup were lost), fenced on
 //     the stale lease token so a re-lease wins.
 import { AGENT_RUN_RETRY } from "@credit/agent-kit/temporal/types";
 import { documentIntegrityRuns } from "@credit/db/applications";
-import { and, asc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, eq, lt, sql, type SQL } from "drizzle-orm";
 import {
 	failIntegrityRun,
 	integrityLeaseSeconds,
@@ -49,10 +51,31 @@ export function integrityRunHorizonMs(
 	return Math.max(1, maxAttempts) * perAttemptMs + SWEEP_OVERDUE_GRACE_MS;
 }
 
-async function queuedBefore(
+/**
+ * Sweep position across calls: the last queued row visited. Keep one per
+ * sweeping process; without it every sweep restarts from the oldest row.
+ */
+export interface IntegritySweepCursor {
+	afterId: string | null;
+}
+
+export function createIntegritySweepCursor(): IntegritySweepCursor {
+	return { afterId: null };
+}
+
+type QueuedRow = { id: string; maxAttempts: number; createdAt: Date };
+
+async function queuedPage(
 	deps: IntegrityRunDeps,
 	before: Date,
-): Promise<Array<{ id: string; maxAttempts: number; createdAt: Date }>> {
+	afterId: string | null,
+): Promise<QueuedRow[]> {
+	// Keyset on (created_at, id) of the cursor row, compared in SQL so
+	// timestamp precision is exact. A vanished cursor row yields no rows,
+	// which wraps the cursor.
+	const after: SQL | undefined = afterId
+		? sql`(${documentIntegrityRuns.createdAt}, ${documentIntegrityRuns.id}) > (SELECT c.created_at, c.id FROM document_integrity_runs c WHERE c.id = ${afterId}::uuid)`
+		: undefined;
 	return deps.db
 		.select({
 			id: documentIntegrityRuns.id,
@@ -65,10 +88,29 @@ async function queuedBefore(
 				eq(documentIntegrityRuns.feature, "document_analysis"),
 				eq(documentIntegrityRuns.status, "queued"),
 				lt(documentIntegrityRuns.createdAt, before),
+				after,
 			),
 		)
-		.orderBy(asc(documentIntegrityRuns.createdAt))
+		.orderBy(asc(documentIntegrityRuns.createdAt), asc(documentIntegrityRuns.id))
 		.limit(SWEEP_BATCH);
+}
+
+/**
+ * The next batch of queued rows older than `before`, resuming after the
+ * cursor and wrapping to the oldest row once the end is reached, so every
+ * queued row gets a start attempt within ceil(backlog / batch) sweeps.
+ */
+async function queuedBefore(
+	deps: IntegrityRunDeps,
+	before: Date,
+	cursor: IntegritySweepCursor,
+): Promise<QueuedRow[]> {
+	let rows = await queuedPage(deps, before, cursor.afterId);
+	if (rows.length === 0 && cursor.afterId !== null) {
+		rows = await queuedPage(deps, before, null);
+	}
+	cursor.afterId = rows.length < SWEEP_BATCH ? null : (rows[rows.length - 1]?.id ?? null);
+	return rows;
 }
 
 /** Running rows whose lease expired longer ago than the whole-run horizon. */
@@ -95,17 +137,20 @@ async function orphanedRunning(
  * Re-issues the idempotent start for queued rows older than 10s (when
  * `dispatch`), fails queued rows whose workflow already closed, fails queued
  * rows that cannot be started past the run horizon, and fails running rows
- * orphaned past it.
+ * orphaned past it. Pass a long-lived `cursor` so successive sweeps rotate
+ * through the whole queued backlog.
  */
 export async function sweepQueuedIntegrityRuns(
 	deps: IntegrityRunDeps,
-	opts: { dispatch: boolean; now?: Date },
+	opts: { dispatch: boolean; now?: Date; cursor?: IntegritySweepCursor },
 ): Promise<SweepResult> {
 	const now = opts.now ?? deps.now?.() ?? new Date();
 	const canStart = opts.dispatch && Boolean(deps.starter);
 	let failed = 0;
 	let restarted = 0;
-	for (const row of await queuedBefore(deps, new Date(now.getTime() - SWEEP_RESTART_AFTER_MS))) {
+	const cursor = opts.cursor ?? createIntegritySweepCursor();
+	const restartBefore = new Date(now.getTime() - SWEEP_RESTART_AFTER_MS);
+	for (const row of await queuedBefore(deps, restartBefore, cursor)) {
 		const ageMs = now.getTime() - row.createdAt.getTime();
 		const overdue = ageMs > integrityRunHorizonMs(deps.config, row.maxAttempts);
 		let startable = false;

@@ -39,6 +39,7 @@ import {
 	startIntegrityRun,
 } from "../../src/integrity/runs.js";
 import {
+	createIntegritySweepCursor,
 	integrityRunHorizonMs,
 	SWEEP_ABANDON_AFTER_MS,
 	sweepQueuedIntegrityRuns,
@@ -1028,6 +1029,42 @@ describe("integrity run dispatch", () => {
 		});
 		expect(rerun.replayed).toBe(false);
 		expect(rerun.run.id).not.toBe(run.id);
+		await clearQueuedBacklog();
+	});
+
+	it("sweep rotates past a full batch of live backlog to start newer rows", async () => {
+		await clearQueuedBacklog();
+		const { appId } = await newCase();
+		const deps = runDeps(ctx);
+		// More live backlog than one sweep batch (50), all older than `target`.
+		for (let i = 0; i < 51; i++) await insertQueuedRun(appId, 60_000 + i * 1_000);
+		const target = await insertQueuedRun(appId, 20_000);
+		const previous = startImpl;
+		startCalls.length = 0;
+		startImpl = async (input) => {
+			startCalls.push(input);
+			return {
+				started: false,
+				closed: false,
+				workflowId: `${input.kind}:${input.runId}:${input.token}`,
+			};
+		};
+		const cursor = createIntegritySweepCursor();
+		try {
+			await sweepQueuedIntegrityRuns(deps, { dispatch: true, cursor });
+			expect(startCalls).toHaveLength(50);
+			expect(startCalls.map((call) => call.runId)).not.toContain(target);
+			startCalls.length = 0;
+			await sweepQueuedIntegrityRuns(deps, { dispatch: true, cursor });
+			expect(startCalls.map((call) => call.runId)).toContain(target);
+			// Wraps back to the oldest rows afterwards.
+			startCalls.length = 0;
+			await sweepQueuedIntegrityRuns(deps, { dispatch: true, cursor });
+			expect(startCalls).toHaveLength(50);
+		} finally {
+			startImpl = previous;
+		}
+		expect((await runRow(target)).status).toBe("queued");
 		await clearQueuedBacklog();
 	});
 
