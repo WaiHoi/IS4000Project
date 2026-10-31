@@ -1,9 +1,9 @@
 // T18 context stage (§3.5): consent probe → claim → model → validate (one
 // repair) → budget → persist. Moved verbatim from run.ts; error mapping and
 // stage sequencing unchanged. External outcome is untouched here.
-import { agentFindings, agentRuns, withTx, type Db } from "@credit/db/research";
+import { agentFindings, type Db } from "@credit/db/research";
 import { signInternalHeaders, type Logger } from "@credit/service-kit";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { projectCostUsd, asOfDate } from "./agents/case-brief/index.js";
 import { auditResearch } from "./access.js";
 import {
@@ -25,6 +25,7 @@ import {
 	persistContextSuccess,
 	skipContextStage,
 	StaleRunError,
+	type StageUsageDelta,
 } from "./lifecycle.js";
 import type { Observability } from "./observability.js";
 
@@ -158,6 +159,11 @@ export async function runContextStage(
 		runToken?: string;
 		stageToken?: string;
 		externalSummary: unknown;
+		/**
+		 * Retry path: merge the attempt's spend into the run's usage in the
+		 * same transaction that persists the stage outcome.
+		 */
+		mergeRunUsage?: boolean;
 	},
 ): Promise<StageResult> {
 	const { db, env } = deps;
@@ -215,6 +221,10 @@ export async function runContextStage(
 		if (!stageToken) throw new StaleRunError();
 	}
 	const token: string = stageToken;
+	// Retry path: the spend joins the run's usage in the persist transaction,
+	// so a crash cannot land the outcome and lose the spend.
+	const mergeUsage = (delta: StageUsageDelta): { mergeUsage?: StageUsageDelta } =>
+		opts.mergeRunUsage ? { mergeUsage: delta } : {};
 	// Beat once before any model call: a stage with a heartbeat counts as
 	// started, so its unmerged spend is retained if the attempt dies.
 	await heartbeatContextStage(db, runId, token);
@@ -331,13 +341,20 @@ export async function runContextStage(
 		)(applicationId);
 		if (!persistConsent) {
 			const measured = projectCostUsd(inputTokens, outputTokens);
-			const wrote = await persistContextFailure(db, runId, token, "consent_required", {
-				inputTokens,
-				outputTokens,
-				toolCalls,
-				costUsd: measured,
-				durationMs: Date.now() - stageStart,
-			});
+			const wrote = await persistContextFailure(
+				db,
+				runId,
+				token,
+				"consent_required",
+				{
+					inputTokens,
+					outputTokens,
+					toolCalls,
+					costUsd: measured,
+					durationMs: Date.now() - stageStart,
+				},
+				mergeUsage({ inputTokens, outputTokens, toolCalls, costUsd: measured }),
+			);
 			if (wrote) {
 				await auditResearch(db, {
 					applicationId,
@@ -378,7 +395,10 @@ export async function runContextStage(
 				},
 				signals: validation.signals,
 			},
-			{ consent: persistConsent },
+			{
+				consent: persistConsent,
+				...mergeUsage({ inputTokens, outputTokens, toolCalls, costUsd }),
+			},
 		);
 		if (!persisted) {
 			// The stage can be invalidated after the consent probe but before
@@ -413,13 +433,20 @@ export async function runContextStage(
 		// Attempted work counts even in failure (floor when unmeasured).
 		const measured = projectCostUsd(inputTokens, outputTokens);
 		const costUsd = inputTokens + outputTokens === 0 ? env.contextMaxCostUsd : measured;
-		const wrote = await persistContextFailure(db, runId, token, code, {
-			inputTokens,
-			outputTokens,
-			toolCalls,
-			costUsd,
-			durationMs: Date.now() - stageStart,
-		});
+		const wrote = await persistContextFailure(
+			db,
+			runId,
+			token,
+			code,
+			{
+				inputTokens,
+				outputTokens,
+				toolCalls,
+				costUsd,
+				durationMs: Date.now() - stageStart,
+			},
+			mergeUsage({ inputTokens, outputTokens, toolCalls, costUsd }),
+		);
 		// A fenced attempt's persist is stale (false): no audit for a
 		// failure that never landed.
 		if (wrote) {
@@ -444,7 +471,9 @@ export async function runContextStage(
 
 /**
  * Retry execution for a claimed retry stage: no external rerun, usage
- * merged into the single ledger, run status untouched.
+ * merged into the single ledger in the same transaction that persists the
+ * stage outcome, run status untouched. A fenced attempt's persist is stale,
+ * so it merges nothing (the rotation retained its spend at the stage cap).
  */
 export async function executeContextRetry(
 	deps: ContextExecDeps,
@@ -460,33 +489,13 @@ export async function executeContextRetry(
 		externalSummary = externalSummaryOf({ brief: run.brief, findings });
 	}
 	const asOf = asOfDate(run.asOf.toISOString());
-	const result = await runContextStage(deps, {
+	await runContextStage(deps, {
 		runId,
 		stageToken,
 		applicationId: run.applicationId,
 		caseFacts: run.caseFacts as Record<string, unknown>,
 		asOfDate: asOf,
 		externalSummary,
-	});
-	if (!result.attempted) return;
-	// Merge retry spend into the single usage ledger; nothing else changes.
-	await withTx(db, async (tx) => {
-		const rows = (await tx.execute(
-			sql`SELECT usage FROM agent_runs WHERE id = ${runId} FOR UPDATE`,
-		)) as unknown as Array<{ usage: Record<string, number> | null }>;
-		const prev = (rows[0]?.usage ?? {}) as Record<string, number>;
-		const num = (v: unknown): number => (typeof v === "number" ? v : 0);
-		await tx
-			.update(agentRuns)
-			.set({
-				usage: {
-					...prev,
-					inputTokens: num(prev["inputTokens"]) + result.inputTokens,
-					outputTokens: num(prev["outputTokens"]) + result.outputTokens,
-					toolCalls: num(prev["toolCalls"]) + result.toolCalls,
-					costUsd: num(prev["costUsd"]) + result.costUsd,
-				},
-			})
-			.where(eq(agentRuns.id, runId));
+		mergeRunUsage: true,
 	});
 }

@@ -950,6 +950,43 @@ function retryDeps(
 }
 
 describe("context retry attempt fencing", () => {
+	it("merges a retry attempt's spend in the same transaction as its stage outcome", async () => {
+		const ctx = setupApp();
+		try {
+			const { run, stageToken } = await claimedRetry(ctx);
+			const before = ((await getRun(ctx.db, run.id))?.usage ?? {}) as Record<string, number>;
+			// The worker dies right after the stage outcome commits: the first
+			// write after it (the context.failed audit) and every later write fail.
+			let crashed = false;
+			const db = new Proxy(ctx.db, {
+				get(target, prop, receiver) {
+					if (prop === "insert") crashed = true;
+					if (crashed && ["insert", "update", "transaction", "execute"].includes(String(prop))) {
+						return () => {
+							throw new Error(`worker crashed (${String(prop)})`);
+						};
+					}
+					const value = Reflect.get(target, prop, receiver);
+					return typeof value === "function" ? value.bind(target) : value;
+				},
+			});
+			const runner = stubContextRunner({ outputs: [{}], throw: new ContextToolError("boom") });
+			await expect(
+				executeContextRetry({ ...retryDeps(ctx, runner), db }, run.id, stageToken),
+			).rejects.toThrow("worker crashed");
+			const row = await getRun(ctx.db, run.id);
+			expect(row).toMatchObject({ contextStatus: "failed", contextErrorCode: "tool_error" });
+			const usage = (row?.usage ?? {}) as Record<string, number>;
+			// Unmeasured failure: the stage cap is the attempt's spend.
+			expect(usage["costUsd"] ?? 0).toBeCloseTo(
+				(before["costUsd"] ?? 0) + env.contextMaxCostUsd,
+				6,
+			);
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
 	it("a cancelled retry attempt leaves the stage running for the next attempt (no failure, no audit)", async () => {
 		const ctx = setupApp();
 		try {

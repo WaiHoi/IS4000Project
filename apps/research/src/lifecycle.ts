@@ -523,7 +523,8 @@ export async function persistContextSuccess(
 		usage: Record<string, unknown>;
 		signals: PersistedContextSignal[];
 	},
-	opts: { consent?: boolean } = {},
+	/** mergeUsage: also add this spend to the run's usage, in the same transaction. */
+	opts: { consent?: boolean; mergeUsage?: StageUsageDelta } = {},
 ): Promise<boolean> {
 	return withTx(db, async (tx) => {
 		const guard = await loadStageGuard(tx, runId);
@@ -574,13 +575,52 @@ export async function persistContextSuccess(
 				contextStageToken: null,
 			})
 			.where(eq(agentRuns.id, runId));
+		if (opts.mergeUsage) await mergeRunUsageTx(tx, runId, opts.mergeUsage);
 		return true;
 	});
 }
 
+/** One stage attempt's spend, merged into the run's single usage ledger. */
+export interface StageUsageDelta {
+	inputTokens: number;
+	outputTokens: number;
+	toolCalls: number;
+	costUsd: number;
+}
+
+/**
+ * Adds a stage attempt's spend to `agent_runs.usage` inside the caller's
+ * transaction, so it commits atomically with the stage outcome.
+ */
+export async function mergeRunUsageTx(
+	tx: Tx,
+	runId: string,
+	delta: StageUsageDelta,
+): Promise<void> {
+	const rows = (await tx.execute(
+		sql`SELECT usage FROM agent_runs WHERE id = ${runId} FOR UPDATE`,
+	)) as unknown as Array<{ usage: Record<string, number> | null }>;
+	const prev = (rows[0]?.usage ?? {}) as Record<string, number>;
+	const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+	await tx
+		.update(agentRuns)
+		.set({
+			usage: {
+				...prev,
+				inputTokens: num(prev["inputTokens"]) + delta.inputTokens,
+				outputTokens: num(prev["outputTokens"]) + delta.outputTokens,
+				toolCalls: num(prev["toolCalls"]) + delta.toolCalls,
+				costUsd: num(prev["costUsd"]) + delta.costUsd,
+			},
+		})
+		.where(eq(agentRuns.id, runId));
+}
+
 /**
  * Persist a failed stage with a sanitized code. Same stale-token predicate
- * as success; never touches run status or the external brief.
+ * as success; never touches run status or the external brief. With
+ * `mergeUsage`, the attempt's spend joins the run's usage in the same
+ * transaction (only when the failure landed).
  */
 export async function persistContextFailure(
 	db: Db,
@@ -588,9 +628,24 @@ export async function persistContextFailure(
 	stageToken: string,
 	code: string,
 	usage?: Record<string, unknown>,
+	opts: { mergeUsage?: StageUsageDelta } = {},
 ): Promise<boolean> {
 	if (!tokenMatch(runId, stageToken)) return false;
-	const rows = await db
+	return withTx(db, async (tx) => {
+		const wrote = await failContextStageTx(tx, runId, stageToken, code, usage);
+		if (wrote && opts.mergeUsage) await mergeRunUsageTx(tx, runId, opts.mergeUsage);
+		return wrote;
+	});
+}
+
+async function failContextStageTx(
+	tx: Tx,
+	runId: string,
+	stageToken: string,
+	code: string,
+	usage?: Record<string, unknown>,
+): Promise<boolean> {
+	const rows = await tx
 		.update(agentRuns)
 		.set({
 			contextStatus: "failed",
