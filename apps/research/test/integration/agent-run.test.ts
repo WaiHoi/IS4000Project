@@ -43,7 +43,9 @@ import {
 	failRunningContextStage,
 	finalizeFailure,
 	getRun,
+	heartbeatContextStage,
 	initContextStage,
+	listUnstartedContextRetries,
 	persistContextFailure,
 	persistContextSuccess,
 	rotateContextStageForRetry,
@@ -1129,10 +1131,14 @@ describe("auto daily budget sees prior-attempt spend", () => {
 			expect(failed?.retainedCostUsd).toBeCloseTo(0.05 + env.contextMaxCostUsd, 6);
 
 			// Context retry: a fenced attempt and the final cleanup each retain
-			// the stage cap (their spend never merged into usage).
+			// the stage cap when that attempt started (it beat before its model
+			// call; its spend never merged into usage).
 			const retry = await claimedRetry(ctx);
 			const base = (await getRun(ctx.db, retry.run.id))?.retainedCostUsd ?? 0;
-			expect(await rotateContextStageForRetry(ctx.db, env, retry.run.id)).not.toBeNull();
+			await heartbeatContextStage(ctx.db, retry.run.id, retry.stageToken);
+			const rotated = await rotateContextStageForRetry(ctx.db, env, retry.run.id);
+			expect(rotated).not.toBeNull();
+			await heartbeatContextStage(ctx.db, retry.run.id, rotated!);
 			await failResearchRun(
 				ctx.db,
 				env,
@@ -1149,6 +1155,39 @@ describe("auto daily budget sees prior-attempt spend", () => {
 			const before = (await getRun(ctx.db, unstarted.run.id))?.retainedCostUsd ?? 0;
 			expect(await failRunningContextStage(ctx.db, env, unstarted.run.id, "timeout")).toBe(true);
 			expect((await getRun(ctx.db, unstarted.run.id))?.retainedCostUsd).toBeCloseTo(before, 6);
+		} finally {
+			await dropAutoRuns();
+			await teardown(ctx);
+		}
+	});
+
+	it("retains a context-retry stage cap only for attempts that started", async () => {
+		const ctx = setupApp();
+		try {
+			// Attempt 1 started (beat), attempt 2 died after rotation but before
+			// its first beat: only attempt 1's cap is retained.
+			const retry = await claimedRetry(ctx);
+			const base = (await getRun(ctx.db, retry.run.id))?.retainedCostUsd ?? 0;
+			await heartbeatContextStage(ctx.db, retry.run.id, retry.stageToken);
+			expect(await rotateContextStageForRetry(ctx.db, env, retry.run.id)).not.toBeNull();
+			expect((await getRun(ctx.db, retry.run.id))?.retainedCostUsd).toBeCloseTo(
+				base + env.contextMaxCostUsd,
+				6,
+			);
+			// The rotated token is not mistaken for a never-started claim.
+			const pending = await listUnstartedContextRetries(ctx.db, 0);
+			expect(pending.map((p) => p.runId)).not.toContain(retry.run.id);
+			expect(await failRunningContextStage(ctx.db, env, retry.run.id, "timeout")).toBe(true);
+			expect((await getRun(ctx.db, retry.run.id))?.retainedCostUsd).toBeCloseTo(
+				base + env.contextMaxCostUsd,
+				6,
+			);
+
+			// An attempt that never beat is fenced without retaining anything.
+			const idle = await claimedRetry(ctx);
+			const idleBase = (await getRun(ctx.db, idle.run.id))?.retainedCostUsd ?? 0;
+			expect(await rotateContextStageForRetry(ctx.db, env, idle.run.id)).not.toBeNull();
+			expect((await getRun(ctx.db, idle.run.id))?.retainedCostUsd).toBeCloseTo(idleBase, 6);
 		} finally {
 			await dropAutoRuns();
 			await teardown(ctx);

@@ -401,14 +401,16 @@ export async function claimContextStage(
 ): Promise<string | null> {
 	if (!tokenMatch(runId, token)) return null;
 	const stageToken = randomUUID();
+	// Heartbeat == start: claimed but not yet started (see contextAttemptStarted).
+	const now = new Date();
 	const claimed = await withTx(db, async (tx) => {
 		const rows = await tx
 			.update(agentRuns)
 			.set({
 				contextStatus: "running",
 				contextStageToken: stageToken,
-				contextStartedAt: new Date(),
-				contextHeartbeatAt: new Date(),
+				contextStartedAt: now,
+				contextHeartbeatAt: now,
 				contextTimeoutAt: new Date(Date.now() + env.contextTimeoutMs + 30_000),
 				contextPromptVersion: opts.promptVersion,
 				contextModel: opts.model,
@@ -433,6 +435,14 @@ export async function claimContextStage(
 	return claimed;
 }
 
+/**
+ * Whether the current context attempt started (beat at least once, so it
+ * may have called the model). A claim or a retry rotation leaves the
+ * heartbeat null or equal to `context_started_at`; every beat lands strictly
+ * after it. Only a started attempt has unmerged spend to retain.
+ */
+const contextAttemptStarted = sql`(${agentRuns.contextHeartbeatAt} IS NOT NULL AND ${agentRuns.contextHeartbeatAt} > coalesce(${agentRuns.contextStartedAt}, '-infinity'::timestamptz))`;
+
 export async function heartbeatContextStage(
 	db: Db,
 	runId: string,
@@ -441,7 +451,10 @@ export async function heartbeatContextStage(
 	if (!tokenMatch(runId, stageToken)) return;
 	await db
 		.update(agentRuns)
-		.set({ contextHeartbeatAt: new Date() })
+		// Strictly after the stage start, so a beat always marks it started.
+		.set({
+			contextHeartbeatAt: sql`GREATEST(${new Date().toISOString()}::timestamptz, ${agentRuns.contextStartedAt} + interval '1 millisecond')`,
+		})
 		.where(
 			and(
 				eq(agentRuns.id, runId),
@@ -988,8 +1001,8 @@ export async function rotateRunForRetry(
 /**
  * Fence a retried context-retry attempt: rotate the stage token of the
  * running stage on a terminal run (the dead attempt's stage writes then
- * fail) and retain the dead attempt's spend at the stage cap. Null when no
- * stage is running (it already finished or failed).
+ * fail) and retain the dead attempt's spend at the stage cap if it started.
+ * Null when no stage is running (it already finished or failed).
  */
 export async function rotateContextStageForRetry(
 	db: Db,
@@ -998,14 +1011,19 @@ export async function rotateContextStageForRetry(
 ): Promise<string | null> {
 	if (!isUuid(runId)) return null;
 	const token = randomUUID();
-	// The fenced attempt ran but never merged its spend: carry the stage cap
-	// forward (fail closed; its partial usage is unknown).
+	// A fenced attempt that started never merged its spend: carry the stage
+	// cap forward (fail closed; its partial usage is unknown). One that never
+	// beat made no model call. The heartbeat is reset to the stage start, so
+	// the next attempt counts as started only once it beats; it stays
+	// non-null so the sweep never restarts the rotated token.
+	const cap = env.contextMaxCostUsd;
 	const rows = await db
 		.update(agentRuns)
 		.set({
 			contextStageToken: token,
-			contextHeartbeatAt: new Date(),
-			...retainSpend(env.contextMaxCostUsd),
+			contextHeartbeatAt: sql`coalesce(${agentRuns.contextStartedAt}, now())`,
+			retainedCostUsd: sql`${agentRuns.retainedCostUsd} + CASE WHEN ${contextAttemptStarted} THEN ${cap}::double precision ELSE 0 END`,
+			retainedCostAt: sql`CASE WHEN ${contextAttemptStarted} AND ${cap}::double precision > 0 THEN now() ELSE ${agentRuns.retainedCostAt} END`,
 		})
 		.where(
 			and(
@@ -1103,9 +1121,9 @@ export async function failRunningContextStage(
 	opts: { staleForSecs?: number } = {},
 ): Promise<boolean> {
 	if (!isUuid(runId)) return false;
-	// A heartbeated stage was started by an attempt that never merged its
-	// spend: retain the stage cap (fail closed). Never heartbeated means
-	// never started (no model call), so nothing is retained.
+	// A started attempt (it beat since its claim or rotation) never merged
+	// its spend: retain the stage cap (fail closed). An attempt that never
+	// beat made no model call, so nothing is retained.
 	const cap = env.contextMaxCostUsd;
 	const rows = await db
 		.update(agentRuns)
@@ -1114,8 +1132,8 @@ export async function failRunningContextStage(
 			contextErrorCode: code,
 			contextFinishedAt: new Date(),
 			contextStageToken: null,
-			retainedCostUsd: sql`${agentRuns.retainedCostUsd} + CASE WHEN ${agentRuns.contextHeartbeatAt} IS NULL THEN 0 ELSE ${cap}::double precision END`,
-			retainedCostAt: sql`CASE WHEN ${agentRuns.contextHeartbeatAt} IS NULL OR ${cap}::double precision <= 0 THEN ${agentRuns.retainedCostAt} ELSE now() END`,
+			retainedCostUsd: sql`${agentRuns.retainedCostUsd} + CASE WHEN ${contextAttemptStarted} THEN ${cap}::double precision ELSE 0 END`,
+			retainedCostAt: sql`CASE WHEN ${contextAttemptStarted} AND ${cap}::double precision > 0 THEN now() ELSE ${agentRuns.retainedCostAt} END`,
 		})
 		.where(
 			and(
