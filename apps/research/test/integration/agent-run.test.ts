@@ -1230,4 +1230,27 @@ describe("auto daily budget sees prior-attempt spend", () => {
 			await teardown(ctx);
 		}
 	});
+
+	it("restarts a rotated stage's clock so the orphan sweep can't fail it before its first beat", async () => {
+		const ctx = setupApp();
+		try {
+			// Attempt 1 started long ago (backlogged worker); attempt 2 rotates
+			// past the horizon measured from that original start.
+			const retry = await claimedRetry(ctx);
+			await heartbeatContextStage(ctx.db, retry.run.id, retry.stageToken);
+			const agedSecs = Math.ceil(activeHorizonMs(contextRetryTimeoutMs(env)) / 1000) + 5;
+			await ctx.db.execute(
+				sql`UPDATE agent_runs SET context_started_at = now() - make_interval(secs => ${agedSecs}), context_heartbeat_at = now() - make_interval(secs => ${agedSecs - 1}) WHERE id = ${retry.run.id}`,
+			);
+			const rotated = await rotateContextStageForRetry(ctx.db, env, retry.run.id);
+			expect(rotated).not.toBeNull();
+			expect(await failOrphanedStages(ctx.db, env)).not.toContain(retry.run.id);
+			// The fenced token's beat no longer lands; the new token's does.
+			expect(await heartbeatContextStage(ctx.db, retry.run.id, retry.stageToken)).toBe(false);
+			expect(await heartbeatContextStage(ctx.db, retry.run.id, rotated!)).toBe(true);
+		} finally {
+			await dropAutoRuns();
+			await teardown(ctx);
+		}
+	});
 });

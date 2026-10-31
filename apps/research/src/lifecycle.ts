@@ -447,9 +447,9 @@ export async function heartbeatContextStage(
 	db: Db,
 	runId: string,
 	stageToken: string,
-): Promise<void> {
-	if (!tokenMatch(runId, stageToken)) return;
-	await db
+): Promise<boolean> {
+	if (!tokenMatch(runId, stageToken)) return false;
+	const rows = await db
 		.update(agentRuns)
 		// Strictly after the stage start, so a beat always marks it started.
 		.set({
@@ -461,7 +461,9 @@ export async function heartbeatContextStage(
 				eq(agentRuns.contextStatus, "running"),
 				eq(agentRuns.contextStageToken, stageToken),
 			),
-		);
+		)
+		.returning({ id: agentRuns.id });
+	return rows.length > 0;
 }
 
 interface StageGuard {
@@ -1068,15 +1070,19 @@ export async function rotateContextStageForRetry(
 	const token = randomUUID();
 	// A fenced attempt that started never merged its spend: carry the stage
 	// cap forward (fail closed; its partial usage is unknown). One that never
-	// beat made no model call. The heartbeat is reset to the stage start, so
-	// the next attempt counts as started only once it beats; it stays
-	// non-null so the sweep never restarts the rotated token.
+	// beat made no model call. The rotated stage restarts its clock: start
+	// and heartbeat both become now() (equal, so the next attempt counts as
+	// started only once it beats; non-null, so the sweep never restarts the
+	// rotated token; fresh, so the orphan sweep can't fail it before its
+	// first beat). SET reads the pre-update row, so the retention check
+	// above still sees the dead attempt's timestamps.
 	const cap = env.contextMaxCostUsd;
 	const rows = await db
 		.update(agentRuns)
 		.set({
 			contextStageToken: token,
-			contextHeartbeatAt: sql`coalesce(${agentRuns.contextStartedAt}, now())`,
+			contextStartedAt: sql`now()`,
+			contextHeartbeatAt: sql`now()`,
 			retainedCostUsd: sql`${agentRuns.retainedCostUsd} + CASE WHEN ${contextAttemptStarted} THEN ${cap}::double precision ELSE 0 END`,
 			retainedCostAt: sql`CASE WHEN ${contextAttemptStarted} AND ${cap}::double precision > 0 THEN now() ELSE ${agentRuns.retainedCostAt} END`,
 		})

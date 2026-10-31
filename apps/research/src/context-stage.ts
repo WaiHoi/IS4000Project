@@ -226,8 +226,10 @@ export async function runContextStage(
 	const mergeUsage = (delta: StageUsageDelta): { mergeUsage?: StageUsageDelta } =>
 		opts.mergeRunUsage ? { mergeUsage: delta } : {};
 	// Beat once before any model call: a stage with a heartbeat counts as
-	// started, so its unmerged spend is retained if the attempt dies.
-	await heartbeatContextStage(db, runId, token);
+	// started, so its unmerged spend is retained if the attempt dies. A beat
+	// that doesn't land means the stage was fenced or failed meanwhile: stop
+	// before spending.
+	if (!(await heartbeatContextStage(db, runId, token))) throw new StaleRunError();
 	const beat = setInterval(() => {
 		void (async () => {
 			try {

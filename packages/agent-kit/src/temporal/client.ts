@@ -28,6 +28,16 @@ export interface AgentRunStarter {
 	close(): Promise<void>;
 }
 
+/** Workflow statuses that will never execute the run again. */
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+	"COMPLETED",
+	"FAILED",
+	"CANCELLED",
+	"TERMINATED",
+	"TIMED_OUT",
+	"CONTINUED_AS_NEW",
+]);
+
 export type AgentRunStartResult =
 	| { started: true; workflowId: string }
 	| { started: false; workflowId: string; closed: boolean };
@@ -72,7 +82,7 @@ export function createAgentRunStarter(opts: AgentRunStarterOptions): AgentRunSta
 			} catch (err) {
 				if (err instanceof WorkflowExecutionAlreadyStartedError) {
 					const { status } = await client.workflow.getHandle(workflowId).describe();
-					return { started: false, workflowId, closed: status.name !== "RUNNING" };
+					return { started: false, workflowId, closed: TERMINAL_STATUSES.has(status.name) };
 				}
 				throw err;
 			}
