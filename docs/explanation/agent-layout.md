@@ -137,6 +137,13 @@ Temporal workflows instead of in-process fire-and-forget jobs.
 Run kinds: `research.run` and `research.context-retry` run on the
 `research-agents` queue, and `integrity.run` on `applications-agents`.
 
+Deploying workflow changes: Temporal replays a workflow's history
+against the current code. A change to `agentRunWorkflow` can therefore
+break runs that were in flight at deploy time, because their history no
+longer matches. For this PoC, drain the agent task queues before
+deploying, or let the sweep backstop fail any stuck rows. A long-lived
+deployment should guard workflow changes with `patched()`.
+
 Local dev: `pnpm dev` also starts each service's `dev:agent-worker`
 script. The compose overlay runs them as the `research-agent-worker` and
 `applications-agent-worker` services. Without a running agent worker,

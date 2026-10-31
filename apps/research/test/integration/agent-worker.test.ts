@@ -191,10 +191,10 @@ describe("research agent worker on real Temporal", () => {
 		}
 	});
 
-	it("treats a duplicate start for the same token as an idempotent no-op", async () => {
+	it("treats a duplicate start for the same token as an idempotent no-op on a finished run", async () => {
 		const { input, workflowId } = await startRun("none");
 		const again = await starter.start(input);
-		expect(again).toEqual({ started: false, workflowId, closed: false });
+		expect(again).toEqual({ started: false, workflowId, closed: true });
 		expect(attempts.get(input.runId)).toEqual([1]);
 		expect(modelCalls.get(input.runId)).toBe(1);
 	});
