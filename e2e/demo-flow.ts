@@ -244,3 +244,133 @@ export async function officerRunsCrosscheck(
 	);
 	return { item: settled, signalCodes: detail.review.signalCodes ?? [] };
 }
+
+/** Re-throw a 404 from a flag-gated AI route with the fix spelled out. */
+async function aiCall<T>(feature: string, call: () => Promise<T>): Promise<T> {
+	try {
+		return await call();
+	} catch (err) {
+		if (err instanceof ApiError && err.status === 404) {
+			throw new Error(
+				`${feature} is off (404 ${err.code}) — put OPENROUTER_API_KEY in .env and restart \`pnpm start\``,
+				{ cause: err },
+			);
+		}
+		throw err;
+	}
+}
+
+async function openCaseTab(
+	page: Page,
+	caseId: string,
+	tab: "Memo" | "Policy" | "Ask",
+): Promise<void> {
+	await gotoHydrated(page, `/officer/review/${caseId}`);
+	await page.getByRole("button", { name: tab }).click();
+}
+
+/** AI: policy navigator — a cited answer from the bank's credit policy corpus. */
+export async function officerAsksPolicyNavigator(
+	page: Page,
+	officer: Api,
+	question: string,
+	product: "personal_loan" | "sme_term_loan",
+): Promise<{ status: string; citations: unknown[] }> {
+	const answer = await aiCall("policy navigator", () =>
+		officer.post<{ status: string; citations: unknown[] }>("/api/policy/ask", {
+			question,
+			product,
+		}),
+	);
+	await gotoHydrated(page, "/officer/policies");
+	await expect(page.getByText("Ask a policy question")).toBeVisible({ timeout: 60_000 });
+	await page.locator("#policy-question").fill(question);
+	return answer;
+}
+
+/**
+ * AI: policy-exception drafter — explains which policy rules the case fails
+ * (with citations) and drafts an exception memo for an approver. Advisory:
+ * approvers come from the policy registry, never from the model.
+ */
+export async function officerDraftsPolicyException(
+	page: Page,
+	officer: Api,
+	caseId: string,
+): Promise<{ failedRuleIds: string[]; explainedRules: number; memoStatus: string }> {
+	const view = await aiCall("policy-exception navigator", () =>
+		officer.get<{ context: { failedRules: Array<{ ruleId: string }> } }>(
+			`/api/assist/cases/${caseId}/policy-exception`,
+		),
+	);
+	const explained = await aiCall("policy-exception explain", () =>
+		officer.post<{ rules: unknown[] }>(`/api/assist/cases/${caseId}/policy-exception/explain`, {}),
+	);
+	const memo = await aiCall("policy-exception memo", () =>
+		officer.post<{ artifact: { status: string } }>(
+			`/api/assist/cases/${caseId}/policy-exception/memo`,
+			{},
+		),
+	);
+	await openCaseTab(page, caseId, "Policy");
+	await expect(page.getByText("Policy & exception navigator")).toBeVisible({ timeout: 60_000 });
+	return {
+		failedRuleIds: view.context.failedRules.map((r) => r.ruleId),
+		explainedRules: explained.rules.length,
+		memoStatus: memo.artifact.status,
+	};
+}
+
+/** AI: credit memo writer — the agent drafts a cited memo; the officer approves it. */
+export async function officerDraftsCreditMemo(
+	page: Page,
+	officer: Api,
+	caseId: string,
+): Promise<{ writer: string | undefined; citations: number }> {
+	const drafted = await aiCall("credit memo", () =>
+		officer.post<{
+			artifact: {
+				id: string;
+				revision: number;
+				citations: unknown[];
+				agentTrace: { writer: string } | null;
+			};
+		}>(`/api/assist/cases/${caseId}/memos`),
+	);
+	await officer.post(`/api/assist/artifacts/${drafted.artifact.id}/approve`, {
+		expectedRevision: drafted.artifact.revision,
+		confirm: true,
+	});
+	await openCaseTab(page, caseId, "Memo");
+	await expect(page.getByRole("heading", { name: "Credit memo" })).toBeVisible({ timeout: 60_000 });
+	return {
+		writer: drafted.artifact.agentTrace?.writer,
+		citations: drafted.artifact.citations.length,
+	};
+}
+
+/** AI: case assistant — officer Q&A over the case file (read-only tools). */
+export async function officerAsksCaseAssistant(
+	page: Page,
+	officer: Api,
+	caseId: string,
+	question: string,
+): Promise<{ answer: string; toolCalls: number }> {
+	const out = await aiCall("case assistant", () =>
+		officer.post<{ answer: string; toolCalls: unknown[] }>(`/api/review/${caseId}/assistant`, {
+			question,
+		}),
+	);
+	await openCaseTab(page, caseId, "Ask");
+	await expect(page.locator('section[aria-label="Case assistant"]')).toBeVisible({
+		timeout: 60_000,
+	});
+	await page.getByPlaceholder("Ask about this case…").fill(question);
+	return { answer: out.answer, toolCalls: out.toolCalls.length };
+}
+
+/** Switch the browser session to the officer. */
+export async function asOfficer(page: Page): Promise<void> {
+	await uiLogout(page);
+	await uiLogin(page, "officer@example.com");
+}

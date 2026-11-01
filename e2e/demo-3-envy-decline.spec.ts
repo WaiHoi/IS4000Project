@@ -10,7 +10,8 @@
 // surface validated adverse media (official source or 2+ independent
 // sources), and the internal-context stage sees the seeded related-party
 // round trips, overdrafts, cash deposits and returned payments. The officer
-// declines on judgement. The applicant person and all
+// asks the case assistant to summarise the red flags, then declines on
+// judgement. The applicant person and all
 // financials are fictional; only the company identity is real.
 // Live: needs OPENROUTER_API_KEY + TAVILY_API_KEY (see demo-flow.ts).
 import { expect, test } from "@playwright/test";
@@ -18,6 +19,7 @@ import { Api, waitTerminal } from "./helpers.js";
 import {
 	applyAsProfiledSme,
 	declineIfPending,
+	officerAsksCaseAssistant,
 	officerDecides,
 	officerRunsCrosscheck,
 	runResearch,
@@ -70,6 +72,16 @@ test("Envy Global Trading: referred → fraud flag + adverse media → officer d
 		contextTypes.size,
 		`context signals: ${[...contextTypes].join(", ")}`,
 	).toBeGreaterThanOrEqual(3);
+
+	// Case assistant: the officer asks for the red flags in one place.
+	const assistant = await officerAsksCaseAssistant(
+		page,
+		officer,
+		caseId,
+		"Summarise the red flags on this case, citing the evidence.",
+	);
+	expect(assistant.answer.length).toBeGreaterThan(0);
+	expect(assistant.toolCalls).toBeGreaterThan(0);
 
 	await officerDecides(page, caseId, {
 		outcome: "decline",
