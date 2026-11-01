@@ -76,6 +76,6 @@ input/output; Sol $2/$10). This is not billed cost. Raw result file:
 
 ```powershell
 docker compose up -d --wait
-pnpm setup
+pnpm run setup
 pnpm --filter @credit/research eval:case-assistant -- --trials=3
 ```

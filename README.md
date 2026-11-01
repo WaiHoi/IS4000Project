@@ -20,12 +20,30 @@ officer-triggered or auto-triggered on referral, never decisive) behind `AGENTS_
 ## Quickstart
 
 ```powershell
-cp .env.example .env   # then set a real SESSION_SECRET
-pnpm install                    # non-interactive; build scripts pre-approved in pnpm-workspace.yaml (allowBuilds)
-docker compose up -d --wait     # postgres, kafka, temporal, temporal-ui
-pnpm setup                      # db:wait -> db:init -> kafka:init -> db:migrate -> db:seed
-pnpm dev                        # gateway :3001 + services :4001-4006 + worker + web :3000 in parallel
+pnpm install
+pnpm start          # everything your .env supports; `pnpm start --lite` = pipeline only
 ```
+
+`pnpm start` creates `.env` from `.env.example` if it is missing and
+generates any blank secrets. It then starts Docker (Postgres, Kafka,
+Temporal, Temporal UI, and ClamAV for documents), runs `pnpm run setup` and
+`demo:seed`, and launches `pnpm dev`. It prints which features are on and
+why any are off. There are no feature flags to set by hand:
+
+- **No API keys:** the deterministic pipeline, documents, the
+  integrity/fraud panel, the template credit memo and the adverse-action
+  letter.
+- **`OPENROUTER_API_KEY` in `.env`:** adds every advisory AI feature
+  (memo writer, case assistant, context analyst, policy navigator and case
+  review, policy exceptions, document integrity analysis and triage). It
+  also seeds the policy corpus.
+- **`TAVILY_API_KEY` as well:** adds the external case brief.
+- **Auto-research on every referral:** stays off because it spends money
+  automatically. Set `AGENT_AUTO_TRIGGER_ENABLED=true` to opt in.
+
+A flag you export in your shell before `pnpm start` overrides the derived
+value. The manual steps are still `docker compose up -d --wait`,
+`pnpm run setup` and `pnpm dev`.
 
 Then open http://localhost:3000 and log in (password `demo1234`, see table).
 Health: `GET http://127.0.0.1:3001/api/health` → `{status:"ok"}` with
@@ -243,7 +261,7 @@ reports those seams instead of failing on them.
 | `pnpm db:wait`                                     | polls `pg_isready` in the postgres container (timeout `DB_WAIT_TIMEOUT_S`, default 120)                                                   |
 | `pnpm db:init`                                     | creates the 6 service DBs (+ Temporal pair) if missing — self-provisions existing clusters                                                |
 | `pnpm kafka:init`                                  | creates the 7 SPEC FR-10.1 topics (3 partitions, RF 1), idempotent                                                                        |
-| `pnpm setup`                                       | `db:wait && db:init && kafka:init && db:migrate && db:seed`                                                                               |
+| `pnpm run setup`                                       | `db:wait && db:init && kafka:init && db:migrate && db:seed`                                                                               |
 | `pnpm build`                                       | recursive `--if-present` build                                                                                                            |
 
 ## Ports & env
@@ -288,7 +306,7 @@ PID only — never `Stop-Process -Name node` (that kills unrelated tooling).
   by PG18, and PG18 additionally requires the volume at
   `/var/lib/postgresql` (not `…/data`) — so the upgrade is a volume reset:
   `docker compose down`, `docker volume rm project_pgdata`, `docker compose
-  up -d --wait`, `pnpm setup`. Fresh volumes self-provision via
+  up -d --wait`, `pnpm run setup`. Fresh volumes self-provision via
   `infra/postgres/init.sql`; existing clusters self-provision via `pnpm
   db:init` (creates the six service DBs if missing).
 - **Benign warnings.** KafkaJS on Node 26 prints a harmless

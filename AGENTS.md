@@ -44,9 +44,12 @@ read of another service's database. Use signed internal HTTP or Kafka.
 
 ```powershell
 pnpm install
+pnpm start                 # whole stack: .env bootstrap, docker, setup, flags, dev
+pnpm start --lite          # same, deterministic pipeline only
+# manual equivalent:
 docker compose up -d --wait
-pnpm setup                 # db wait/init/migrate/seed + kafka init
-pnpm dev                   # gateway, services, worker, web
+pnpm run setup             # db wait/init/migrate/seed + kafka init (NOT `pnpm setup`, a pnpm builtin)
+pnpm dev                   # gateway, services, worker, agent workers, web
 pnpm dev:services          # services only
 ```
 

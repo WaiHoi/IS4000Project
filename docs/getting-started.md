@@ -6,16 +6,19 @@ Start from the quickstart in `../README.md`. That page owns first-run setup. Thi
 
 ## 1. Start the stack
 
-Copy `.env.example` to `.env` and set `SESSION_SECRET` and `INTERNAL_SECRET` (see `reference/configuration.md`). Then run:
-
 ```powershell
 pnpm install
-docker compose up -d --wait
-pnpm setup
-pnpm dev
+pnpm start
 ```
 
-`pnpm setup` waits for Postgres, creates databases, creates Kafka topics, migrates, and seeds demo users. `pnpm dev` starts the gateway (`:3001`), six services (`:4001`-`:4006`), the worker, and the web app (`:3000`).
+`pnpm start` (`scripts/stack.ts`) creates `.env` if needed and fills blank
+secrets. It starts Docker Compose plus ClamAV, then runs `pnpm run setup`
+and `demo:seed`. Setup waits for Postgres, creates databases and Kafka
+topics, migrates, and seeds demo users. Finally it starts `pnpm dev`: the
+gateway (`:3001`), six services (`:4001`-`:4006`), the worker, both agent
+workers, and the web app (`:3000`). It enables every feature your `.env`
+can support (AI needs `OPENROUTER_API_KEY`) and prints a summary of what is
+on. Use `pnpm start --lite` for the deterministic pipeline only.
 
 ## 2. Check health
 
@@ -80,10 +83,10 @@ Each applicant can hold at most 3 non-terminal applications. The 4th submit retu
 ```powershell
 docker compose down -v
 docker compose up -d --wait
-pnpm setup
+pnpm run setup
 ```
 
-This wipes databases and Kafka. If you upgrade Postgres 17 data to Postgres 18, stop the stack (`docker compose down`), delete the volume (`docker volume rm project_pgdata`), then `up` and `pnpm setup`. Warning: this deletes all local database and Temporal data.
+This wipes databases and Kafka. If you upgrade Postgres 17 data to Postgres 18, stop the stack (`docker compose down`), delete the volume (`docker volume rm project_pgdata`), then `up` and `pnpm run setup`. Warning: this deletes all local database and Temporal data.
 
 If a crashed run leaves a stale dev server, find the listener on ports 3000, 3001, or 4001-4006 and stop that process only. Never stop all Node processes. Full symptom tables live in `operations/troubleshooting.md`.
 

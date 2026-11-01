@@ -38,7 +38,7 @@ Key uniqueness:
 - `pnpm db:migrate` applies each service folder in `packages/db/drizzle/*` to its own database, tracked per database. Source: `packages/db/src/migrate.ts`. When `RESEARCH_DATABASE_URL` is unset (Phase 1 checkout), research is skipped with a clear log and the other five still fail fast — set it (see `getting-started.md` §9) to enable Phase 2.
 - `pnpm db:generate` regenerates migrations from the six configs: `drizzle.config.auth.ts`, `drizzle.config.applications.ts`, `drizzle.config.loans.ts`, `drizzle.config.portfolio.ts`, `drizzle.config.research.ts`, `drizzle.config.policy.ts`. Never hand-edit files under `packages/db/drizzle/`.
 - `pnpm db:seed` inserts the 7 demo users idempotently (`ON CONFLICT DO NOTHING` on email). Source: `packages/db/src/seed.ts`.
-- `pnpm setup` runs `db:wait && db:init && kafka:init && db:migrate && db:seed`.
+- `pnpm run setup` runs `db:wait && db:init && kafka:init && db:migrate && db:seed`.
 - `pnpm kafka:init` creates the 7 topics (3 partitions, replication factor 1), idempotently. Source: `scripts/kafka-init.ts`.
 
 ## Event catalog

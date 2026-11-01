@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"start": "bun scripts/stack.ts",
 		"dev": "pnpm -r --if-present --parallel run \"/^dev(:agent-worker)?$/\"",
 		"dev:services": "pnpm --filter @credit/gateway --filter @credit/applications --filter @credit/review --filter @credit/loans --filter @credit/portfolio --parallel run \"/^dev(:agent-worker)?$/\"",
 		"typecheck": "pnpm -r --if-present typecheck && tsc --noEmit -p e2e/tsconfig.json",
