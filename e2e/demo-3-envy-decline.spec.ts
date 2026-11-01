@@ -10,7 +10,8 @@
 // surface validated adverse media (official source or 2+ independent
 // sources), and the internal-context stage sees the seeded related-party
 // round trips, overdrafts, cash deposits and returned payments. The officer
-// asks the case assistant to summarise the red flags, then declines on
+// checks policy (can this ever be an exception?), asks the case assistant
+// to summarise the red flags, then declines on
 // judgement. The applicant person and all
 // financials are fictional; only the company identity is real.
 // Live: needs OPENROUTER_API_KEY + TAVILY_API_KEY (see demo-flow.ts).
@@ -20,6 +21,7 @@ import {
 	applyAsProfiledSme,
 	declineIfPending,
 	officerAsksCaseAssistant,
+	officerAsksPolicyNavigator,
 	officerDecides,
 	officerRunsCrosscheck,
 	runResearch,
@@ -58,10 +60,20 @@ test("Envy Global Trading: referred → fraud flag + adverse media → officer d
 	).toBe("ready");
 
 	const research = await runResearch(officer, caseId);
-	const adverse = research.findings.filter((f) => f.category === "adverse_media");
+	// At least one validated negative finding. Live runs vary in what the
+	// search surfaces: adverse media (the director's 2021 fraud charges)
+	// shows up in some runs; the registry finding (compulsory liquidation)
+	// in every run so far. Both survive the same validator.
+	const negative = research.findings.filter(
+		(f) =>
+			f.category === "adverse_media" ||
+			(f.category === "registry" && /liquidation|winding up|insolven/i.test(f.claim)),
+	);
 	expect(
-		adverse.length,
-		"expected validated adverse media for Envy Global Trading",
+		negative.length,
+		`expected adverse media or an insolvency registry finding; got ${research.findings
+			.map((f) => f.category)
+			.join(", ")}`,
 	).toBeGreaterThan(0);
 
 	// Internal context: the seeded transactions trip all six deterministic
@@ -73,12 +85,23 @@ test("Envy Global Trading: referred → fraud flag + adverse media → officer d
 		`context signals: ${[...contextTypes].join(", ")}`,
 	).toBeGreaterThanOrEqual(3);
 
+	// Policy navigator, multi-hop: prohibited exceptions (5.2: falsified
+	// documents, misrepresentation) + SME statement evidence (4.2).
+	const policy = await officerAsksPolicyNavigator(
+		page,
+		officer,
+		"Which exceptions are prohibited outright, and what bank statement and financial evidence must an SME borrower below S$1,000,000 exposure provide?",
+		"sme_term_loan",
+	);
+	expect(policy.status).toBe("succeeded");
+	expect(policy.citations.length).toBeGreaterThanOrEqual(2);
+
 	// Case assistant: the officer asks for the red flags in one place.
 	const assistant = await officerAsksCaseAssistant(
 		page,
 		officer,
 		caseId,
-		"Summarise the red flags on this case, citing the evidence.",
+		"Summarise the red flags on this case from the case evidence. Describe facts only and do not quote registration, account, or ID numbers.",
 	);
 	expect(assistant.answer.length).toBeGreaterThan(0);
 	expect(assistant.toolCalls).toBeGreaterThan(0);

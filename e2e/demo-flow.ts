@@ -266,7 +266,7 @@ async function openCaseTab(
 	tab: "Memo" | "Policy" | "Ask",
 ): Promise<void> {
 	await gotoHydrated(page, `/officer/review/${caseId}`);
-	await page.getByRole("button", { name: tab }).click();
+	await page.getByRole("button", { name: tab, exact: true }).click();
 }
 
 /** AI: policy navigator — a cited answer from the bank's credit policy corpus. */
@@ -342,14 +342,22 @@ export async function officerDraftsCreditMemo(
 		confirm: true,
 	});
 	await openCaseTab(page, caseId, "Memo");
-	await expect(page.getByRole("heading", { name: "Credit memo" })).toBeVisible({ timeout: 60_000 });
+	await expect(page.getByRole("heading", { name: "Credit memo" }).first()).toBeVisible({
+		timeout: 60_000,
+	});
 	return {
 		writer: drafted.artifact.agentTrace?.writer,
 		citations: drafted.artifact.citations.length,
 	};
 }
 
-/** AI: case assistant — officer Q&A over the case file (read-only tools). */
+/**
+ * AI: case assistant — officer Q&A over the case file (read-only tools).
+ * Its validator blocks advisory language and direct identifiers (emails,
+ * NRICs, phones, long ID numbers such as UENs), so demo questions ask for
+ * facts and say not to quote identifiers; asking what to "verify" tends to
+ * make the model quote the UEN and fail UNSAFE_OUTPUT.
+ */
 export async function officerAsksCaseAssistant(
 	page: Page,
 	officer: Api,

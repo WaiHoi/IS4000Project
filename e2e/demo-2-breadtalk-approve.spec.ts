@@ -5,7 +5,8 @@
 // searches public sources for the real company, reads the brief, and
 // approves: an established, registry-verifiable business with no adverse
 // media. Before deciding the officer also uses the policy navigator (what is
-// the SME auto limit?), the policy-exception drafter (explain the failed
+// the approval path and exception terms for this case?), the case assistant
+// (strengths/weaknesses), the policy-exception drafter (explain the failed
 // rules and draft an exception memo), and the credit memo writer (agent
 // memo, approved). Every AI output is advisory; the officer decides.
 // Live: needs OPENROUTER_API_KEY + TAVILY_API_KEY (see demo-flow.ts).
@@ -15,6 +16,7 @@ import {
 	applyAsProfiledSme,
 	asOfficer,
 	declineIfPending,
+	officerAsksCaseAssistant,
 	officerAsksPolicyNavigator,
 	officerDecides,
 	officerDraftsCreditMemo,
@@ -49,21 +51,32 @@ test("BreadTalk: referred → live research brief → officer approves", async (
 	expect(research.findings.filter((f) => f.category === "adverse_media")).toEqual([]);
 
 	await asOfficer(page);
-	// Policy navigator: why was this referred? A cited answer from the corpus.
+	// Policy navigator, multi-hop: approval authority (9.3) + exception
+	// eligibility (5.1) + mitigants (5.3) for this exact case shape.
 	const policy = await officerAsksPolicyNavigator(
 		page,
 		officer,
-		"What is the automatic approval limit for an SME term loan, and what happens above it?",
+		"For an SME term loan of S$60,000, which approval authority applies, how many policy rules may an exception breach before it must go to credit committee, and what pricing and limit mitigants must an approved exception carry?",
 		"sme_term_loan",
 	);
 	expect(policy.status).toBe("succeeded");
-	expect(policy.citations.length).toBeGreaterThan(0);
+	expect(policy.citations.length).toBeGreaterThanOrEqual(2);
 
 	// Policy-exception drafter: explain the failed rules and draft the memo.
 	const exception = await officerDraftsPolicyException(page, officer, caseId);
 	expect(exception.failedRuleIds).toContain("SME-AMOUNT-AUTO");
 	expect(exception.explainedRules).toBeGreaterThan(0);
 	expect(exception.memoStatus).toBe("draft");
+
+	// Case assistant: strengths and weaknesses from the case file.
+	const assistant = await officerAsksCaseAssistant(
+		page,
+		officer,
+		caseId,
+		"Summarise this application's strengths and weaknesses using the case evidence. Describe facts only and do not quote registration, account, or ID numbers.",
+	);
+	expect(assistant.answer.length).toBeGreaterThan(0);
+	expect(assistant.toolCalls).toBeGreaterThan(0);
 
 	// Credit memo writer: the agent drafts a cited memo; the officer approves it.
 	const memo = await officerDraftsCreditMemo(page, officer, caseId);
