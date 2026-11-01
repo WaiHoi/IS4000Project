@@ -205,7 +205,10 @@ test("officer sees the drafted memo and its trace in the review UI", async ({ pa
 	await gotoHydrated(page, `/officer/review/${appId}`);
 	await page.getByRole("button", { name: "Memo" }).click();
 	await expect(page.getByRole("heading", { name: "Credit memo" }).first()).toBeVisible();
-	await expect(page.getByText("Agent trace (metadata)")).toBeVisible();
+	// faadf81 replaced the "Agent trace (metadata)" accordion with the shared
+	// trace block (tool-activity timeline + writer/model/prompt facts).
+	await expect(page.getByText("Writer:").first()).toBeVisible();
+	await expect(page.getByText("Model:").first()).toBeVisible();
 });
 
 test("assist routes are not available while the flag is off", async () => {
