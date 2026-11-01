@@ -79,13 +79,26 @@ export const PHONE_RE = /(?:\+?65[\s-]?)?[689]\d{3}[\s-]?\d{4}\b/;
 const LONG_ID_RE = /\b(?:\d[ -]?){10,19}\b/;
 
 /** Direct identifiers must never reach the embedding provider. */
+export type DirectIdentifierKind = "email" | "nric" | "phone" | "long_id";
+
+// System ids are not personal data, but their hex groups can contain digit
+// runs that look like a phone (…564d99063211 → 99063211) or a long id
+// (…-000000000001). Blank whole UUIDs out before scanning so a cited
+// evidence id never reads as PII; text around them is still checked.
+const UUID_GLOBAL_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+/** Which kind of direct identifier the text contains (never the value), or null. */
+export function directIdentifierKind(input: string): DirectIdentifierKind | null {
+	const text = input.replace(UUID_GLOBAL_RE, " ");
+	if (EMAIL_RE.test(text)) return "email";
+	if (NRIC_RE.test(text)) return "nric";
+	if (PHONE_RE.test(text)) return "phone";
+	if (LONG_ID_RE.test(text)) return "long_id";
+	return null;
+}
+
 export function hasDirectIdentifier(question: string): boolean {
-	return (
-		EMAIL_RE.test(question) ||
-		NRIC_RE.test(question) ||
-		PHONE_RE.test(question) ||
-		LONG_ID_RE.test(question)
-	);
+	return directIdentifierKind(question) !== null;
 }
 
 export function hmacQuestion(secret: string, question: string): string {

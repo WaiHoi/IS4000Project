@@ -64,6 +64,26 @@ describe("validateCaseAssistantAnswer", () => {
 		}
 	});
 
+	it("names the identifier kind (never the value) in the rejection", () => {
+		const cases: Array<[string, string]> = [
+			["Contact jane@example.com for details.", "email"],
+			["NRIC S1234567A is on file.", "nric"],
+			["Call +65-6100-8818 to verify.", "phone"],
+			["Account 000000000001 is overdrawn.", "long_id"],
+		];
+		for (const [answer, kind] of cases) {
+			try {
+				validateCaseAssistantAnswer(answer, caseFacts);
+				expect.unreachable(`accepted: ${answer}`);
+			} catch (err) {
+				expect((err as Error).message).toBe(
+					`assistant answer contains a direct identifier (${kind})`,
+				);
+				expect((err as Error).message).not.toContain(answer.split(" ")[1] ?? "");
+			}
+		}
+	});
+
 	it("rejects direct identifiers as UNSAFE_OUTPUT", () => {
 		for (const answer of [
 			"Contact jane@example.com for details.",

@@ -5,7 +5,7 @@
 import {
 	advisoryActionMatch,
 	containsAdvisoryActionLanguage,
-	hasDirectIdentifier,
+	directIdentifierKind,
 } from "@credit/core";
 import { CaseAssistantError } from "./types.js";
 
@@ -31,8 +31,13 @@ export function validateCaseAssistantAnswer(
 			`assistant answer contains advisory language (${term})`,
 		);
 	}
-	if (hasDirectIdentifier(answer)) {
-		throw new CaseAssistantError("UNSAFE_OUTPUT", "assistant answer contains a direct identifier");
+	const identifier = directIdentifierKind(answer);
+	if (identifier) {
+		// The kind (email/nric/phone/long_id) is metadata, never the value.
+		throw new CaseAssistantError(
+			"UNSAFE_OUTPUT",
+			`assistant answer contains a direct identifier (${identifier})`,
+		);
 	}
 	const known = [caseFacts["applicantName"]]
 		.filter((v): v is string => typeof v === "string")
