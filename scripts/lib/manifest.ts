@@ -13,7 +13,7 @@ export const EXPECTED_MANIFEST_VERSION = 1;
 
 /** Canonical hash of the checked-in manifest (see `scripts/lib/manifest.ts`). */
 export const EXPECTED_MANIFEST_SHA256 =
-	"5a3a3a36bb16fa7ca3b02bc9821d42ea06a84b59a8a320754015bbadfedb74aa";
+	"16d0d9687a4da9dbe434e062770b42867374e05bab4b6b995a1813c7335be353";
 
 export interface ManifestEvidence {
 	fixtureKey: string;

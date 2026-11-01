@@ -31,6 +31,7 @@ export interface ResearchFinding {
 export interface ResearchAggregate {
 	run: { id: string; status: string; errorCode?: string | null };
 	findings: ResearchFinding[];
+	context: { status: string; signals: Array<{ type: string }> };
 }
 
 const REUSE_KINDS = ["id", "business_registration", "bank_statement", "financial_statements"];
@@ -181,4 +182,65 @@ export async function declineIfPending(email: string, caseId: string | null): Pr
 	} catch {
 		// Must never fail the spec.
 	}
+}
+
+export interface FraudQueueItem {
+	id: string;
+	applicationId: string;
+	status: string;
+	severity: string;
+	briefState: "ready" | "stale" | "pending" | "failed" | "missing";
+}
+
+/**
+ * Officer: claim the case and run the deterministic document cross-check.
+ * A high-confidence mismatch opens a fraud-review item, which queues the
+ * document-integrity agent (analysis + triage brief) on Temporal. Returns
+ * the item once that brief has settled.
+ */
+export async function officerRunsCrosscheck(
+	page: Page,
+	officer: Api,
+	caseId: string,
+): Promise<{ item: FraudQueueItem; signalCodes: string[] }> {
+	await uiLogout(page);
+	await uiLogin(page, "officer@example.com");
+	await gotoHydrated(page, `/officer/review/${caseId}`);
+	await expect(page.getByRole("heading", { name: "Documents", exact: true })).toBeVisible({
+		timeout: 60_000,
+	});
+	const assign = page.getByRole("button", { name: "Assign to me" });
+	const runCrosscheck = page.getByRole("button", { name: "Run cross-check" });
+	await expect(assign.or(runCrosscheck)).toBeVisible({ timeout: 60_000 });
+	if (await assign.isVisible()) {
+		await assign.click();
+		await expect(runCrosscheck).toBeVisible({ timeout: 60_000 });
+	}
+	await runCrosscheck.click();
+	await expect(page.getByText("account_holder_name").first()).toBeVisible({ timeout: 120_000 });
+	await expect(page.getByText("mismatch").first()).toBeVisible();
+
+	const opened = await poll(
+		`fraud-review item for case ${caseId}`,
+		async () => {
+			const queue = await officer.get<{ items: FraudQueueItem[] }>("/api/fraud-review/queue");
+			return queue.items.find((i) => i.applicationId === caseId) ?? null;
+		},
+		60_000,
+		2000,
+	);
+	const detail = await officer.get<{ review: { signalCodes?: string[] } }>(
+		`/api/fraud-review/${opened.id}`,
+	);
+	const settled = await poll(
+		"document-integrity triage brief to settle",
+		async () => {
+			const queue = await officer.get<{ items: FraudQueueItem[] }>("/api/fraud-review/queue");
+			const cur = queue.items.find((i) => i.id === opened.id);
+			return cur && cur.briefState !== "pending" && cur.briefState !== "missing" ? cur : null;
+		},
+		5 * 60_000,
+		5000,
+	);
+	return { item: settled, signalCodes: detail.review.signalCodes ?? [] };
 }

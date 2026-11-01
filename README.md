@@ -49,7 +49,9 @@ local blobs back to a clean state (it keeps `.env`).
 Demo logins: `maria@example.com` (clean auto-approval),
 `breadtalk@example.com` (BreadTalk Group Pte. Ltd., UEN 200302045G: referred,
 clean brief, officer approves), and `envy@example.com` (Envy Global Trading
-Pte. Ltd., UEN 201941770R: referred, adverse media, officer declines), plus
+Pte. Ltd., UEN 201941770R: referred; the officer cross-check opens a fraud
+review because its bank statement is in a sister entity's name; adverse
+media and suspicious transactions; officer declines), plus
 `officer@example.com`. The company identities are real public records so
 the research agent can find sources. Every person, account and figure is
 fictional. `pnpm test:e2e` runs those three flows, with live research on the

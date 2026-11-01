@@ -20,6 +20,7 @@ import {
 	documentConsistencyCandidates,
 	documentFieldCandidates,
 	documentFiles,
+	documentFindings,
 	documentFingerprints,
 	documentIntegrityRuns,
 	documentDuplicateExplanations,
@@ -33,7 +34,7 @@ import {
 	policyEvaluations,
 	scores,
 } from "@credit/db/applications";
-import { and, eq, inArray, like, notInArray, sql as drizzleSql } from "drizzle-orm";
+import { and, eq, inArray, like, notInArray, or, sql as drizzleSql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { openCustomerDocument, type CustomerConfig } from "../../src/customer/service.js";
 import {
@@ -46,7 +47,13 @@ import { loadManifest } from "../../../../scripts/lib/manifest.js";
 import { refreshDemoEvidence } from "../../../../scripts/lib/refresh.js";
 import { seedDemo } from "../../../../scripts/lib/seed.js";
 import { verifyDemo } from "../../../../scripts/lib/verify.js";
-import { setupApp, postApplication, postSubmit, type TestContext, type TestUser } from "../helper.js";
+import {
+	setupApp,
+	postApplication,
+	postSubmit,
+	type TestContext,
+	type TestUser,
+} from "../helper.js";
 
 process.env.LOG_LEVEL ??= "silent";
 
@@ -345,12 +352,26 @@ async function cleanupFixtures(): Promise<void> {
 					.from(documentFiles)
 					.where(and(...copyScope));
 				if (copyFiles.length > 0) {
-					await ctx.db.delete(documentFingerprints).where(
-						inArray(
-							documentFingerprints.documentFileId,
-							copyFiles.map((file) => file.id),
-						),
-					);
+					// Rows an officer cross-check / integrity run derived from
+					// the copies (demo-3 e2e) pin them under RESTRICT too.
+					const fileIds = copyFiles.map((file) => file.id);
+					await ctx.db
+						.delete(documentFingerprints)
+						.where(inArray(documentFingerprints.documentFileId, fileIds));
+					await ctx.db
+						.delete(documentFindings)
+						.where(inArray(documentFindings.documentFileId, fileIds));
+					await ctx.db
+						.delete(documentFieldCandidates)
+						.where(inArray(documentFieldCandidates.documentFileId, fileIds));
+					await ctx.db
+						.delete(documentConsistencyCandidates)
+						.where(
+							or(
+								inArray(documentConsistencyCandidates.leftDocumentFileId, fileIds),
+								inArray(documentConsistencyCandidates.rightDocumentFileId, fileIds),
+							),
+						);
 				}
 				await ctx.db.delete(documentFiles).where(and(...copyScope));
 			}
@@ -397,7 +418,7 @@ describe("demo:seed idempotency", () => {
 		expect(first.profilesUpserted).toBe(4);
 		expect(first.evidenceCreated).toBeGreaterThan(0);
 		const before = await fixtureCounts();
-		expect(before).toEqual({ profiles: 4, accounts: 3, txns: 64, docs: 11 });
+		expect(before).toEqual({ profiles: 4, accounts: 3, txns: 68, docs: 11 });
 		const second = await seedAll();
 		expect(await fixtureCounts()).toEqual(before);
 		expect(second.evidenceCreated).toBe(0);
