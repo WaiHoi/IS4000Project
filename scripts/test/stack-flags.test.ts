@@ -28,11 +28,18 @@ describe("pnpm start flags", () => {
 	});
 
 	it("overrides values that came from .env (the Bun auto-load regression)", () => {
+		// .env leaked into the shell: its SESSION_SECRET is there too.
 		const dotenv = new Map([
+			["SESSION_SECRET", "s3cret"],
 			["AGENTS_ENABLED", "false"],
 			["DOCUMENT_FEATURE_ENABLED", "false"],
 		]);
-		const shell = { AGENTS_ENABLED: "false", DOCUMENT_FEATURE_ENABLED: "false", PATH: "/bin" };
+		const shell = {
+			SESSION_SECRET: "s3cret",
+			AGENTS_ENABLED: "false",
+			DOCUMENT_FEATURE_ENABLED: "false",
+			PATH: "/bin",
+		};
 		const env = applyFlags(shell, dotenv, deriveFlags(full));
 		expect(env.AGENTS_ENABLED).toBe("true");
 		expect(env.DOCUMENT_FEATURE_ENABLED).toBe("true");
@@ -56,5 +63,17 @@ describe("withNodeProxy", () => {
 		expect(
 			withNodeProxy({ HTTPS_PROXY: "http://p", NODE_USE_ENV_PROXY: "0" }).NODE_USE_ENV_PROXY,
 		).toBe("0");
+	});
+});
+
+describe("deliberate exports in a clean shell", () => {
+	it("keeps an export even when it equals the .env value", () => {
+		const dotenv = new Map([
+			["SESSION_SECRET", "s3cret"],
+			["ASSIST_MEMO_WRITER", "deterministic"],
+		]);
+		const env = applyFlags({ ASSIST_MEMO_WRITER: "deterministic" }, dotenv, deriveFlags(full));
+		expect(env.ASSIST_MEMO_WRITER).toBe("deterministic");
+		expect(env.AGENTS_ENABLED).toBe("true");
 	});
 });
