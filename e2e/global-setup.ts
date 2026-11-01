@@ -4,7 +4,7 @@
 // reused, never re-spawned (their PIDs are marked reused so teardown leaves
 // them alone).
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -109,6 +109,16 @@ export default async function globalSetup(): Promise<void> {
 		reused: boolean;
 	}> = [];
 	if (!reuseApi || !reuseWeb) console.log("e2e setup: starting dev stack…");
+	// Attached to a `pnpm start` stack: specs gate on process.env flags, so
+	// adopt the flags that stack actually runs with (pnpm start derives them
+	// from the API keys) instead of .env's defaults. Env set here reaches
+	// the test workers.
+	const stackFlags = resolve(ROOT, ".data", "stack-flags.json");
+	if (reuseApi && existsSync(stackFlags)) {
+		const flags = JSON.parse(readFileSync(stackFlags, "utf8")) as Record<string, string>;
+		for (const [key, value] of Object.entries(flags)) process.env[key] = value;
+		console.log("e2e setup: using the running stack's flags (.data/stack-flags.json)");
+	}
 	// The worker owns no port, so it is always (re)started — a second worker
 	// is safe (relay/reconciler take advisory locks, schedule bootstrap and
 	// the consumer group are idempotent).

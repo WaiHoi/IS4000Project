@@ -51,3 +51,20 @@ export function applyFlags(
 	}
 	return env;
 }
+
+/**
+ * Behind an HTTPS proxy (corporate networks, sandboxes) Node's built-in
+ * fetch ignores HTTPS_PROXY, so the Node services (research, agent workers)
+ * can't reach OpenRouter/Tavily while Bun services can. Node >= 22.21 honours
+ * the proxy env when NODE_USE_ENV_PROXY=1; NO_PROXY keeps localhost direct.
+ * No proxy configured, or an explicit NODE_USE_ENV_PROXY: unchanged.
+ */
+export function withNodeProxy(
+	env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+	const proxied = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"].some(
+		(key) => (env[key] ?? "").trim() !== "",
+	);
+	if (!proxied || env.NODE_USE_ENV_PROXY !== undefined) return env;
+	return { ...env, NODE_USE_ENV_PROXY: "1" };
+}

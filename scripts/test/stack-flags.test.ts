@@ -46,3 +46,15 @@ describe("pnpm start flags", () => {
 		expect(env.AGENTS_ENABLED).toBe("true");
 	});
 });
+
+describe("withNodeProxy", () => {
+	it("enables Node's env proxy only when a proxy is configured", async () => {
+		const { withNodeProxy } = await import("../lib/stack-flags.js");
+		expect(withNodeProxy({ HTTPS_PROXY: "http://proxy:8080" }).NODE_USE_ENV_PROXY).toBe("1");
+		expect(withNodeProxy({ https_proxy: "http://proxy:8080" }).NODE_USE_ENV_PROXY).toBe("1");
+		expect(withNodeProxy({ PATH: "/bin" }).NODE_USE_ENV_PROXY).toBeUndefined();
+		expect(
+			withNodeProxy({ HTTPS_PROXY: "http://p", NODE_USE_ENV_PROXY: "0" }).NODE_USE_ENV_PROXY,
+		).toBe("0");
+	});
+});

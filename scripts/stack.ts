@@ -22,11 +22,11 @@
 // booking.
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyFlags, deriveFlags } from "./lib/stack-flags.js";
+import { applyFlags, deriveFlags, withNodeProxy } from "./lib/stack-flags.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_PATH = join(ROOT, ".env");
@@ -165,7 +165,14 @@ const policy = ai;
 
 const flags = deriveFlags({ lite, ai, brief, docs, policy });
 // A flag you exported in your shell (different from .env) beats the derived value.
-const env = applyFlags(process.env, dotenv, flags) as NodeJS.ProcessEnv;
+const env = withNodeProxy(applyFlags(process.env, dotenv, flags)) as NodeJS.ProcessEnv;
+// Record what this stack runs with, so tools that attach to it (the e2e
+// global setup) gate on the stack's real flags rather than .env's.
+mkdirSync(join(ROOT, ".data"), { recursive: true });
+writeFileSync(
+	join(ROOT, ".data", "stack-flags.json"),
+	`${JSON.stringify(Object.fromEntries(Object.keys(flags).map((key) => [key, env[key]])), null, 2)}\n`,
+);
 
 const why = (b: boolean, reason: string): string => (b ? "on " : `off  (${reason})`);
 const noKey = lite ? "--lite" : "no OPENROUTER_API_KEY in .env";
