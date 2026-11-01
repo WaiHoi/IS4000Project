@@ -56,7 +56,7 @@ For the canonical run, start from a clean database (see step 6). The full click-
 
 A `pending_review` or `declined` status is a correct result. Do not treat it as a failure.
 
-Exact request payloads live in `../e2e/maria.spec.ts` and `../e2e/tomas.spec.ts` (UI path) and `../scripts/demo-check.ts` (HTTP path, amounts in cents).
+Exact request payloads live in `../e2e/demo-1-auto-approve.spec.ts` and `../e2e/tomas.spec.ts` (UI path) and `../scripts/demo-check.ts` (HTTP path, amounts in cents).
 
 Alex (`alex@example.com`) and Lena (`lena@bakery.example`) are seeded users but have no scripted verification. Do not use them as pass or fail checks.
 
@@ -74,7 +74,7 @@ pnpm demo:check
 pnpm demo:monitor
 ```
 
-`pnpm test:e2e` runs eleven Playwright specs (`maria`, `tomas`, `sam`, `monitoring`, `research`, `documents`, `breadtalk`, `assist`, `adverse`, `integrity`, `policy-exception`) against `http://127.0.0.1:3000`. Its global setup always starts a worker, reuses a healthy gateway, services, and web when up (it starts only what is down), and stops only the processes it started. It needs Docker Compose running. Install the browser once with `pnpm exec playwright install chromium`.
+`pnpm test:e2e` runs the three demo flows against `http://127.0.0.1:3000`: `demo-1-auto-approve` (Maria), `demo-2-breadtalk-approve`, and `demo-3-envy-decline`. The last two run the live research agent and need `OPENROUTER_API_KEY` and `TAVILY_API_KEY`. `pnpm test:e2e:all` runs every spec (13 files). Its global setup always starts a worker, reuses a healthy gateway, services, and web when up (it starts only what is down; agent workers only with a stack it starts), and stops only the processes it started. It needs Docker Compose running. Install the browser once with `pnpm exec playwright install chromium`.
 
 ## 6. Recover a half-run demo
 

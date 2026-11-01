@@ -1,4 +1,4 @@
-// Maria auto path (AC-3): UI login → /apply wizard $12,000/48m
+// Demo 1 — clean auto-approval. Maria auto path (AC-3): UI login → /apply wizard $12,000/48m
 // personal_loan → processing → booked, score 777/A → loan page shows 48
 // installments, next due, no alerts. Targets the application created in
 // this run (URL id); leftover rows from prior runs are ignored.

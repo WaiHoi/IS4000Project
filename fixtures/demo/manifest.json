@@ -1,8 +1,8 @@
 {
 	"version": 1,
 	"demoAsOf": "2026-06-30",
-	"sha256": "60cd32d3ce7263e7ced7765f475f3cb9f91ddcbfe362fe0a34c9b4852b72ca63",
-	"notes": "T17 deterministic demo fixtures (SPEC-t17-t18 §2.5). DEMO_AS_OF is the fixed fixture clock: all freshness, requirements, reuse, submit, and T11 asOf evaluate against it for fixture-owned rows. BreadTalk is the stale-blocker demo: valid KYC with a bank statement at DEMO_AS_OF-120d and financial statements at DEMO_AS_OF-24mo. Fresh variants ship only via demo:refresh-evidence and never auto-attach. alex is the fresh standard persona (existing demo user). sparse is the insufficient-data persona (verified KYC, no accounts/transactions/evidence). Transaction amounts are integer cents; credits positive, debits negative. Page text lines double as the deterministic PDF body so reused copies produce the declared T02 findings (matching Company Name / Registration No / Account Holder labels; id/payslip/financial_statements are needs_chase until a dedicated T02 rule exists). Expected T18 candidate signal types are deterministic-stub (demo:context-stub) expectations: demo:verify pins exact types for stub runs whose context stage succeeded, and live succeeded runs must be non-empty and use only deterministic metric types; flags-off, absent-run, and T18-disabled (skipped/failed/not_applicable) cases are a passing seam, never a failure.",
+	"sha256": "5a3a3a36bb16fa7ca3b02bc9821d42ea06a84b59a8a320754015bbadfedb74aa",
+	"notes": "T17 deterministic demo fixtures (SPEC-t17-t18 §2.5). DEMO_AS_OF is the fixed fixture clock: all freshness, requirements, reuse, submit, and T11 asOf evaluate against it for fixture-owned rows. BreadTalk is the stale-blocker demo: valid KYC with a bank statement at DEMO_AS_OF-120d and financial statements at DEMO_AS_OF-24mo. Fresh variants ship only via demo:refresh-evidence and never auto-attach. alex is the fresh standard persona (existing demo user). sparse is the insufficient-data persona (verified KYC, no accounts/transactions/evidence). Transaction amounts are integer cents; credits positive, debits negative. Page text lines double as the deterministic PDF body so reused copies produce the declared T02 findings (matching Company Name / Registration No / Account Holder labels; id/payslip/financial_statements are needs_chase until a dedicated T02 rule exists). Expected T18 candidate signal types are deterministic-stub (demo:context-stub) expectations: demo:verify pins exact types for stub runs whose context stage succeeded, and live succeeded runs must be non-empty and use only deterministic metric types; flags-off, absent-run, and T18-disabled (skipped/failed/not_applicable) cases are a passing seam, never a failure. BreadTalk and Envy carry real public company identities (name, UEN, city) so the live external-brief agent can find public sources; every person, account, transaction and financial figure is fictional. Envy is the adverse-media demo: fresh evidence, no stale blockers.",
 	"personas": {
 		"breadtalk": {
 			"email": "breadtalk@example.com",
@@ -25,11 +25,11 @@
 					"city": "Singapore"
 				},
 				"business": {
-					"companyName": "BreadTalk Demo Pte Ltd",
-					"registrationNumber": "BT201901",
+					"companyName": "BreadTalk Group Pte. Ltd.",
+					"registrationNumber": "200302045G",
 					"industry": "retail",
-					"yearsTrading": 7,
-					"employees": 12,
+					"yearsTrading": 23,
+					"employees": 180,
 					"annualRevenueCents": 120000000,
 					"monthlyFcfCents": 8000000,
 					"existingDebtServiceCents": 1000000
@@ -358,8 +358,8 @@
 					"title": "BreadTalk Demo — Business Registration",
 					"lines": [
 						"Business Registration",
-						"Company Name: BreadTalk Demo Pte Ltd",
-						"Registration No: BT201901",
+						"Company Name: BreadTalk Group Pte. Ltd.",
+						"Registration No: 200302045G",
 						"Issued: 2024-06-30"
 					]
 				},
@@ -372,7 +372,7 @@
 					"title": "BreadTalk Demo — Bank Statement (stale)",
 					"lines": [
 						"Bank Statement",
-						"Account Holder: BreadTalk Demo Pte Ltd",
+						"Account Holder: BreadTalk Group Pte. Ltd.",
 						"Account: ****8818",
 						"Period ending: 2026-03-02",
 						"Closing balance: SGD 76480.00"
@@ -387,7 +387,7 @@
 					"title": "BreadTalk Demo — Financial Statements (stale)",
 					"lines": [
 						"Financial Statements FY2024",
-						"Company Name: BreadTalk Demo Pte Ltd",
+						"Company Name: BreadTalk Group Pte. Ltd.",
 						"Period ending: 2024-06-30",
 						"Revenue: SGD 1150000.00"
 					]
@@ -403,7 +403,7 @@
 					"title": "BreadTalk Demo — Bank Statement (fresh)",
 					"lines": [
 						"Bank Statement",
-						"Account Holder: BreadTalk Demo Pte Ltd",
+						"Account Holder: BreadTalk Group Pte. Ltd.",
 						"Account: ****8818",
 						"Period ending: 2026-05-31",
 						"Closing balance: SGD 121580.00"
@@ -418,7 +418,7 @@
 					"title": "BreadTalk Demo — Financial Statements (fresh)",
 					"lines": [
 						"Financial Statements FY2025",
-						"Company Name: BreadTalk Demo Pte Ltd",
+						"Company Name: BreadTalk Group Pte. Ltd.",
 						"Period ending: 2025-12-31",
 						"Revenue: SGD 1200000.00"
 					]
@@ -445,11 +445,11 @@
 					"city": "Singapore"
 				},
 				"sme": {
-					"companyName": "BreadTalk Demo Pte Ltd",
-					"registrationNumber": "BT201901",
+					"companyName": "BreadTalk Group Pte. Ltd.",
+					"registrationNumber": "200302045G",
 					"industry": "retail",
-					"yearsTrading": 7,
-					"employees": 12,
+					"yearsTrading": 23,
+					"employees": 180,
 					"annualRevenueCents": 120000000,
 					"monthlyFcfCents": 8000000,
 					"existingDebtServiceCents": 1000000
@@ -463,8 +463,16 @@
 			},
 			"expectedSignals": ["round_trip", "cash_deposit_share", "returned_payment"],
 			"expectedFindings": [
-				{ "kind": "id", "field": "other", "status": "needs_chase" },
-				{ "kind": "financial_statements", "field": "other", "status": "needs_chase" }
+				{
+					"kind": "id",
+					"field": "other",
+					"status": "needs_chase"
+				},
+				{
+					"kind": "financial_statements",
+					"field": "other",
+					"status": "needs_chase"
+				}
 			]
 		},
 		"alex": {
@@ -714,8 +722,16 @@
 			"expectedBlockers": {},
 			"expectedSignals": ["revenue_concentration"],
 			"expectedFindings": [
-				{ "kind": "id", "field": "other", "status": "needs_chase" },
-				{ "kind": "payslip", "field": "other", "status": "needs_chase" }
+				{
+					"kind": "id",
+					"field": "other",
+					"status": "needs_chase"
+				},
+				{
+					"kind": "payslip",
+					"field": "other",
+					"status": "needs_chase"
+				}
 			]
 		},
 		"sparse": {
@@ -782,6 +798,444 @@
 			},
 			"expectedSignals": ["insufficient_data"],
 			"expectedFindings": []
+		},
+		"envy": {
+			"email": "envy@example.com",
+			"fullName": "Envy Demo",
+			"role": "applicant",
+			"newUser": true,
+			"profile": {
+				"segment": "sme",
+				"customerSince": "2020-02-01",
+				"kycStatus": "verified",
+				"kycVerifiedAt": "2025-01-01T00:00:00Z",
+				"kycExpiresAt": "2028-01-01T00:00:00Z",
+				"identity": {
+					"fullName": "Daniel Koh",
+					"dob": "1984-03-21",
+					"nationalId": "EVDEMO01",
+					"email": "envy@example.com",
+					"phone": "+65-6100-4417",
+					"address": "12 Demo Avenue",
+					"city": "Singapore"
+				},
+				"business": {
+					"companyName": "Envy Global Trading Pte. Ltd.",
+					"registrationNumber": "201941770R",
+					"industry": "other",
+					"yearsTrading": 6,
+					"employees": 15,
+					"annualRevenueCents": 480000000,
+					"monthlyFcfCents": 9000000,
+					"existingDebtServiceCents": 1500000
+				}
+			},
+			"accounts": [
+				{
+					"id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000003",
+					"bankName": "Demo Bank",
+					"accountType": "business_current",
+					"maskedNumber": "****4417",
+					"currency": "SGD",
+					"openedAt": "2020-02-15",
+					"status": "active"
+				}
+			],
+			"transactions": [
+				{
+					"sourceReference": "ev-0001",
+					"postedAt": "2026-01-06T10:00:00Z",
+					"amountCents": 1200000,
+					"balanceAfterCents": 6200000,
+					"currency": "SGD",
+					"description": "Trade settlement",
+					"counterparty": "Commodity desk settlement",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0002",
+					"postedAt": "2026-01-12T10:00:00Z",
+					"amountCents": -850000,
+					"balanceAfterCents": 5350000,
+					"currency": "SGD",
+					"description": "Staff payroll Jan",
+					"counterparty": null,
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0003",
+					"postedAt": "2026-01-15T10:00:00Z",
+					"amountCents": 600000,
+					"balanceAfterCents": 5950000,
+					"currency": "SGD",
+					"description": "Client funds received",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0004",
+					"postedAt": "2026-01-20T10:00:00Z",
+					"amountCents": -320000,
+					"balanceAfterCents": 5630000,
+					"currency": "SGD",
+					"description": "Flour supplier",
+					"counterparty": "Prima Flour",
+					"category": "purchase",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0005",
+					"postedAt": "2026-01-28T10:00:00Z",
+					"amountCents": 1150000,
+					"balanceAfterCents": 6780000,
+					"currency": "SGD",
+					"description": "Corporate catering",
+					"counterparty": "Catering client",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0006",
+					"postedAt": "2026-02-03T10:00:00Z",
+					"amountCents": -500000,
+					"balanceAfterCents": 6280000,
+					"currency": "SGD",
+					"description": "Transfer to fixed deposit",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0007",
+					"postedAt": "2026-02-04T10:00:00Z",
+					"amountCents": 500000,
+					"balanceAfterCents": 6780000,
+					"currency": "SGD",
+					"description": "Fixed deposit matured",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0008",
+					"postedAt": "2026-02-10T10:00:00Z",
+					"amountCents": 580000,
+					"balanceAfterCents": 7360000,
+					"currency": "SGD",
+					"description": "Client funds received",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0009",
+					"postedAt": "2026-02-18T10:00:00Z",
+					"amountCents": -12000,
+					"balanceAfterCents": 7348000,
+					"currency": "SGD",
+					"description": "Bank charges",
+					"counterparty": null,
+					"category": "fee",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0010",
+					"postedAt": "2026-02-25T10:00:00Z",
+					"amountCents": 1300000,
+					"balanceAfterCents": 8648000,
+					"currency": "SGD",
+					"description": "Trade settlement",
+					"counterparty": "Commodity desk settlement",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0011",
+					"postedAt": "2026-03-02T10:00:00Z",
+					"amountCents": -1000000,
+					"balanceAfterCents": 7648000,
+					"currency": "SGD",
+					"description": "Debt service Mar",
+					"counterparty": null,
+					"category": "loan",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0012",
+					"postedAt": "2026-03-10T10:00:00Z",
+					"amountCents": -500000,
+					"balanceAfterCents": 7148000,
+					"currency": "SGD",
+					"description": "Supplier advance",
+					"counterparty": "Prima Flour",
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0013",
+					"postedAt": "2026-03-12T10:00:00Z",
+					"amountCents": 500000,
+					"balanceAfterCents": 7648000,
+					"currency": "SGD",
+					"description": "Supplier advance refunded",
+					"counterparty": "Prima Flour",
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0014",
+					"postedAt": "2026-03-15T10:00:00Z",
+					"amountCents": 620000,
+					"balanceAfterCents": 8268000,
+					"currency": "SGD",
+					"description": "Client funds received",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0015",
+					"postedAt": "2026-03-28T10:00:00Z",
+					"amountCents": 1250000,
+					"balanceAfterCents": 9518000,
+					"currency": "SGD",
+					"description": "Delivery platform payout",
+					"counterparty": "Delivery platform",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0016",
+					"postedAt": "2026-04-05T10:00:00Z",
+					"amountCents": -850000,
+					"balanceAfterCents": 8668000,
+					"currency": "SGD",
+					"description": "Staff payroll Apr",
+					"counterparty": null,
+					"category": "payroll",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0017",
+					"postedAt": "2026-04-11T10:00:00Z",
+					"amountCents": 590000,
+					"balanceAfterCents": 9258000,
+					"currency": "SGD",
+					"description": "Client funds received",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0018",
+					"postedAt": "2026-04-20T10:00:00Z",
+					"amountCents": -310000,
+					"balanceAfterCents": 8948000,
+					"currency": "SGD",
+					"description": "Oven maintenance",
+					"counterparty": null,
+					"category": "purchase",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0019",
+					"postedAt": "2026-04-27T10:00:00Z",
+					"amountCents": 1280000,
+					"balanceAfterCents": 10228000,
+					"currency": "SGD",
+					"description": "Trade settlement",
+					"counterparty": "Commodity desk settlement",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0020",
+					"postedAt": "2026-05-03T10:00:00Z",
+					"amountCents": -750000,
+					"balanceAfterCents": 9478000,
+					"currency": "SGD",
+					"description": "Rental deposit new outlet",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0021",
+					"postedAt": "2026-05-07T10:00:00Z",
+					"amountCents": 750000,
+					"balanceAfterCents": 10228000,
+					"currency": "SGD",
+					"description": "Rental deposit returned",
+					"counterparty": null,
+					"category": "transfer",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0022",
+					"postedAt": "2026-05-15T10:00:00Z",
+					"amountCents": 610000,
+					"balanceAfterCents": 10838000,
+					"currency": "SGD",
+					"description": "Client funds received",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0023",
+					"postedAt": "2026-05-28T10:00:00Z",
+					"amountCents": 1320000,
+					"balanceAfterCents": 12158000,
+					"currency": "SGD",
+					"description": "Corporate catering",
+					"counterparty": "Catering client",
+					"category": "income",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0024",
+					"postedAt": "2026-06-02T10:00:00Z",
+					"amountCents": -85000,
+					"balanceAfterCents": 12073000,
+					"currency": "SGD",
+					"description": "Cheque returned unpaid",
+					"counterparty": null,
+					"category": "returned_payment",
+					"returned": true
+				},
+				{
+					"sourceReference": "ev-0025",
+					"postedAt": "2026-06-10T10:00:00Z",
+					"amountCents": 600000,
+					"balanceAfterCents": 12673000,
+					"currency": "SGD",
+					"description": "Client funds received",
+					"counterparty": null,
+					"category": "cash",
+					"returned": false
+				},
+				{
+					"sourceReference": "ev-0026",
+					"postedAt": "2026-06-20T10:00:00Z",
+					"amountCents": 1260000,
+					"balanceAfterCents": 13933000,
+					"currency": "SGD",
+					"description": "Delivery platform payout",
+					"counterparty": "Delivery platform",
+					"category": "income",
+					"returned": false
+				}
+			],
+			"evidence": [
+				{
+					"fixtureKey": "id",
+					"kind": "id",
+					"originalFilename": "envy-id.pdf",
+					"documentDate": "2025-02-10",
+					"periodEnd": null,
+					"title": "Envy Demo — Identity Document",
+					"lines": [
+						"Identity Document",
+						"Full Name: Daniel Koh",
+						"National ID: EVDEMO01",
+						"Issued: 2025-02-10"
+					]
+				},
+				{
+					"fixtureKey": "business_registration",
+					"kind": "business_registration",
+					"originalFilename": "envy-business-registration.pdf",
+					"documentDate": "2024-12-10",
+					"periodEnd": null,
+					"title": "Envy Demo — Business Registration",
+					"lines": [
+						"Business Registration",
+						"Company Name: Envy Global Trading Pte. Ltd.",
+						"Registration No: 201941770R",
+						"Issued: 2024-12-10"
+					]
+				},
+				{
+					"fixtureKey": "bank_statement",
+					"kind": "bank_statement",
+					"originalFilename": "envy-bank-statement-2026-05.pdf",
+					"documentDate": "2026-05-31",
+					"periodEnd": "2026-05-31",
+					"title": "Envy Demo — Bank Statement",
+					"lines": [
+						"Bank Statement",
+						"Account Holder: Envy Global Trading Pte. Ltd.",
+						"Account: ****4417",
+						"Period ending: 2026-05-31",
+						"Closing balance: SGD 342150.00"
+					]
+				},
+				{
+					"fixtureKey": "financial_statements",
+					"kind": "financial_statements",
+					"originalFilename": "envy-financial-statements-2025.pdf",
+					"documentDate": "2026-01-20",
+					"periodEnd": "2025-12-31",
+					"title": "Envy Demo — Financial Statements FY2025",
+					"lines": [
+						"Financial Statements FY2025",
+						"Company Name: Envy Global Trading Pte. Ltd.",
+						"Period ending: 2025-12-31",
+						"Revenue: SGD 4800000.00"
+					]
+				}
+			],
+			"freshEvidence": [],
+			"case": {
+				"fixtureKey": "case-envy",
+				"type": "sme",
+				"product": "sme_term_loan",
+				"amountCents": 8000000,
+				"termMonths": 36,
+				"purpose": "Trade finance for commodity inventory (demo)",
+				"consents": [true, true, true],
+				"documentProcessingConsent": true,
+				"aiResearchConsent": true,
+				"contextAnalysisConsent": true,
+				"identity": {
+					"fullName": "Daniel Koh",
+					"dob": "1984-03-21",
+					"nationalId": "EVDEMO01",
+					"email": "envy@example.com",
+					"phone": "+65-6100-4417",
+					"address": "12 Demo Avenue",
+					"city": "Singapore"
+				},
+				"sme": {
+					"companyName": "Envy Global Trading Pte. Ltd.",
+					"registrationNumber": "201941770R",
+					"industry": "other",
+					"yearsTrading": 6,
+					"employees": 15,
+					"annualRevenueCents": 480000000,
+					"monthlyFcfCents": 9000000,
+					"existingDebtServiceCents": 1500000
+				},
+				"attach": ["id", "business_registration", "bank_statement", "financial_statements"],
+				"staleCopies": []
+			},
+			"expectedBlockers": {},
+			"expectedSignals": [],
+			"expectedFindings": [
+				{
+					"kind": "id",
+					"field": "other",
+					"status": "needs_chase"
+				},
+				{
+					"kind": "financial_statements",
+					"field": "other",
+					"status": "needs_chase"
+				}
+			]
 		}
 	}
 }

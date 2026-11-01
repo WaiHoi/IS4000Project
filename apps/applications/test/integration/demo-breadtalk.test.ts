@@ -394,10 +394,10 @@ afterAll(async () => {
 describe("demo:seed idempotency", () => {
 	it("converges fixture rows on re-run without duplicates", async () => {
 		const first = await seedAll();
-		expect(first.profilesUpserted).toBe(3);
+		expect(first.profilesUpserted).toBe(4);
 		expect(first.evidenceCreated).toBeGreaterThan(0);
 		const before = await fixtureCounts();
-		expect(before).toEqual({ profiles: 3, accounts: 2, txns: 38, docs: 7 });
+		expect(before).toEqual({ profiles: 4, accounts: 3, txns: 64, docs: 11 });
 		const second = await seedAll();
 		expect(await fixtureCounts()).toEqual(before);
 		expect(second.evidenceCreated).toBe(0);
@@ -421,7 +421,7 @@ describe("demo:seed idempotency", () => {
 			.from(customerProfiles)
 			.where(eq(customerProfiles.id, profile.id));
 		expect((restored.business as Record<string, unknown>).companyName).toBe(
-			"BreadTalk Demo Pte Ltd",
+			"BreadTalk Group Pte. Ltd.",
 		);
 	});
 
@@ -546,7 +546,7 @@ describe("demo:seed idempotency", () => {
 			.filter((r) => isFixtureEmail(r.identity))
 			.map((r) => r.id)
 			.sort();
-		expect(fixtureIds).toHaveLength(3);
+		expect(fixtureIds).toHaveLength(4);
 		const before = await fixtureCounts();
 
 		// Simulate an auth-DB reseed: same emails, fresh random user ids.
@@ -572,7 +572,7 @@ describe("demo:seed idempotency", () => {
 			users: reseeded,
 			customerConfig: ctx.customerConfig,
 		});
-		expect(counts.profilesUpserted).toBe(3);
+		expect(counts.profilesUpserted).toBe(4);
 
 		// Converged: the same profile rows, re-linked — no duplicates, and
 		// the fixture evidence/accounts/transactions still count the same.

@@ -2,7 +2,9 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
 	testDir: "./",
-	testMatch: ["*.spec.ts"],
+	// The three demo flows (auto-approve, BreadTalk approve, Envy decline).
+	// `pnpm test:e2e:all` (playwright.all.config.ts) runs every spec.
+	testMatch: ["demo-*.spec.ts"],
 	globalSetup: "./global-setup.ts",
 	globalTeardown: "./global-teardown.ts",
 	use: {

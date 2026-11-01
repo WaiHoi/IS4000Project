@@ -88,7 +88,7 @@ test("BreadTalk draft: prefill → stale checklist → blocked submit → reuse 
 
 	// --- Step 2: identity + business prefilled, editable. ---
 	await expect(page.locator("#field-full-name")).toHaveValue("Baker Tan");
-	await expect(page.locator("#field-company-name")).toHaveValue("BreadTalk Demo Pte Ltd");
+	await expect(page.locator("#field-company-name")).toHaveValue("BreadTalk Group Pte. Ltd.");
 	await page.getByRole("button", { name: "Continue" }).click();
 
 	// --- Step 3: consents + draft create (never the legacy direct path). ---

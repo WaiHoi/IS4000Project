@@ -41,6 +41,20 @@ why any are off. There are no feature flags to set by hand:
 - **Auto-research on every referral:** stays off because it spends money
   automatically. Set `AGENT_AUTO_TRIGGER_ENABLED=true` to opt in.
 
+`pnpm start` seeds the reference data (demo customer profiles, evidence,
+policy corpus) once every service is healthy, but creates no applications.
+When you're done, Ctrl+C, then `pnpm cleanup` to wipe containers, volumes and
+local blobs back to a clean state (it keeps `.env`).
+
+Demo logins: `maria@example.com` (clean auto-approval),
+`breadtalk@example.com` (BreadTalk Group Pte. Ltd., UEN 200302045G: referred,
+clean brief, officer approves), and `envy@example.com` (Envy Global Trading
+Pte. Ltd., UEN 201941770R: referred, adverse media, officer declines), plus
+`officer@example.com`. The company identities are real public records so
+the research agent can find sources. Every person, account and figure is
+fictional. `pnpm test:e2e` runs those three flows, with live research on the
+BreadTalk and Envy cases.
+
 A flag you export in your shell before `pnpm start` overrides the derived
 value. The manual steps are still `docker compose up -d --wait`,
 `pnpm run setup` and `pnpm dev`.
@@ -249,7 +263,7 @@ reports those seams instead of failing on them.
 | `pnpm lint` / `pnpm format` / `pnpm format:check`  | `oxlint` / `oxfmt .` / `oxfmt --check .`                                                                                                  |
 | `pnpm test`                                        | all workspace unit suites, compose-free                                                                                                   |
 | `pnpm test:integration`                            | all workspace integration suites (gateway, applications, loans, portfolio, review, worker, research, policy), needs compose |
-| `pnpm test:e2e`                                    | Playwright (11 specs), boots worker/gateway/services/web itself, needs compose                                                              |
+| `pnpm test:e2e`                                    | Playwright: the 3 demo flows (auto-approve, BreadTalk approve, Envy decline); `pnpm test:e2e:all` runs all 13 specs                        |
 | `pnpm demo:check`                                  | scripted HTTP smoke (Maria/Sam/Tomás + monitoring/pay), needs the stack                                                                   |
 | `pnpm demo:monitor`                                | officer login + `POST /demo/monitoring/run`, prints counts                                                                                |
 | `pnpm demo:seed`                                   | idempotent T17 fixture load (users/customers/evidence, `DEMO_MODE` + manifest hash gate), needs DB                                        |
