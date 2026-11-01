@@ -2,7 +2,7 @@
 // (SPEC-t17-t18 §2.5): validates the manifest (version/hash) plus the
 // DB seed sentinel before planning anything, then stops services, removes
 // only the allowlisted demo volumes (pgdata, kafka-data — blob data lives
-// on the host `.data/` bind-mounts and svc-node-modules is never touched),
+// on the host `.data/` bind-mounts; images are never touched),
 // clears both host storage roots, brings infra up first (postgres/kafka/
 // temporal), recreates databases/topics, seeds the base and demo fixtures
 // (db:init → migrate → kafka:init → db-seed → demo-seed), then starts the

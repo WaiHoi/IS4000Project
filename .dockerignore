@@ -1,0 +1,15 @@
+# Never bake secrets, local state, or host-built modules into images.
+.env
+.env.*
+!.env.example
+**/node_modules
+.data
+.git
+.claude
+e2e/test-results
+e2e/logs
+**/eval/results
+apps/web/.output
+apps/web/.tanstack
+apps/web/dist
+**/*.log

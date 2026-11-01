@@ -225,10 +225,10 @@ When `NODE_ENV=production`, the gateway rejects non-GET/HEAD/OPTIONS requests wh
 
 ## Compose overrides
 
-The overlay file `compose.services.yml` overrides host defaults for container networking: service URLs use `http://<service>:<port>`, hosts bind `0.0.0.0`, `KAFKA_BROKERS` is `kafka:29092`, and `TEMPORAL_ADDRESS` is `temporal:7233`. Secrets interpolate from the root `.env`. The web app stays local. Check the resolved config with:
+The `microservices` profile in `docker-compose.yml` overrides host defaults for container networking: service URLs use `http://<service>:<port>`, hosts bind `0.0.0.0`, `KAFKA_BROKERS` is `kafka:29092`, and `TEMPORAL_ADDRESS` is `temporal:7233`. Secrets interpolate from the root `.env`. The web app stays local. Check the resolved config with:
 
 ```powershell
-docker compose -f docker-compose.yml -f compose.services.yml --profile microservices config
+docker compose --profile microservices config
 ```
 
 ## Minimal `.env` example

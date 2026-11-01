@@ -81,16 +81,7 @@ function assertDemoBrokerList(brokers: string, name: string, ports: string[]): v
 	}
 }
 
-const COMPOSE_PREFIX = [
-	"docker",
-	"compose",
-	"-f",
-	"docker-compose.yml",
-	"-f",
-	"compose.services.yml",
-	"--profile",
-	"microservices",
-];
+const COMPOSE_PREFIX = ["docker", "compose", "--profile", "microservices"];
 
 /** Compose labels prove a named volume belongs to the project we are about
  * to delete. A bare suffix allowlist is not enough: `project_pgdata` could
@@ -222,7 +213,7 @@ export function planDemoReset(opts: ResetOptions): ResetPlan {
 			{
 				name: "remove-volumes",
 				kind: "exec",
-				detail: `remove demo volumes only (${volumes.join(", ")}; svc-node-modules preserved)`,
+				detail: `remove demo volumes only (${volumes.join(", ")}; images and build cache preserved)`,
 				argv: ["docker", "volume", "rm", ...volumes],
 			},
 			{

@@ -1,3 +1,31 @@
+# Local stack (one file). Infra runs by default:
+#   docker compose up -d --wait            # postgres, kafka, temporal, temporal-ui
+# Backend services (built from apps/<service>/Dockerfile) run under the
+# `microservices` profile; `pnpm start` runs both and keeps the web app on
+# the host. Manual:
+#   docker compose --profile microservices up -d --build
+# Services take config from env_file (.env, then .data/stack.env written by
+# pnpm start with the derived feature flags); each `environment:` entry
+# below wires container networking and wins over both.
+
+x-svc-build: &svc-build
+  context: .
+  # Optional CA bundle for TLS-inspecting networks; pnpm start always
+  # writes this file (empty when the host has no extra CA).
+  secrets: [extra_ca]
+
+x-svc-base: &svc-base
+  env_file:
+    - path: .env
+      required: false
+    - path: .data/stack.env
+      required: false
+  volumes:
+    # Document/customer blobs and the optional CA bundle live in .data.
+    - ./.data:/app/.data
+  restart: unless-stopped
+  profiles: ["microservices"]
+
 services:
   postgres:
     image: pgvector/pgvector:pg18
@@ -77,6 +105,468 @@ services:
       temporal:
         condition: service_started
 
+  applications:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/applications/Dockerfile
+    image: credit-pipeline/applications:dev
+    ports: ["4001:4001"]
+    environment: &applications-env
+      APPLICATIONS_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_applications
+      TEMPORAL_ADDRESS: temporal:7233
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      # T18 consent-withdrawal purge callback (SPEC-t17-t18 §2.3): the
+      # applications service calls research inside the compose network.
+      RESEARCH_URL: http://research:4005
+      # EN-01/02/03 case assist (off by default). Research stays optional:
+      # the assembler records a typed unavailable source when it cannot reach it.
+      ASSIST_ENABLED: ${ASSIST_ENABLED:-false}
+      ASSIST_RETENTION_DAYS: ${ASSIST_RETENTION_DAYS:-90}
+      ASSIST_RESEARCH_TIMEOUT_MS: ${ASSIST_RESEARCH_TIMEOUT_MS:-5000}
+      ASSIST_MODEL: ${ASSIST_MODEL:-deterministic}
+      ASSIST_PROMPT_VERSION: ${ASSIST_PROMPT_VERSION:-memo-template-v1}
+      ASSIST_ADVERSE_JURISDICTION: ${ASSIST_ADVERSE_JURISDICTION:-SG}
+      ASSIST_ADVERSE_CONTACT_PATH: ${ASSIST_ADVERSE_CONTACT_PATH:-}
+      ASSIST_ADVERSE_PROMPT_VERSION: ${ASSIST_ADVERSE_PROMPT_VERSION:-adverse-letter-v1}
+      ASSIST_POLICY_EXCEPTION_ENABLED: ${ASSIST_POLICY_EXCEPTION_ENABLED:-false}
+      ASSIST_POLICY_EXCEPTION_RETENTION_DAYS: ${ASSIST_POLICY_EXCEPTION_RETENTION_DAYS:-2555}
+      ASSIST_POLICY_TIMEOUT_MS: ${ASSIST_POLICY_TIMEOUT_MS:-10000}
+      POLICY_URL: ${POLICY_URL:-http://policy:4006}
+      POLICY_INTERNAL_SECRET: ${POLICY_INTERNAL_SECRET:-}
+      POLICY_RULE_CONTEXT_SECRET: ${POLICY_RULE_CONTEXT_SECRET:-}
+      POLICY_AUDIT_HASH_SECRET: ${POLICY_AUDIT_HASH_SECRET:-}
+      POLICY_EXCEPTION_MODEL: ${POLICY_EXCEPTION_MODEL:-openai/gpt-6.1-terra}
+      POLICY_EXCEPTION_PROMPT_VERSION: ${POLICY_EXCEPTION_PROMPT_VERSION:-policy-exception-v1}
+      POLICY_EXCEPTION_AGENT_VERSION: ${POLICY_EXCEPTION_AGENT_VERSION:-policy-exception-agent-v1}
+      POLICY_EXCEPTION_VALIDATOR_VERSION: ${POLICY_EXCEPTION_VALIDATOR_VERSION:-policy-exception-validator-v1}
+      POLICY_EXCEPTION_MAX_STEPS: ${POLICY_EXCEPTION_MAX_STEPS:-24}
+      POLICY_EXCEPTION_MAX_TOOL_CALLS: ${POLICY_EXCEPTION_MAX_TOOL_CALLS:-32}
+      POLICY_EXCEPTION_TIMEOUT_MS: ${POLICY_EXCEPTION_TIMEOUT_MS:-90000}
+      POLICY_EXCEPTION_MAX_COST_USD: ${POLICY_EXCEPTION_MAX_COST_USD:-0.25}
+      POLICY_EXCEPTION_MAX_OUTPUT_TOKENS: ${POLICY_EXCEPTION_MAX_OUTPUT_TOKENS:-4000}
+      POLICY_EXCEPTION_RATE_PER_MIN: ${POLICY_EXCEPTION_RATE_PER_MIN:-10}
+      CONTEXT_HISTORY_MONTHS: ${CONTEXT_HISTORY_MONTHS:-6}
+      PORT: "4001"
+      HOST: 0.0.0.0
+      # T01 document workflow (SPEC-t01-t02 §10): encrypted blobs land under
+      # /data/documents, bind-mounted to the host `.data/documents` tree so
+      # host CLIs (demo:seed/verify) and the containerized service read and
+      # write the same bytes. The scanner resolves via container networking.
+      # Feature flag stays off until D1 lands, so these are inert until then.
+      DOCUMENT_STORAGE_DIR: /data/documents
+      # T17 customer evidence (SPEC-t17-t18 §2.2, D2a): disjoint
+      # host `.data/customer-documents` bind-mount, so the T01 app orphan
+      # sweep can never touch customer blobs; the D2a customer sweep owns
+      # this root.
+      CUSTOMER_STORAGE_DIR: /data/customer-documents
+      CUSTOMER_RETENTION_DAYS: ${CUSTOMER_RETENTION_DAYS:-90}
+      # D2a demo fixtures (SPEC-t17-t18 §2.5): the manifest owns DEMO_AS_OF;
+      # the service clock must agree with it or seed/verify refuse.
+      DEMO_MODE: ${DEMO_MODE:-true}
+      DEMO_AS_OF: ${DEMO_AS_OF:-2026-06-30}
+      DEMO_SEED_VERSION: ${DEMO_SEED_VERSION:-1}
+      DEMO_RESET_ALLOWED: ${DEMO_RESET_ALLOWED:-false}
+      DOCUMENT_FEATURE_ENABLED: ${DOCUMENT_FEATURE_ENABLED:-false}
+      DOCUMENT_ENCRYPTION_KEY: ${DOCUMENT_ENCRYPTION_KEY:-}
+      DOCUMENT_KEY_ID: ${DOCUMENT_KEY_ID:-v1}
+      DOCUMENT_PREVIOUS_KEYS: ${DOCUMENT_PREVIOUS_KEYS:-}
+      DOCUMENT_SCANNER: ${DOCUMENT_SCANNER:-clamd}
+      DOCUMENT_OCR_DATA_DIR: ${DOCUMENT_OCR_DATA_DIR:-}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+    volumes:
+      - ./.data:/app/.data
+      # Host/container storage consistency (SPEC-t17-t18 §2.5): the same
+      # `.data/` bytes the host seed/verify CLIs write are what the service
+      # reads — never a divergent named volume.
+      - ./.data/documents:/data/documents
+      - ./.data/customer-documents:/data/customer-documents
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:4001/health'); if (!r.ok) throw new Error(String(r.status)); const j = await r.json(); if (j.status !== 'ok') throw new Error(j.status);",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  review:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/review/Dockerfile
+    image: credit-pipeline/review:dev
+    ports: ["4002:4002"]
+    environment:
+      APPLICATIONS_URL: http://applications:4001
+      LOANS_URL: http://loans:4003
+      TEMPORAL_ADDRESS: temporal:7233
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      RESEARCH_URL: http://research:4005
+      AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
+      AGENT_CASE_BRIEF_ENABLED: ${AGENT_CASE_BRIEF_ENABLED:-false}
+      PORT: "4002"
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:4002/health'); if (!r.ok) throw new Error(String(r.status)); const j = await r.json(); if (j.status !== 'ok') throw new Error(j.status);",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  loans:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/loans/Dockerfile
+    image: credit-pipeline/loans:dev
+    ports: ["4003:4003"]
+    environment:
+      LOANS_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_loans
+      APPLICATIONS_URL: http://applications:4001
+      TEMPORAL_ADDRESS: temporal:7233
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      PORT: "4003"
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:4003/health'); if (!r.ok) throw new Error(String(r.status)); const j = await r.json(); if (j.status !== 'ok') throw new Error(j.status);",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  portfolio:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/portfolio/Dockerfile
+    image: credit-pipeline/portfolio:dev
+    ports: ["4004:4004"]
+    environment:
+      PORTFOLIO_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_portfolio
+      APPLICATIONS_URL: http://applications:4001
+      LOANS_URL: http://loans:4003
+      KAFKA_BROKERS: kafka:29092
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      PORT: "4004"
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:4004/health'); if (!r.ok) throw new Error(String(r.status)); const j = await r.json(); if (j.status !== 'ok') throw new Error(j.status);",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  gateway:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/gateway/Dockerfile
+    image: credit-pipeline/gateway:dev
+    ports: ["3001:3001"]
+    environment:
+      AUTH_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_auth
+      TEMPORAL_ADDRESS: temporal:7233
+      KAFKA_BROKERS: kafka:29092
+      SESSION_SECRET: ${SESSION_SECRET}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      NODE_ENV: development
+      WEB_ORIGIN: http://localhost:3000
+      API_PORT: "3001"
+      API_HOST: 0.0.0.0
+      APPLICATIONS_URL: http://applications:4001
+      REVIEW_URL: http://review:4002
+      LOANS_URL: http://loans:4003
+      PORTFOLIO_URL: http://portfolio:4004
+      POLICY_URL: http://policy:4006
+      POLICY_UPSTREAM_TIMEOUT_MS: ${POLICY_UPSTREAM_TIMEOUT_MS:-75000}
+      POLICY_ASK_RATE_PER_MIN: ${POLICY_ASK_RATE_PER_MIN:-10}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      applications:
+        condition: service_healthy
+      review:
+        condition: service_healthy
+      loans:
+        condition: service_healthy
+      portfolio:
+        condition: service_healthy
+      policy:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:3001/api/health'); if (!r.ok) throw new Error(String(r.status)); const j = await r.json(); if (j.status !== 'ok') throw new Error(j.status);",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  worker:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/worker/Dockerfile
+    image: credit-pipeline/worker:dev
+    # No port, no healthcheck — the restart policy owns liveness.
+    environment:
+      APPLICATIONS_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_applications
+      LOANS_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_loans
+      TEMPORAL_ADDRESS: temporal:7233
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+
+  policy:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/policy/Dockerfile
+    image: credit-pipeline/policy:dev
+    ports: ["4006:4006"]
+    environment:
+      POLICY_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_policy
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      POLICY_INTERNAL_SECRET: ${POLICY_INTERNAL_SECRET:-dev-policy-internal-secret}
+      POLICY_CASE_TOKEN_SECRET: ${POLICY_CASE_TOKEN_SECRET:-dev-policy-case-token-secret}
+      POLICY_CASE_TOKEN_TTL_SECONDS: ${POLICY_CASE_TOKEN_TTL_SECONDS:-120}
+      POLICY_CITATION_SECRET: ${POLICY_CITATION_SECRET:-dev-policy-citation-secret}
+      POLICY_AUDIT_HASH_SECRET: ${POLICY_AUDIT_HASH_SECRET:-dev-policy-audit-secret}
+      POLICY_RULE_CONTEXT_SECRET: ${POLICY_RULE_CONTEXT_SECRET:-dev-policy-rule-context-secret}
+      POLICY_EXCEPTION_DAILY_BUDGET_USD: ${POLICY_EXCEPTION_DAILY_BUDGET_USD:-2}
+      POLICY_ASSIST_ENABLED: ${POLICY_ASSIST_ENABLED:-false}
+      POLICY_EMBEDDING_MODEL: ${POLICY_EMBEDDING_MODEL:-voyageai/voyage-4-large}
+      POLICY_EMBEDDING_DIMENSIONS: ${POLICY_EMBEDDING_DIMENSIONS:-1024}
+      POLICY_EMBEDDING_PROVIDERS: ${POLICY_EMBEDDING_PROVIDERS:-}
+      POLICY_ANSWERER_PROVIDER_ORDER: ${POLICY_ANSWERER_PROVIDER_ORDER:-}
+      POLICY_AGENT_MODEL: ${POLICY_AGENT_MODEL:-openai/gpt-6.1-terra}
+      POLICY_AGENT_TEMPERATURE: ${POLICY_AGENT_TEMPERATURE:-0.1}
+      POLICY_AGENT_MAX_OUTPUT_TOKENS: ${POLICY_AGENT_MAX_OUTPUT_TOKENS:-6000}
+      POLICY_AGENT_TIMEOUT_MS: ${POLICY_AGENT_TIMEOUT_MS:-60000}
+      POLICY_CASE_TIMEOUT_MS: ${POLICY_CASE_TIMEOUT_MS:-45000}
+      POLICY_AGENT_MAX_COST_USD: ${POLICY_AGENT_MAX_COST_USD:-0.10}
+      POLICY_CASE_MAX_COST_USD: ${POLICY_CASE_MAX_COST_USD:-0.20}
+      POLICY_NAV_DAILY_BUDGET_USD: ${POLICY_NAV_DAILY_BUDGET_USD:-2.0}
+      POLICY_CASE_DAILY_BUDGET_USD: ${POLICY_CASE_DAILY_BUDGET_USD:-2.0}
+      POLICY_ACTOR_DAILY_BUDGET_USD: ${POLICY_ACTOR_DAILY_BUDGET_USD:-1.0}
+      POLICY_RESERVATION_TTL_SECONDS: ${POLICY_RESERVATION_TTL_SECONDS:-180}
+      POLICY_INDEX_RETENTION_HOURS: ${POLICY_INDEX_RETENTION_HOURS:-24}
+      POLICY_RETRIEVAL_TOP_K: ${POLICY_RETRIEVAL_TOP_K:-8}
+      POLICY_JURISDICTION: ${POLICY_JURISDICTION:-SG}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      PORT: "4006"
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:4006/health'); if (!r.ok) throw new Error(String(r.status)); const j = await r.json(); if (j.status !== 'ok') throw new Error(j.status);",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  research:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/research/Dockerfile
+    image: credit-pipeline/research:dev
+    # Node 22+ is required by the Agents and Grafana SDKs — never Bun.
+    ports: ["4005:4005"]
+    environment: &research-env
+      TEMPORAL_ADDRESS: temporal:7233
+      RESEARCH_DATABASE_URL: postgres://credit:credit@postgres:5432/credit_research
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      POLICY_ASSIST_ENABLED: ${POLICY_ASSIST_ENABLED:-false}
+      POLICY_URL: http://policy:4006
+      POLICY_INTERNAL_SECRET: ${POLICY_INTERNAL_SECRET:-dev-policy-internal-secret}
+      POLICY_CASE_TOKEN_SECRET: ${POLICY_CASE_TOKEN_SECRET:-dev-policy-case-token-secret}
+      POLICY_CASE_TOKEN_TTL_SECONDS: ${POLICY_CASE_TOKEN_TTL_SECONDS:-120}
+      POLICY_CASE_TIMEOUT_MS: ${POLICY_CASE_TIMEOUT_MS:-45000}
+      POLICY_CASE_MAX_COST_USD: ${POLICY_CASE_MAX_COST_USD:-0.20}
+      AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
+      AGENT_CASE_BRIEF_ENABLED: ${AGENT_CASE_BRIEF_ENABLED:-false}
+      CONTEXT_ANALYST_ENABLED: ${CONTEXT_ANALYST_ENABLED:-false}
+      CONTEXT_AGENT_MODEL: ${CONTEXT_AGENT_MODEL:-}
+      CONTEXT_AGENT_MAX_TOOL_CALLS: ${CONTEXT_AGENT_MAX_TOOL_CALLS:-16}
+      CONTEXT_AGENT_PREFLIGHT_TOOL_CALLS: ${CONTEXT_AGENT_PREFLIGHT_TOOL_CALLS:-16}
+      CONTEXT_AGENT_MAX_TURNS: ${CONTEXT_AGENT_MAX_TURNS:-16}
+      CONTEXT_AGENT_TEMPERATURE: ${CONTEXT_AGENT_TEMPERATURE:-0.1}
+      CONTEXT_AGENT_MAX_OUTPUT_TOKENS: ${CONTEXT_AGENT_MAX_OUTPUT_TOKENS:-6000}
+      CONTEXT_AGENT_TIMEOUT_MS: ${CONTEXT_AGENT_TIMEOUT_MS:-180000}
+      CONTEXT_AGENT_MAX_COST_USD: ${CONTEXT_AGENT_MAX_COST_USD:-1.5}
+      CONTEXT_HISTORY_MONTHS: ${CONTEXT_HISTORY_MONTHS:-6}
+      AGENT_MODEL: ${AGENT_MODEL:-openai/gpt-6.1-sol}
+      APPLICATIONS_URL: http://applications:4001
+      LOANS_URL: http://loans:4003
+      KAFKA_BROKERS: kafka:29092
+      AGENT_AUTO_TRIGGER_ENABLED: ${AGENT_AUTO_TRIGGER_ENABLED:-false}
+      AGENT_AUTO_TRIGGER_FROM_BEGINNING: ${AGENT_AUTO_TRIGGER_FROM_BEGINNING:-false}
+      AUTO_TRIGGER_SERVICE_USER_ID: ${AUTO_TRIGGER_SERVICE_USER_ID:-00000000-0000-0000-0000-000000000000}
+      AUTO_TRIGGER_SERVICE_EMAIL: ${AUTO_TRIGGER_SERVICE_EMAIL:-research-auto@internal.local}
+      AUTO_TRIGGER_MAX_RUNS_PER_APPLICANT_DAY: ${AUTO_TRIGGER_MAX_RUNS_PER_APPLICANT_DAY:-2}
+      AUTO_TRIGGER_MAX_RUNS_PER_DAY: ${AUTO_TRIGGER_MAX_RUNS_PER_DAY:-50}
+      AUTO_TRIGGER_DAILY_COST_BUDGET_USD: ${AUTO_TRIGGER_DAILY_COST_BUDGET_USD:-10}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+      AGENT_MAX_SOURCES: ${AGENT_MAX_SOURCES:-6}
+      AGENT_MAX_FETCHES: ${AGENT_MAX_FETCHES:-4}
+      AGENT_TIMEOUT_MS: ${AGENT_TIMEOUT_MS:-90000}
+      AGENT_TEMPERATURE: ${AGENT_TEMPERATURE:-0.1}
+      AGENT_MAX_OUTPUT_TOKENS: ${AGENT_MAX_OUTPUT_TOKENS:-3000}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-8}
+      AGENT_MAX_TURNS: ${AGENT_MAX_TURNS:-12}
+      AGENT_MAX_COST_USD: ${AGENT_MAX_COST_USD:-2.0}
+      AGENTO11Y_ENDPOINT: ${AGENTO11Y_ENDPOINT}
+      AGENTO11Y_PROTOCOL: ${AGENTO11Y_PROTOCOL}
+      AGENTO11Y_AUTH_MODE: ${AGENTO11Y_AUTH_MODE}
+      AGENTO11Y_AUTH_TENANT_ID: ${AGENTO11Y_AUTH_TENANT_ID}
+      AGENTO11Y_AUTH_TOKEN: ${AGENTO11Y_AUTH_TOKEN}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS}
+      PORT: "4005"
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      policy:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:4005/health'); if (!r.ok) throw new Error(String(r.status)); const j = await r.json(); if (j.status !== 'ok') throw new Error(j.status);",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # T01 malware scanner (SPEC-t01-t02 §10): ClamAV daemon on the standard
+  # 3310 port. Best-effort in v1 — nothing depends on it (applications
+  # stays healthy without it; uploads fail closed with 503 until D1), and
+  # the gateway never routes here.
+
+  # Durable agent runs (docs/explanation/agent-layout.md): Node-only
+  # Temporal workers, one per owning service, own task queue, no ports.
+  research-agent-worker:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/research/Dockerfile
+    image: credit-pipeline/research:dev
+    command: ["node", "--import", "tsx", "apps/research/src/agent-worker.ts"]
+    environment:
+      <<: *research-env
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+
+  applications-agent-worker:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/applications/Dockerfile
+    image: credit-pipeline/applications:dev
+    command: ["node", "--import", "tsx", "apps/applications/src/agent-worker.ts"]
+    environment:
+      <<: *applications-env
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+
+  clamav:
+    image: clamav/clamav:latest
+    restart: unless-stopped
+    profiles: ["microservices"]
+    ports: ["3310:3310"]
+
 volumes:
   pgdata:
   kafka-data:
+
+secrets:
+  extra_ca:
+    file: ./.data/extra-ca.pem

@@ -85,8 +85,8 @@ curl http://127.0.0.1:3001/api/health
 The overlay runs the backend in containers under the `microservices` profile:
 
 ```powershell
-docker compose -f docker-compose.yml -f compose.services.yml --profile microservices up -d --wait
-docker compose -f docker-compose.yml -f compose.services.yml --profile microservices down
+docker compose --profile microservices up -d --build --wait
+docker compose --profile microservices down
 ```
 
 Notes: `down` stops the base infra too. The web app stays local (`pnpm --filter @credit/web dev`). A container install can leave a stale Windows `node_modules/.vitest-cache`; delete it if tests hit EPERM.

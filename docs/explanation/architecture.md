@@ -19,7 +19,7 @@ This page explains the design. Audience: developers who change the system, and r
 | Kafka (KRaft)               | 9092 host, 29092 in compose | Container                    | Seven topics                                               |
 | Temporal                    | 7233, UI on 8080            | Container                    | Workflows, updates, schedules                              |
 
-Sources: `apps/web/vite.config.ts`, `apps/gateway/src/server.ts`, `apps/worker/package.json`, `docker-compose.yml`, `compose.services.yml`.
+Sources: `apps/web/vite.config.ts`, `apps/gateway/src/server.ts`, `apps/worker/package.json`, `docker-compose.yml`, `apps/*/Dockerfile`.
 
 The runtime split is deliberate. Gateway, the pipeline services, and the web build run on Bun. The worker and the research service run on Node: the worker uses `@temporalio/worker`, and research uses the Grafana/OpenTelemetry observability stack (`@opentelemetry/sdk-node` is Node-oriented). `@openai/agents` itself runs under Bun; the Node choice for research is the observability stack, not the Agents SDK. The repository pins Node 26 in `.nvmrc` while Temporal officially supports 20/22/24. If the worker misbehaves, try Node 24 first.
 

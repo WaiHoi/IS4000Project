@@ -42,7 +42,7 @@ export function assertDemoBoot(input: {
 }
 
 // Demo storage roots: host checkouts keep blobs under the workspace
-// `.data/` tree, the microservices overlay under `/data/`. Exact canonical
+// `.data/` tree, the microservices containers under `/data/`. Exact canonical
 // roots only — subpaths, suffix tricks (`/evil/.data/documents`), and
 // arbitrary absolute paths are refused, because reset wipes these roots.
 const DEMO_DOCUMENT_REL = ".data/documents";
@@ -150,8 +150,7 @@ export function assertStorageRootsDisjoint(documentDir: string, customerDir: str
 
 /** Volumes `demo:reset` may remove. Blob data lives on the host `.data/`
  * bind-mounts (cleared by the fs step), so only the stateful infra volumes
- * are listed; `svc-node-modules` is never listed — the installer volume is
- * preserved across resets. */
+ * are listed (service images and the build cache are never touched). */
 export const DEMO_RESET_VOLUMES = ["pgdata", "kafka-data"] as const;
 
 export function assertDemoVolume(volume: string): void {

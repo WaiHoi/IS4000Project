@@ -5,7 +5,8 @@
 //   pnpm start --local  backend services as host processes (hot reload)
 //
 // By default the backend services, the pipeline worker and both agent
-// workers run as containers (compose.services.yml, profile microservices);
+// workers run as containers built from apps/<service>/Dockerfile
+// (docker-compose.yml, profile microservices);
 // only the web app (Vite) runs on the host. --local keeps everything but the
 // infra on the host via `pnpm dev`.
 //
@@ -38,7 +39,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_PATH = join(ROOT, ".env");
 const lite = process.argv.includes("--lite");
 const local = process.argv.includes("--local");
-const COMPOSE = ["compose", "-f", "docker-compose.yml", "-f", "compose.services.yml"];
+const COMPOSE = ["compose"];
 // Commands run through the shell: inside a pnpm script, `pnpm` on PATH is a
 // shim Bun can't exec directly (ENOEXEC), and on Windows it is pnpm.cmd.
 // Every argument here is a fixed literal, so there is nothing to quote.
@@ -150,16 +151,22 @@ const ai = !lite && has("OPENROUTER_API_KEY");
 const brief = ai && has("TAVILY_API_KEY");
 let docs = !lite;
 
+// TLS-inspecting networks (corporate proxies, sandboxes) re-sign HTTPS with
+// their own CA. The host trusts it via NODE_EXTRA_CA_CERTS; containers and
+// image builds don't, so npm and the OpenRouter/Tavily calls would fail.
+// .data/extra-ca.pem is the compose build secret (always written; empty when
+// the host has no extra CA) and is mounted at /app/.data for runtime.
+mkdirSync(join(ROOT, ".data"), { recursive: true });
+const hostCa = process.env.NODE_EXTRA_CA_CERTS;
+const hasHostCa = hostCa !== undefined && existsSync(hostCa);
+if (hasHostCa) copyFileSync(hostCa, join(ROOT, ".data", "extra-ca.pem"));
+else writeFileSync(join(ROOT, ".data", "extra-ca.pem"), "");
+
 must("docker: postgres, kafka, temporal", "docker", ["compose", "up", "-d", "--wait"]);
 if (docs) {
-	// ClamAV lives in the services overlay; naming it starts it without the
-	// rest of that profile.
+	// ClamAV sits under the services profile; naming it starts it alone.
 	docs = run("docker: clamav (document virus scanning)", "docker", [
 		"compose",
-		"-f",
-		"docker-compose.yml",
-		"-f",
-		"compose.services.yml",
 		"up",
 		"-d",
 		"clamav",
@@ -263,20 +270,19 @@ if (local) {
 	// Containers read the derived flags from this file (svc-base env_file);
 	// compose also interpolates the explicit `environment:` entries from env.
 	const containerEnv = Object.keys(flags).map((key) => `${key}=${env[key] ?? ""}`);
-	// TLS-inspecting networks (corporate proxies, sandboxes) re-sign HTTPS with
-	// their own CA. The host trusts it via NODE_EXTRA_CA_CERTS; containers
-	// don't, so npm and the OpenRouter/Tavily calls fail. Copy the bundle into
-	// the bind-mounted repo (/app) and point Node and Bun at it.
-	const hostCa = process.env.NODE_EXTRA_CA_CERTS;
-	if (hostCa && existsSync(hostCa)) {
-		copyFileSync(hostCa, join(ROOT, ".data", "extra-ca.pem"));
-		containerEnv.push("NODE_EXTRA_CA_CERTS=/app/.data/extra-ca.pem");
+	// Shell exports of .env settings (e.g. a rotated OPENROUTER_API_KEY) win
+	// for host processes; give containers the same: stack.env loads after
+	// .env. Run with --no-env-file, so these are deliberate exports only.
+	for (const key of dotenv.keys()) {
+		const value = process.env[key];
+		if (value !== undefined && !(key in flags)) containerEnv.push(`${key}=${value}`);
 	}
+	if (hasHostCa) containerEnv.push("NODE_EXTRA_CA_CERTS=/app/.data/extra-ca.pem");
 	writeFileSync(join(ROOT, ".data", "stack.env"), `${containerEnv.join("\n")}\n`);
 	must(
-		"docker: backend services + workers (first run installs dependencies: several minutes)",
+		"docker: build + start backend services and workers (first build: several minutes)",
 		"docker",
-		[...COMPOSE, "--profile", "microservices", "up", "-d", "--remove-orphans"],
+		[...COMPOSE, "--profile", "microservices", "up", "-d", "--build", "--remove-orphans"],
 		env,
 	);
 	const web = spawn(pnpm, ["--filter", "@credit/web", "dev"], {

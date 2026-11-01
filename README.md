@@ -26,9 +26,10 @@ pnpm start          # everything your .env supports; `pnpm start --lite` = pipel
 ```
 
 By default the backend services, the pipeline worker and both agent workers
-run as containers (`compose.services.yml`). Only the web app runs on your
-machine. The first containerised start installs the workspace inside a
-`deps` container, which takes a few minutes; later starts reuse that cache.
+run as containers built from `apps/<service>/Dockerfile`, all in one
+`docker-compose.yml`. Only the web app runs on your machine. The first
+start builds the images, which takes a few minutes; later starts reuse the
+build cache.
 On TLS-inspecting networks, the host's `NODE_EXTRA_CA_CERTS` bundle is
 passed to the containers.
 
@@ -139,7 +140,7 @@ CLAMAV_PORT=3310
 ```
 
 The scanner needs a ClamAV daemon: run one locally on `:3310`, or start the
-`microservices` overlay (`compose.services.yml` runs `clamav:3310` with
+`microservices` profile (`docker-compose.yml` runs `clamav:3310` with
 `CLAMAV_HOST=clamav` plus the encrypted `documents` volume). Image OCR uses
 the vendored `apps/applications/assets/tesseract/eng.traineddata.gz`; set
 `DOCUMENT_OCR_DATA_DIR` only to override it (no runtime CDN). Text PDFs need
@@ -316,7 +317,7 @@ but services run with cwd=`apps/<name>`, hence the explicit root path.
 The gateway reads `APPLICATIONS_URL`/`REVIEW_URL`/`LOANS_URL`/`PORTFOLIO_URL`
 (defaulting to `http://127.0.0.1:4001`?`:4004`) plus `INTERNAL_SECRET` for
 signing downstream requests; review additionally reads `RESEARCH_URL`
-(default `http://127.0.0.1:4005`); `compose.services.yml` overrides the URLs for
+(default `http://127.0.0.1:4005`); `docker-compose.yml` overrides the URLs for
 container networking (`http://applications:4001`, ?).
 a crashed run can leave a stale server behind. Find it with
 `Get-NetTCPConnection -LocalPort 3000,3001,4001,4002,4003,4004,4005,4006 -State Listen` and stop that
@@ -434,31 +435,31 @@ internal APIs + Temporal); the worker orchestrates across the two writer
 DBs (booking saga + one outbox relay each) and never touches
 auth/portfolio.
 
-## Orchestration (`compose.services.yml`)
+## Orchestration (`docker-compose.yml`)
 
-The default compose workflow is unchanged (infra only). The overlay runs the
-whole backend in containers under the `microservices` profile:
+One compose file. Infra runs by default; the backend runs under the
+`microservices` profile, built from `apps/<service>/Dockerfile`:
 
 ```powershell
-docker compose -f docker-compose.yml -f compose.services.yml --profile microservices up -d --wait
-docker compose -f docker-compose.yml -f compose.services.yml --profile microservices down
+docker compose up -d --wait                                 # infra only
+docker compose --profile microservices up -d --build        # + backend services
+docker compose --profile microservices down
 ```
 
-What it starts: a one-shot `deps` installer (`node:26-slim`, Linux-native
-`pnpm install --frozen-lockfile` into a `svc-node-modules` volume shadowing
-`/app/node_modules`), then gateway + applications + review + loans +
-portfolio (`oven/bun:1.4.3` — the newest numeric tag on Docker Hub; 1.4.4
-exists only as a local canary), research + worker (`node:26-slim`, research via
-`node --import tsx`). Container networking is wired via `environment:`
-(`AUTH/APPLICATIONS/LOANS/PORTFOLIO_DATABASE_URL=@postgres`, `TEMPORAL_ADDRESS=temporal:7233`,
-`KAFKA_BROKERS=kafka:29092`, `APPLICATIONS_URL=http://applications:4001`, `RESEARCH_URL=http://research:4005`,
-…); secrets interpolate from the root `.env`. Ports 3001/4001–4005 are
-published, each service has a fetch healthcheck (`bun -e` for Bun, `node -e` for research), and everything
-waits on `deps` + healthy infra. The web app stays local (`pnpm
---filter @credit/web dev`). Note: `down` stops the base infra too; and a
-container `pnpm install` over the bind mount can leave a stale Windows
-`node_modules/.vitest-cache` behind — delete it if `pnpm test` hits EPERM
-(known environmental issue, also noted below).
+The backend is the gateway, applications, review, loans, portfolio, policy,
+research, the pipeline worker, and the research and applications agent
+workers. The agent workers reuse their service's image with their own
+command. Each image is `node:26-slim` plus the Bun binary, and installs the
+workspace with `pnpm install --frozen-lockfile`. All images share that step,
+so it's built once and cached. TypeScript runs directly (Bun for most
+services, Node + tsx for research, the worker and the agent workers).
+Images never contain `.env`: services read it through `env_file`, then
+`.data/stack.env` (written by `pnpm start`). The explicit `environment:`
+entries wire container networking (`@postgres`, `temporal:7233`,
+`kafka:29092`, `http://<service>:<port>`) and win over both. `.data/` is
+bind-mounted for document blobs. Ports 3001 and 4001–4006 are published, and
+each service has a fetch healthcheck. The web app stays local
+(`pnpm --filter @credit/web dev`). Note that `down` also stops the infra.
 
 ## Versions (pinned exact, via the `catalog:` section in `pnpm-workspace.yaml`)
 

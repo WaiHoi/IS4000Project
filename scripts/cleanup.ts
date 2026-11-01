@@ -7,8 +7,8 @@
 // Temporal history — plus local runtime files: document/customer blobs
 // (.data/) and e2e artifacts (e2e/test-results, e2e/logs).
 // Keeps: .env (API keys + generated secrets), node_modules, eval results,
-// and the containers' dependency cache (svc-node-modules volume) so the
-// next containerised start doesn't reinstall the whole workspace.
+// and the service images + build cache, so the next start doesn't rebuild
+// the workspace install from scratch.
 //
 // Refuses while the app is still running (gateway :3001 or web :3000
 // answering), so it never yanks the databases out from under live
@@ -47,17 +47,10 @@ if (!force) {
 	}
 }
 
-const COMPOSE = [
-	"compose",
-	"-f",
-	"docker-compose.yml",
-	"-f",
-	"compose.services.yml",
-	"--profile",
-	"microservices",
-];
-/** Volumes that hold no app state: kept so the next start stays fast. */
-const KEEP_VOLUMES = new Set(["svc-node-modules"]);
+const COMPOSE = ["compose", "--profile", "microservices"];
+/** Volumes that hold no app state (none today; images and the build cache
+ * are kept by Docker itself, so the next start stays fast). */
+const KEEP_VOLUMES = new Set<string>();
 
 console.log("▶ docker: removing containers");
 const down = spawnSync("docker", [...COMPOSE, "down", "--remove-orphans"], {
