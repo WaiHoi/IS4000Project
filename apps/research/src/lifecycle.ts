@@ -785,7 +785,7 @@ export async function beginPolicyStage(
 			contextDocumentFindings: opts.documentFindings,
 			// Extend the run lease past the synchronous policy call; never
 			// shorten an existing context lease.
-			timeoutAt: sql`GREATEST(${agentRuns.timeoutAt}, ${policyTimeoutAt})`,
+			timeoutAt: sql`GREATEST(${agentRuns.timeoutAt}, ${policyTimeoutAt.toISOString()}::timestamptz)`,
 		})
 		.where(
 			and(eq(agentRuns.id, runId), eq(agentRuns.status, "running"), eq(agentRuns.runToken, token)),
