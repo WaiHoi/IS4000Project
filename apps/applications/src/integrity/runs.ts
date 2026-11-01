@@ -762,6 +762,7 @@ export async function executeIntegrityRun(
 					applicationId: claimed.application_id,
 					errorCode,
 					attempts: claimed.attempts,
+					...causeMeta(err),
 				},
 				"integrity attempt failed; retrying",
 			);
@@ -819,7 +820,13 @@ export async function executeIntegrityRun(
 			}
 		});
 		deps.logger.warn(
-			{ runId: claimed.id, applicationId: claimed.application_id, errorCode, outcome },
+			{
+				runId: claimed.id,
+				applicationId: claimed.application_id,
+				errorCode,
+				outcome,
+				...causeMeta(err),
+			},
 			"integrity run failed",
 		);
 	}
@@ -832,4 +839,13 @@ export async function executeIntegrityRun(
 		},
 		"integrity run finished",
 	);
+}
+
+/** Class + HTTP status of the failure behind an agent error code (no message or body). */
+function causeMeta(err: unknown): { causeName?: string; causeStatus?: number } {
+	if (!(err instanceof IntegrityAgentError)) return {};
+	return {
+		...(err.causeName ? { causeName: err.causeName } : {}),
+		...(err.causeStatus !== null ? { causeStatus: err.causeStatus } : {}),
+	};
 }

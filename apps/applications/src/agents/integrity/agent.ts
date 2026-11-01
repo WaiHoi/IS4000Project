@@ -194,7 +194,7 @@ export function createAgentsIntegrityRunner(
 				if (err instanceof MaxTurnsExceededError) throw new IntegrityAgentError("STEP_LIMIT");
 				if (signal.aborted || input.signal?.aborted) throw new IntegrityAgentError("TIMEOUT");
 				if (err instanceof APIConnectionTimeoutError) throw new IntegrityAgentError("TIMEOUT");
-				throw new IntegrityAgentError("MODEL_ERROR");
+				throw new IntegrityAgentError("MODEL_ERROR", [], err);
 			}
 		},
 	};

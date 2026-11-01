@@ -239,12 +239,19 @@ export type IntegrityAgentErrorCode =
 	| "MODEL_ERROR";
 
 export class IntegrityAgentError extends Error {
+	/** Underlying failure's class + HTTP status, for logs (never its message/body). */
+	readonly causeName: string | null;
+	readonly causeStatus: number | null;
 	constructor(
 		readonly code: IntegrityAgentErrorCode,
 		readonly issues: Array<{ code: string; path: string }> = [],
+		cause?: unknown,
 	) {
 		super(code);
 		this.name = "IntegrityAgentError";
+		this.causeName = cause instanceof Error ? cause.constructor.name : null;
+		const status = (cause as { status?: unknown } | null)?.status;
+		this.causeStatus = typeof status === "number" ? status : null;
 	}
 }
 

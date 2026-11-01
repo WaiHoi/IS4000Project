@@ -224,7 +224,7 @@ async function runLoop<T>(
 	} catch (err) {
 		if (err instanceof IntegrityAgentError) throw err;
 		if (combined.aborted) throw new IntegrityAgentError("TIMEOUT");
-		throw new IntegrityAgentError("MODEL_ERROR");
+		throw new IntegrityAgentError("MODEL_ERROR", [], err);
 	}
 	const totalToolCalls = first.result.toolCalls.length;
 	if (totalToolCalls > config.maxToolCalls) throw new IntegrityAgentError("TOOL_CALL_LIMIT");
@@ -246,7 +246,7 @@ async function runLoop<T>(
 	}).catch((err: unknown) => {
 		if (err instanceof IntegrityAgentError) throw err;
 		if (combined.aborted) throw new IntegrityAgentError("TIMEOUT");
-		throw new IntegrityAgentError("MODEL_ERROR");
+		throw new IntegrityAgentError("MODEL_ERROR", [], err);
 	});
 	if (totalToolCalls + repair.result.toolCalls.length > config.maxToolCalls) {
 		throw new IntegrityAgentError("TOOL_CALL_LIMIT");
