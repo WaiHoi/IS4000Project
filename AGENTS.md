@@ -46,6 +46,7 @@ read of another service's database. Use signed internal HTTP or Kafka.
 pnpm install
 pnpm start                 # whole stack: .env bootstrap, docker, setup, flags, dev
 pnpm start --lite          # same, deterministic pipeline only
+pnpm cleanup               # after Ctrl+C: wipe containers, volumes, blobs (keeps .env)
 # manual equivalent:
 docker compose up -d --wait
 pnpm run setup             # db wait/init/migrate/seed + kafka init (NOT `pnpm setup`, a pnpm builtin)
@@ -59,7 +60,8 @@ Verification:
 pnpm typecheck
 pnpm test
 pnpm test:integration      # real Postgres/Temporal; stack required
-pnpm test:e2e              # Playwright; starts its own stack
+pnpm test:e2e              # Playwright: 3 demo flows; starts its own stack
+pnpm test:e2e:all          # every e2e spec
 pnpm lint
 pnpm exec oxfmt <files>    # format only the files you touched
 ```

@@ -6,8 +6,9 @@
 // Steps: bootstrap .env (copy .env.example, generate any blank/placeholder
 // secrets) -> docker compose (postgres, kafka, temporal, temporal-ui, plus
 // ClamAV for documents) -> setup (db wait/init, kafka topics, migrate, seed
-// users) -> demo fixtures -> policy corpus (AI only) -> `pnpm dev` with the
-// feature flags switched on for this run.
+// users) -> `pnpm dev` with the feature flags switched on for this run ->
+// once every service is healthy, seed reference data (demo customer
+// profiles + evidence, policy corpus) -> print what is on.
 //
 // Feature flags are derived, not hand-set: AI features turn on only when
 // OPENROUTER_API_KEY is in .env (the case brief also needs TAVILY_API_KEY).
@@ -25,6 +26,7 @@ import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { applyFlags, deriveFlags } from "./lib/stack-flags.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_PATH = join(ROOT, ".env");
@@ -155,55 +157,93 @@ if (docs) {
 		"clamav",
 	]);
 }
+// Schema + login users must exist before the services boot; everything
+// else is seeded once the stack is up (see seedReferenceData below).
 must("setup: databases, kafka topics, migrations, users", pnpm, ["run", "setup"]);
-run("demo fixtures (customers, accounts, evidence)", pnpm, ["run", "demo:seed"]);
 if (docs) docs = await waitForClamd(Number(dotenv.get("CLAMAV_PORT") ?? 3310), 5 * 60_000);
-const policy =
-	ai &&
-	run("policy corpus (embeddings via OpenRouter)", pnpm, ["--filter", "@credit/policy", "seed"]);
+const policy = ai;
 
-const on = (b: boolean): string => (b ? "true" : "false");
-const flags: Record<string, string> = {
-	DEMO_MODE: "true",
-	// Deterministic surfaces (no model).
-	ASSIST_ENABLED: on(!lite),
-	DOCUMENT_FEATURE_ENABLED: on(docs),
-	DOCUMENT_INTEGRITY_ENABLED: on(docs),
-	FRAUD_REVIEW_ENABLED: on(docs),
-	// Advisory AI (OpenRouter).
-	ASSIST_MEMO_WRITER: ai ? "agent" : "deterministic",
-	ASSIST_POLICY_EXCEPTION_ENABLED: on(ai && policy),
-	AGENTS_ENABLED: on(ai),
-	CASE_ASSISTANT_ENABLED: on(ai),
-	CONTEXT_ANALYST_ENABLED: on(ai),
-	AGENT_CASE_BRIEF_ENABLED: on(brief),
-	POLICY_ASSIST_ENABLED: on(policy),
-	DOCUMENT_INTEGRITY_AGENT_ENABLED: on(ai && docs),
-	DOCUMENT_INTEGRITY_TRIAGE_ENABLED: on(ai && docs),
-};
-// A flag you exported in your shell beats the derived value.
-const env: NodeJS.ProcessEnv = { ...process.env };
-for (const [key, value] of Object.entries(flags)) env[key] ??= value;
+const flags = deriveFlags({ lite, ai, brief, docs, policy });
+// A flag you exported in your shell (different from .env) beats the derived value.
+const env = applyFlags(process.env, dotenv, flags) as NodeJS.ProcessEnv;
 
 const why = (b: boolean, reason: string): string => (b ? "on " : `off  (${reason})`);
 const noKey = lite ? "--lite" : "no OPENROUTER_API_KEY in .env";
-console.log(`
-┌ credit pipeline — ${lite ? "lite" : "full"} stack
+
+async function healthy(): Promise<boolean> {
+	try {
+		const res = await fetch("http://127.0.0.1:3001/api/health", {
+			signal: AbortSignal.timeout(3000),
+		});
+		const body = (await res.json()) as {
+			status?: string;
+			services?: Record<string, { ok?: boolean }>;
+		};
+		return (
+			body.status === "ok" && Object.values(body.services ?? {}).every((svc) => svc.ok === true)
+		);
+	} catch {
+		return false;
+	}
+}
+
+async function waitForStack(timeoutMs: number): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (await healthy()) return true;
+		await new Promise((r) => setTimeout(r, 3000));
+	}
+	return false;
+}
+
+/**
+ * Reference data, seeded against the running stack: demo customer profiles
+ * (BreadTalk, Envy, alex, sparse), BreadTalk's fresh evidence so its stale
+ * checklist can be cleared by Reuse, and the policy corpus. All idempotent.
+ * No applications are created — cases are made live during the demo.
+ */
+function seedReferenceData(): { policySeeded: boolean } {
+	run("seed: demo customer profiles, accounts, evidence", pnpm, ["run", "demo:seed"]);
+	run("seed: BreadTalk fresh evidence (for Reuse)", pnpm, [
+		"run",
+		"demo:refresh-evidence",
+		"--persona=breadtalk",
+	]);
+	const policySeeded =
+		policy &&
+		run("seed: policy corpus (embeddings via OpenRouter)", pnpm, [
+			"--filter",
+			"@credit/policy",
+			"seed",
+		]);
+	return { policySeeded };
+}
+
+function summary(stackUp: boolean, policySeeded: boolean): string {
+	return `
+┌ credit pipeline — ${lite ? "lite" : "full"} stack ${stackUp ? "ready" : "NOT healthy (see logs above)"}
 │ pipeline (apply → score → decide → book → monitor)  on
 │ documents + integrity panel + fraud review          ${why(docs, lite ? "--lite" : "ClamAV not ready")}
 │ credit memo (template) + adverse-action letter      ${why(!lite, "--lite")}${!lite && !has("ASSIST_ADVERSE_CONTACT_PATH") ? "  (letter needs ASSIST_ADVERSE_CONTACT_PATH)" : ""}
 │ AI: memo writer, case assistant, context analyst    ${why(ai, noKey)}
 │ AI: external case brief                             ${why(brief, ai ? "no TAVILY_API_KEY in .env" : noKey)}
-│ AI: policy navigator + case review + exceptions     ${why(policy, ai ? "policy corpus seed failed" : noKey)}
+│ AI: policy navigator + case review + exceptions     ${why(policySeeded, ai ? "policy corpus seed failed" : noKey)}
 │ AI: document integrity analysis + triage            ${why(ai && docs, ai ? "documents off" : noKey)}
 │ auto-research on every referral                     off  (spends automatically; set AGENT_AUTO_TRIGGER_ENABLED=true)
 │
-│ web       http://localhost:3000   (password demo1234: maria@example.com, officer@example.com, …)
+│ web       http://localhost:3000   (password demo1234)
+│           maria@example.com · breadtalk@example.com · envy@example.com · officer@example.com
 │ api       http://127.0.0.1:3001/api/health
 │ temporal  http://localhost:8080
-└ Ctrl+C stops the app processes; \`docker compose down\` stops the containers.
-`);
+└ Ctrl+C stops the app; \`pnpm cleanup\` then wipes everything back to a clean state.
+`;
+}
 
 const dev = spawn(pnpm, ["dev"], { cwd: ROOT, stdio: "inherit", env, shell: true });
 for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => dev.kill(sig));
 dev.on("exit", (code) => process.exit(code ?? 0));
+
+console.log("\n▶ waiting for the gateway and every service to report healthy");
+const stackUp = await waitForStack(5 * 60_000);
+const { policySeeded } = stackUp ? seedReferenceData() : { policySeeded: false };
+console.log(summary(stackUp, policySeeded));

@@ -1,0 +1,53 @@
+// Feature-flag derivation for `pnpm start` (scripts/stack.ts), kept pure so
+// it is unit-tested. Flags follow the keys in .env; a shell export wins only
+// when it differs from .env, so values that leaked in from .env (Bun
+// auto-loads .env unless run with --no-env-file) can never pass for
+// deliberate overrides.
+
+export interface StackCapabilities {
+	lite: boolean;
+	ai: boolean;
+	brief: boolean;
+	docs: boolean;
+	policy: boolean;
+}
+
+export function deriveFlags(c: StackCapabilities): Record<string, string> {
+	const on = (b: boolean): string => (b ? "true" : "false");
+	return {
+		DEMO_MODE: "true",
+		// Deterministic surfaces (no model).
+		ASSIST_ENABLED: on(!c.lite),
+		DOCUMENT_FEATURE_ENABLED: on(c.docs),
+		DOCUMENT_INTEGRITY_ENABLED: on(c.docs),
+		FRAUD_REVIEW_ENABLED: on(c.docs),
+		// Advisory AI (OpenRouter).
+		ASSIST_MEMO_WRITER: c.ai ? "agent" : "deterministic",
+		ASSIST_POLICY_EXCEPTION_ENABLED: on(c.ai && c.policy),
+		AGENTS_ENABLED: on(c.ai),
+		CASE_ASSISTANT_ENABLED: on(c.ai),
+		CONTEXT_ANALYST_ENABLED: on(c.ai),
+		AGENT_CASE_BRIEF_ENABLED: on(c.brief),
+		POLICY_ASSIST_ENABLED: on(c.policy),
+		DOCUMENT_INTEGRITY_AGENT_ENABLED: on(c.ai && c.docs),
+		DOCUMENT_INTEGRITY_TRIAGE_ENABLED: on(c.ai && c.docs),
+	};
+}
+
+/**
+ * The env the services start with: derived flags, except where the shell
+ * exported a value that differs from .env (a deliberate override).
+ */
+export function applyFlags(
+	shell: Record<string, string | undefined>,
+	dotenv: ReadonlyMap<string, string>,
+	flags: Record<string, string>,
+): Record<string, string | undefined> {
+	const env = { ...shell };
+	for (const [key, value] of Object.entries(flags)) {
+		const exported = shell[key];
+		const override = exported !== undefined && exported !== dotenv.get(key);
+		if (!override) env[key] = value;
+	}
+	return env;
+}
