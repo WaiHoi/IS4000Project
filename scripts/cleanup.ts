@@ -6,7 +6,9 @@
 // and Temporal UI) and their volumes — all databases, Kafka topics, and
 // Temporal history — plus local runtime files: document/customer blobs
 // (.data/) and e2e artifacts (e2e/test-results, e2e/logs).
-// Keeps: .env (API keys + generated secrets), node_modules, eval results.
+// Keeps: .env (API keys + generated secrets), node_modules, eval results,
+// and the containers' dependency cache (svc-node-modules volume) so the
+// next containerised start doesn't reinstall the whole workspace.
 //
 // Refuses while the app is still running (gateway :3001 or web :3000
 // answering), so it never yanks the databases out from under live
@@ -45,26 +47,59 @@ if (!force) {
 	}
 }
 
-console.log("▶ docker: removing containers and volumes (databases, Kafka, Temporal)");
-const down = spawnSync(
-	"docker",
-	[
-		"compose",
-		"-f",
-		"docker-compose.yml",
-		"-f",
-		"compose.services.yml",
-		"--profile",
-		"microservices",
-		"down",
-		"--volumes",
-		"--remove-orphans",
-	],
-	{ cwd: ROOT, stdio: "inherit", shell: true },
-);
+const COMPOSE = [
+	"compose",
+	"-f",
+	"docker-compose.yml",
+	"-f",
+	"compose.services.yml",
+	"--profile",
+	"microservices",
+];
+/** Volumes that hold no app state: kept so the next start stays fast. */
+const KEEP_VOLUMES = new Set(["svc-node-modules"]);
+
+console.log("▶ docker: removing containers");
+const down = spawnSync("docker", [...COMPOSE, "down", "--remove-orphans"], {
+	cwd: ROOT,
+	stdio: "inherit",
+	shell: true,
+});
 if (down.status !== 0) {
 	console.error("✖ docker compose down failed — is Docker running?");
 	process.exit(1);
+}
+
+// Data volumes (databases, Kafka, Temporal history) by compose project label.
+const config = spawnSync("docker", [...COMPOSE, "config", "--format", "json"], {
+	cwd: ROOT,
+	encoding: "utf8",
+	shell: true,
+});
+const project = (JSON.parse(config.stdout || "{}") as { name?: string }).name ?? "";
+const listed = spawnSync(
+	"docker",
+	["volume", "ls", "-q", "--filter", `label=com.docker.compose.project=${project}`],
+	{ cwd: ROOT, encoding: "utf8", shell: true },
+);
+const volumes = (listed.stdout ?? "")
+	.split(/\s+/)
+	.filter((v) => v !== "" && !KEEP_VOLUMES.has(v.slice(project.length + 1)));
+if (project === "" || listed.status !== 0) {
+	console.error("✖ could not list the project's docker volumes");
+	process.exit(1);
+}
+if (volumes.length > 0) {
+	console.log(`▶ docker: removing volumes ${volumes.join(", ")}`);
+	const rm = spawnSync("docker", ["volume", "rm", ...volumes], {
+		cwd: ROOT,
+		stdio: "inherit",
+		shell: true,
+	});
+	if (rm.status !== 0) {
+		console.error("✖ docker volume rm failed");
+		process.exit(1);
+	}
 }
 
 const removed: string[] = [];

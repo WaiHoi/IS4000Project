@@ -14,9 +14,10 @@ pnpm start
 `pnpm start` (`scripts/stack.ts`) creates `.env` if needed and fills blank
 secrets. It starts Docker Compose plus ClamAV, then runs `pnpm run setup`
 and `demo:seed`. Setup waits for Postgres, creates databases and Kafka
-topics, migrates, and seeds demo users. Finally it starts `pnpm dev`: the
-gateway (`:3001`), six services (`:4001`-`:4006`), the worker, both agent
-workers, and the web app (`:3000`). It enables every feature your `.env`
+topics, migrates, and seeds demo users. It then starts the gateway (`:3001`), six
+services (`:4001`-`:4006`), the worker and both agent workers as containers
+(`compose.services.yml`). The web app (`:3000`) runs on the host. Use
+`pnpm start --local` to run the services as host processes with hot reload. It enables every feature your `.env`
 can support (AI needs `OPENROUTER_API_KEY`) and prints a summary of what is
 on. Use `pnpm start --lite` for the deterministic pipeline only.
 

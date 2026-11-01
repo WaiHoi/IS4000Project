@@ -2,6 +2,12 @@
 //
 //   pnpm start          everything your .env can support
 //   pnpm start --lite   deterministic pipeline only (no AI, no documents)
+//   pnpm start --local  backend services as host processes (hot reload)
+//
+// By default the backend services, the pipeline worker and both agent
+// workers run as containers (compose.services.yml, profile microservices);
+// only the web app (Vite) runs on the host. --local keeps everything but the
+// infra on the host via `pnpm dev`.
 //
 // Steps: bootstrap .env (copy .env.example, generate any blank/placeholder
 // secrets) -> docker compose (postgres, kafka, temporal, temporal-ui, plus
@@ -31,6 +37,8 @@ import { applyFlags, deriveFlags, withNodeProxy } from "./lib/stack-flags.js";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_PATH = join(ROOT, ".env");
 const lite = process.argv.includes("--lite");
+const local = process.argv.includes("--local");
+const COMPOSE = ["compose", "-f", "docker-compose.yml", "-f", "compose.services.yml"];
 // Commands run through the shell: inside a pnpm script, `pnpm` on PATH is a
 // shim Bun can't exec directly (ENOEXEC), and on Windows it is pnpm.cmd.
 // Every argument here is a fixed literal, so there is nothing to quote.
@@ -242,15 +250,81 @@ function summary(stackUp: boolean, policySeeded: boolean): string {
 │           maria@example.com · breadtalk@example.com · envy@example.com · officer@example.com
 │ api       http://127.0.0.1:3001/api/health
 │ temporal  http://localhost:8080
+│ services  ${local ? "host processes (pnpm dev)" : "containers (docker compose --profile microservices)"}
 └ Ctrl+C stops the app; \`pnpm cleanup\` then wipes everything back to a clean state.
 `;
 }
 
-const dev = spawn(pnpm, ["dev"], { cwd: ROOT, stdio: "inherit", env, shell: true });
-for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => dev.kill(sig));
-dev.on("exit", (code) => process.exit(code ?? 0));
+if (local) {
+	const dev = spawn(pnpm, ["dev"], { cwd: ROOT, stdio: "inherit", env, shell: true });
+	for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => dev.kill(sig));
+	dev.on("exit", (code) => process.exit(code ?? 0));
+} else {
+	// Containers read the derived flags from this file (svc-base env_file);
+	// compose also interpolates the explicit `environment:` entries from env.
+	const containerEnv = Object.keys(flags).map((key) => `${key}=${env[key] ?? ""}`);
+	// TLS-inspecting networks (corporate proxies, sandboxes) re-sign HTTPS with
+	// their own CA. The host trusts it via NODE_EXTRA_CA_CERTS; containers
+	// don't, so npm and the OpenRouter/Tavily calls fail. Copy the bundle into
+	// the bind-mounted repo (/app) and point Node and Bun at it.
+	const hostCa = process.env.NODE_EXTRA_CA_CERTS;
+	if (hostCa && existsSync(hostCa)) {
+		copyFileSync(hostCa, join(ROOT, ".data", "extra-ca.pem"));
+		containerEnv.push("NODE_EXTRA_CA_CERTS=/app/.data/extra-ca.pem");
+	}
+	writeFileSync(join(ROOT, ".data", "stack.env"), `${containerEnv.join("\n")}\n`);
+	must(
+		"docker: backend services + workers (first run installs dependencies: several minutes)",
+		"docker",
+		[...COMPOSE, "--profile", "microservices", "up", "-d", "--remove-orphans"],
+		env,
+	);
+	const web = spawn(pnpm, ["--filter", "@credit/web", "dev"], {
+		cwd: ROOT,
+		stdio: "inherit",
+		env,
+		shell: true,
+	});
+	const stopServices = (): void => {
+		// Ctrl+C stops the web app and the service containers; infra stays up
+		// (`pnpm cleanup` removes everything).
+		const listed = spawnSync(
+			"docker",
+			[...COMPOSE, "--profile", "microservices", "config", "--services"],
+			{
+				cwd: ROOT,
+				encoding: "utf8",
+				shell: true,
+			},
+		);
+		const infra = new Set(["postgres", "kafka", "temporal", "temporal-ui"]);
+		const services = (listed.stdout ?? "")
+			.split(/\s+/)
+			.filter((name) => name !== "" && !infra.has(name));
+		console.log("\n▶ stopping service containers (infra keeps running)");
+		spawnSync("docker", [...COMPOSE, "--profile", "microservices", "stop", ...services], {
+			cwd: ROOT,
+			stdio: "inherit",
+			shell: true,
+		});
+	};
+	let stopping = false;
+	for (const sig of ["SIGINT", "SIGTERM"] as const) {
+		process.on(sig, () => {
+			if (stopping) return;
+			stopping = true;
+			web.kill(sig);
+			stopServices();
+			process.exit(0);
+		});
+	}
+	web.on("exit", (code) => {
+		if (!stopping) process.exit(code ?? 0);
+	});
+}
 
 console.log("\n▶ waiting for the gateway and every service to report healthy");
-const stackUp = await waitForStack(5 * 60_000);
+// First container run installs the workspace in the deps container.
+const stackUp = await waitForStack((local ? 5 : 15) * 60_000);
 const { policySeeded } = stackUp ? seedReferenceData() : { policySeeded: false };
 console.log(summary(stackUp, policySeeded));

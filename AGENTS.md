@@ -44,7 +44,8 @@ read of another service's database. Use signed internal HTTP or Kafka.
 
 ```powershell
 pnpm install
-pnpm start                 # whole stack: .env bootstrap, docker, setup, flags, dev
+pnpm start                 # whole stack: infra + services as containers, web on host
+pnpm start --local         # same, services as host processes (hot reload)
 pnpm start --lite          # same, deterministic pipeline only
 pnpm cleanup               # after Ctrl+C: wipe containers, volumes, blobs (keeps .env)
 # manual equivalent:

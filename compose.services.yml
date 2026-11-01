@@ -34,6 +34,12 @@ x-svc-base: &svc-base
   volumes:
     - .:/app
     - svc-node-modules:/app/node_modules
+  # Feature flags derived by `pnpm start` (from the API keys in .env). Process
+  # env beats each server's dotenv load of /app/.env, so these win; the
+  # explicit `environment:` entries below still win over this file.
+  env_file:
+    - path: .data/stack.env
+      required: false
   restart: unless-stopped
   profiles: ["microservices"]
 

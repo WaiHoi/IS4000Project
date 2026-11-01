@@ -22,7 +22,15 @@ officer-triggered or auto-triggered on referral, never decisive) behind `AGENTS_
 ```powershell
 pnpm install
 pnpm start          # everything your .env supports; `pnpm start --lite` = pipeline only
+                    # `pnpm start --local` = services as host processes (hot reload)
 ```
+
+By default the backend services, the pipeline worker and both agent workers
+run as containers (`compose.services.yml`). Only the web app runs on your
+machine. The first containerised start installs the workspace inside a
+`deps` container, which takes a few minutes; later starts reuse that cache.
+On TLS-inspecting networks, the host's `NODE_EXTRA_CA_CERTS` bundle is
+passed to the containers.
 
 `pnpm start` creates `.env` from `.env.example` if it is missing and
 generates any blank secrets. It then starts Docker (Postgres, Kafka,
