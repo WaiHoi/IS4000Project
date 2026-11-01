@@ -10,6 +10,7 @@
 // flags; DOCUMENT_INTEGRITY_AGENT_ENABLED=false in e2e, so no brief is
 // produced and an unresolved item stays open.
 import { expect, test } from "@playwright/test";
+import { declineIfPending } from "./demo-flow.js";
 import dotenv from "dotenv";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -112,6 +113,14 @@ interface ReviewDetail {
 	briefAvailable?: boolean;
 }
 
+/** Case this spec referred; declined afterwards so repeat runs never exhaust
+ * the applicant's 3 non-terminal applications (tomas/monitoring share it). */
+let tracked: string | null = null;
+test.afterEach(async () => {
+	await declineIfPending("tomas@cafe-aurora.example", tracked);
+	tracked = null;
+});
+
 test("integrity flags open a fraud-review item; resolution leaves the case untouched", async ({
 	page,
 }) => {
@@ -122,6 +131,7 @@ test("integrity flags open a fraud-review item; resolution leaves the case untou
 	await applicant.login("tomas@cafe-aurora.example");
 	const submitted = await submitOrReuse(applicant);
 	const appId = submitted.id;
+	tracked = appId;
 
 	const probe = await applicant.get<{ application: { documentsEnabled?: boolean } }>(
 		`/api/applications/${appId}`,
@@ -226,7 +236,11 @@ test("integrity flags open a fraud-review item; resolution leaves the case untou
 		timeout: 60_000,
 	});
 	await expect(page.getByText("crosscheck_mismatch").first()).toBeVisible();
-	await expect(page.getByText("No brief for this review.")).toBeVisible();
+	// With the integrity agent on (pnpm start + OpenRouter) the review gets a
+	// triage brief; the brief-less copy only holds while the agent is off.
+	if (process.env.DOCUMENT_INTEGRITY_AGENT_ENABLED !== "true") {
+		await expect(page.getByText("No brief for this review.")).toBeVisible();
+	}
 	await expect(page.getByText(/confirmed fraud/i)).toHaveCount(0);
 	await expect(page.getByText(/definitively|tampering confirmed/i)).toHaveCount(0);
 	expect(detail.review.signalCodes ?? []).toContain("crosscheck_mismatch");

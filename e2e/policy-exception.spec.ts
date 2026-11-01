@@ -4,6 +4,7 @@
 // policy service; cited explanations and memo drafting are covered by
 // integration/eval suites.
 import { expect, test } from "@playwright/test";
+import { declineIfPending } from "./demo-flow.js";
 import dotenv from "dotenv";
 import {
 	Api,
@@ -68,6 +69,14 @@ async function submitOrReuse(applicant: Api): Promise<{ id: string; reference: s
 	}
 }
 
+/** Case this spec referred; declined afterwards so repeat runs never exhaust
+ * the applicant's 3 non-terminal applications (tomas/monitoring share it). */
+let tracked: string | null = null;
+test.afterEach(async () => {
+	await declineIfPending("tomas@cafe-aurora.example", tracked);
+	tracked = null;
+});
+
 test("officer sees the deterministic policy/exception view and the case is unchanged", async ({
 	page,
 }) => {
@@ -75,6 +84,7 @@ test("officer sees the deterministic policy/exception view and the case is uncha
 	const applicant = new Api();
 	await applicant.login("tomas@cafe-aurora.example");
 	const submitted = await submitOrReuse(applicant);
+	tracked = submitted.id;
 	await waitStatus(applicant, submitted.id, "pending_review");
 
 	const officer = new Api();

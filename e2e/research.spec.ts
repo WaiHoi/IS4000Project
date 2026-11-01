@@ -7,6 +7,10 @@ import { expect, test } from "@playwright/test";
 import { Api, gotoHydrated, uiLogin } from "./helpers.js";
 
 test("research disabled: panel hidden, officer 404, applicant 403", async ({ page }) => {
+	test.skip(
+		process.env.AGENTS_ENABLED === "true" && process.env.AGENT_CASE_BRIEF_ENABLED === "true",
+		"research is on in this stack; the live path is covered by the demo-2/demo-3 specs",
+	);
 	const applicant = new Api();
 	await applicant.login("lena@bakery.example");
 	const submitted = await applicant.post<{ id: string; reference: string }>("/api/applications", {
