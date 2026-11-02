@@ -8,7 +8,7 @@
 // output reaches a score, decision, term, or booking.
 import { randomUUID } from "node:crypto";
 import { APIConnectionTimeoutError } from "openai";
-import { defineAgent } from "@credit/agent-kit";
+import { defineAgent, type ReasoningEffort } from "@credit/agent-kit";
 import type { Logger } from "@credit/service-kit";
 import { applicationObservability } from "../../observability.js";
 import { createAgentClient, withDeadline } from "../shared/runtime.js";
@@ -48,6 +48,8 @@ export interface PolicyExceptionSdkOptions {
 	validatorVersion?: string;
 	maxToolCalls: number;
 	maxOutputTokens: number;
+	/** Pinned per agent; omitted means "medium". */
+	reasoningEffort?: ReasoningEffort;
 	timeoutMs: number;
 	policyClient: PolicyClient;
 	actorId: string;
@@ -113,6 +115,7 @@ export function createAgentsPolicyExceptionRunner(
 						metadata: {
 							promptVersion: opts.promptVersion,
 							validatorVersion: opts.validatorVersion,
+							reasoningEffort: opts.reasoningEffort ?? "medium",
 						},
 						onSuccess: (value: unknown) => {
 							const usage = (value as CompletionResult).usage;
@@ -134,8 +137,8 @@ export function createAgentsPolicyExceptionRunner(
 						)(
 							{
 								model: opts.model,
-								temperature: 0,
 								max_tokens: opts.maxOutputTokens,
+								reasoning_effort: opts.reasoningEffort ?? "medium",
 								response_format: { type: "json_object" },
 								messages: [
 									{

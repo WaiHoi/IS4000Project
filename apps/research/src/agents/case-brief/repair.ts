@@ -1,5 +1,5 @@
 // Bounded language-repair pass (§6.4): the same approved model,
-// temperature 0, strict structured output, one call max, on the run's
+// medium reasoning effort, strict structured output, one call max, on the run's
 // deadline signal. Rewrites ONLY `summary`, `findings[].whyItMatters`
 // (and `claim` only when it holds decision language) to remove
 // recommendations/decisions/grades/scores/rates/limits/terms and implicit

@@ -1,4 +1,4 @@
-// Blocking claim-support judge (§6.4.5): same approved model, temperature 0,
+// Blocking claim-support judge (§6.4.5): same approved model, medium effort,
 // structured verdict. One repair attempt; unsupported findings are discarded.
 // Judge token usage is reported per call so the run enforces its cost cap
 // end-to-end (agent + judge), and every call takes the run's deadline signal.

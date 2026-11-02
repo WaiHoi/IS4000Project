@@ -44,7 +44,6 @@ function setup(responses: Array<Response | Error>, overrides: Partial<OpenRouter
 		model: "m",
 		dimensions: 3,
 		embeddingModel: "e",
-		temperature: 0,
 		maxOutputTokens: 100,
 		fetchImpl,
 		logger: { warn },
@@ -70,6 +69,17 @@ const navigatorInput = () => ({
 	sections: [section] as never,
 	signal: new AbortController().signal,
 	conversationId: "c",
+});
+
+describe("policy-answerer reasoning effort", () => {
+	it("sends medium by default and the configured effort when set", async () => {
+		const pinned = setup([okChat()]);
+		await createOpenRouterAnswerer(pinned.config).answerNavigator(navigatorInput());
+		expect(pinned.calls[0]!.body.reasoning_effort).toBe("medium");
+		const high = setup([okChat()], { reasoningEffort: "high" });
+		await createOpenRouterAnswerer(high.config).answerNavigator(navigatorInput());
+		expect(high.calls[0]!.body.reasoning_effort).toBe("high");
+	});
 });
 
 describe("policy-answerer prompts", () => {

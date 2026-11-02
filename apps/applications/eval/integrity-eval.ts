@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
+import type { ReasoningEffort } from "@credit/agent-kit";
 import {
 	containsApplicationReference,
 	containsBriefDecisionLanguage,
@@ -104,6 +105,7 @@ const CONFIG: IntegrityConfig = {
 	timeoutMs: TIMEOUT_MS,
 	maxCostUsd: MAX_RUN_COST_USD,
 	maxOutputTokens: envInt("DOCUMENT_INTEGRITY_MAX_OUTPUT_TOKENS", 4000),
+	reasoningEffort: envStr("DOCUMENT_INTEGRITY_REASONING_EFFORT", "low") as ReasoningEffort,
 	flagSeverity: "high",
 	retentionDays: 365,
 	systemUserId: "00000000-0000-0000-0000-000000000000",
@@ -478,6 +480,7 @@ function createRunner(): IntegrityAgentRunner {
 				promptVersion: CONFIG.promptVersion,
 				maxToolCalls: CONFIG.maxToolCalls,
 				maxOutputTokens: CONFIG.maxOutputTokens,
+				reasoningEffort: CONFIG.reasoningEffort,
 				timeoutMs: CONFIG.timeoutMs,
 			});
 	if (process.env.INTEGRITY_EVAL_DEBUG !== "1") return base;
@@ -1092,6 +1095,7 @@ function writeResults(path: string): void {
 					promptVersion: CONFIG.promptVersion,
 					triagePromptVersion: CONFIG.triagePromptVersion,
 					agentVersion: CONFIG.agentVersion,
+					reasoningEffort: FROZEN ? null : CONFIG.reasoningEffort,
 					maxSteps: CONFIG.maxSteps,
 					maxToolCalls: CONFIG.maxToolCalls,
 					timeoutMs: CONFIG.timeoutMs,

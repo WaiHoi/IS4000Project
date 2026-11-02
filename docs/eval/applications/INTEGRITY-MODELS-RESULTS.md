@@ -83,3 +83,20 @@ two; Gemini trails on reliability and latency.
 - Usage on failed trials is not recorded, so cost totals understate failures.
 - The deterministic baseline covers only label-regex fields; dates, amounts,
   and document types are model-only.
+
+## Reasoning-effort sweep (2026-11-02)
+
+Production now pins **Sol at `low`** (`DOCUMENT_INTEGRITY_REASONING_EFFORT`).
+35 cases × 3 trials; see the [reasoning-effort sweep](../reasoning-effort-2026-11-02.md).
+
+| Run | pass@1 | pass^3 | Safety | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|
+| Sol medium (above) | 0.990 | 34/35 | 0 | — | $0.57 |
+| **Sol low** | **0.990** | **34/35** | **0** | **7.9s / 13.1s** | $0.539 |
+| Terra high | 1.000 | 35/35 | 0 | 14.2s / 31.9s | $0.607 |
+
+Terra high matches Sol on quality (the long-document tail case passed 3/3) but
+its p95 breaks the 30s `integrity` guardrail, so it was not adopted and the
+guardrail was not raised. Sol low misses the same long-document case once,
+as Sol medium did. Raw: `integrity-2026-11-01T22-35-49-848Z.json` (Sol low),
+`…T21-03-08-267Z.json` (Terra high).

@@ -88,3 +88,23 @@ not recommended for this agent.
   extension takes the suite to 43 (29 dev / 14 held-out). Held-out was not used
   for tuning.
 - Costs are OpenRouter list prices from token usage, not billed.
+
+## Reasoning-effort sweep (2026-11-02)
+
+The policy service stays at **Terra `medium`** (`POLICY_AGENT_REASONING_EFFORT`,
+shared with case review). 43 cases × 3 trials, Terra judge; see the [reasoning-effort sweep](../reasoning-effort-2026-11-02.md).
+
+| Run | pass@1 | pass^3 | Held-out | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|
+| medium (above) | 0.930 | 37/43 | 12/14 | — | $0.315 |
+| medium (re-run) | 0.907 | 35/43 | 12/14 | 9.0s / 20.3s | $0.318 |
+| low, run 1 | 0.938 | 39/43 | 14/14 | 6.5s / 13.7s | $0.289 |
+| low, run 2 | 0.907 | 36/43 | 12/14 | 6.6s / 14.1s | $0.286 |
+| high | 0.922 | 37/43 | 13/14 | 12.2s / 31.3s | $0.359 |
+
+The pre-registered rule kept `low` only if a second low run stayed at or above
+the recorded medium; it did not, so `medium` stays. The fresh medium run shows
+a ±2-case pass^3 spread between runs at the same effort, so low and medium are
+not distinguishable here; high is slower and not better. Raw:
+`answers-2026-11-01T23-04-27-935Z.json` (medium), `…T21-45-16-448Z.json`,
+`…T22-43-53-967Z.json` (low), `…T22-15-48-166Z.json` (high).

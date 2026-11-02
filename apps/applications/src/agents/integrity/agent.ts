@@ -1,7 +1,7 @@
 // OpenAI Agents SDK runner for the integrity analysis/triage loop.
 //
 // Mirrors the memo-writer runner: one raw draft per `run`, allowlisted
-// tools only, temperature 0, no SDK tracing, and typed errors. The
+// tools only, pinned reasoning effort, no SDK tracing, and typed errors. The
 // orchestrator owns validation, repair, and the persisted trace. Advisory
 // only: no output reaches a score, decision, term, or booking.
 
@@ -14,7 +14,7 @@ import {
 	tool,
 } from "@openai/agents";
 import { APIConnectionTimeoutError } from "openai";
-import { defineAgent } from "@credit/agent-kit";
+import { defineAgent, type ReasoningEffort } from "@credit/agent-kit";
 import { readRunUsage, type AgentsOpenAIClient } from "@credit/agent-observability/openai-agents";
 import type { Logger } from "@credit/service-kit";
 import { applicationObservability } from "../../observability.js";
@@ -66,6 +66,8 @@ export interface AgentsIntegrityRunnerOptions {
 	promptVersion?: string;
 	maxToolCalls: number;
 	maxOutputTokens: number;
+	/** Pinned per agent; omitted means "medium". */
+	reasoningEffort?: ReasoningEffort;
 	timeoutMs: number;
 	fetchImpl?: typeof fetch;
 	logger?: Pick<Logger, "warn">;
@@ -139,7 +141,10 @@ export function createAgentsIntegrityRunner(
 				instructions: buildSystemPrompt(generateBrief),
 				model,
 				tools,
-				modelSettings: { temperature: 0, maxTokens: opts.maxOutputTokens },
+				modelSettings: {
+					maxTokens: opts.maxOutputTokens,
+					reasoning: { effort: opts.reasoningEffort ?? "medium" },
+				},
 			});
 
 			const prompt = input.repair
@@ -157,7 +162,11 @@ export function createAgentsIntegrityRunner(
 						model: opts.model,
 						provider: "openrouter",
 						tags: { operation: "agent" },
-						metadata: { generateBrief, promptVersion: opts.promptVersion },
+						metadata: {
+							generateBrief,
+							promptVersion: opts.promptVersion,
+							reasoningEffort: opts.reasoningEffort ?? "medium",
+						},
 						onSuccess: (value) => {
 							const runUsage = readRunUsage(value);
 							return {

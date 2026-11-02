@@ -177,8 +177,8 @@ The agent starts with `list_documents` and `list_signals`; it can call
 `list_customer_evidence`, `get_customer_page`, and `get_duplicate_context`.
 Pure dispatcher (`tools.ts`): unknown or non-allowlisted tools return an error
 payload, never throw; excerpts capped (300 chars), pages 8,000 chars, 20 refs
-per call. Document text is untrusted data, never instructions (temperature 0,
-no SDK tracing).
+per call. Document text is untrusted data, never instructions (no SDK
+tracing).
 
 Bounds: `DOCUMENT_INTEGRITY_MAX_STEPS` (24), `DOCUMENT_INTEGRITY_MAX_TOOL_CALLS`
 (32), `DOCUMENT_INTEGRITY_TIMEOUT_MS` (90s), `DOCUMENT_INTEGRITY_MAX_COST_USD`
@@ -314,6 +314,8 @@ PII. Events: `integrity.flag_opened/flag_updated`,
 `OPENROUTER_API_KEY` (shared with the memo writer). Model/provenance defaults:
 `DOCUMENT_INTEGRITY_MODEL` (`openai/gpt-6.1-sol`; winner:
 `docs/eval/applications/INTEGRITY-MODELS-RESULTS.md`),
+`DOCUMENT_INTEGRITY_REASONING_EFFORT` (`low`; see
+`docs/eval/reasoning-effort-2026-11-02.md`),
 `DOCUMENT_INTEGRITY_PROMPT_VERSION` (`integrity-analysis-v1`),
 `DOCUMENT_INTEGRITY_AGENT_VERSION` (`integrity-agent-v1`),
 `DOCUMENT_INTEGRITY_TRIAGE_PROMPT_VERSION` (`integrity-triage-v1`, retained for

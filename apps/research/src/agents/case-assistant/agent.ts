@@ -363,8 +363,8 @@ export function createRealCaseAssistantRunner(opts: {
 				),
 				tools: agentTools,
 				modelSettings: {
-					temperature: env.caseAssistantTemperature,
 					maxTokens: env.caseAssistantMaxOutputTokens,
+					reasoning: { effort: env.caseAssistantReasoningEffort },
 				},
 			});
 			const runner = new Runner();
@@ -382,6 +382,7 @@ export function createRealCaseAssistantRunner(opts: {
 						operation: "generateText",
 						agentName: "case-assistant",
 						agentVersion: CASE_ASSISTANT_AGENT_VERSION,
+						reasoningEffort: env.caseAssistantReasoningEffort,
 					},
 					() =>
 						runner.run(agent, buildUserPrompt(input), {

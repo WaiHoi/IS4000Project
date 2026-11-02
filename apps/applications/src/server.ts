@@ -65,6 +65,7 @@ const app = createApp({
 						promptVersion: env.assist.memoPromptVersion,
 						maxToolCalls: env.assist.memoMaxToolCalls,
 						maxOutputTokens: env.assist.memoMaxOutputTokens,
+						reasoningEffort: env.assist.memoReasoningEffort,
 						timeoutMs: env.assist.memoTimeoutMs,
 						logger,
 					}),
@@ -96,6 +97,7 @@ const app = createApp({
 						artifactType: "policy_exception_memo",
 						maxToolCalls: env.assist.policyExceptionMaxToolCalls,
 						maxOutputTokens: env.assist.policyExceptionMaxOutputTokens,
+						reasoningEffort: env.assist.policyExceptionReasoningEffort,
 						timeoutMs: env.assist.policyExceptionTimeoutMs,
 						logger,
 						policyClient: createHttpPolicyClient({

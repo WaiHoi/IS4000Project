@@ -106,7 +106,9 @@ types.
   validator or invent a fallback that hides a failure.
 - Never let model text become a score, decision, term, booking, or policy
   evaluation input.
-- Model pins: context/policy/exception use Terra; brief/integrity/memo use Sol.
+- Model pins: context/policy/exception/brief use Terra; integrity/memo use Sol.
+  Reasoning effort is pinned per agent (`*_REASONING_EFFORT`); see
+  [docs/eval/reasoning-effort-2026-11-02.md](docs/eval/reasoning-effort-2026-11-02.md).
 - Keep prompt/agent/validator versions recorded on traces and eval results.
 
 ## Evals

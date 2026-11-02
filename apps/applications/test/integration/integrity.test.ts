@@ -88,6 +88,7 @@ const integrityConfig: IntegrityConfig = {
 	timeoutMs: 5_000,
 	maxCostUsd: 1,
 	maxOutputTokens: 2_000,
+	reasoningEffort: "medium",
 	flagSeverity: "high",
 	retentionDays: 365,
 	systemUserId: randomUUID(),

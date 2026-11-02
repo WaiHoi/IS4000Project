@@ -6,30 +6,37 @@ stay beside the code in `apps/<app>/eval/`.
 
 Start with the [eval design](eval-design.md) for the method, then the
 [model comparison](model-comparison-2026-10-28.md) for the cross-agent
-scorecard. [Tuning](TUNING-2026-10-28.md) records the A/B changes and the
+scorecard and the [reasoning-effort sweep](reasoning-effort-2026-11-02.md) for the current
+model/effort pins. [Tuning](TUNING-2026-10-28.md) records the A/B changes and the
 P0/P1/P2 expansion.
 
 ## Headline
 
-Pass@1 / pass^k from the latest refreshed runs. Pinned models are Terra for
-context, policy, exception, and the case assistant; Sol for brief, integrity,
-and memo. The comparison reports also include the earlier six-model sweeps.
+Pass@1 / pass^k from the latest refreshed runs at the pinned model and
+reasoning effort ([sweep](reasoning-effort-2026-11-02.md)). Terra: context (low), policy
+navigator/case review (medium), exception (low), case assistant (low), brief
+(high). Sol: integrity (low), memo (low). The comparison reports also include
+the earlier six-model sweeps.
 
-| Agent               |    Cases | Model | pass@1 | pass^k |   Cost | Report                                                              |
-| ------------------- | -------: | ----- | -----: | -----: | -----: | ------------------------------------------------------------------- |
-| Context analyst     |       37 | Terra |  1.000 |  37/37 | $1.386 | [model comparison](research/CONTEXT-MODELS-RESULTS.md)              |
-| Policy navigator    |       43 | Terra |  0.930 |  37/43 | $0.315 | [model comparison](policy/ANSWER-MODELS-RESULTS.md)                 |
-| Document integrity  |       35 | Sol   |  0.990 |  34/35 |  $0.57 | [model comparison](applications/INTEGRITY-MODELS-RESULTS.md)        |
-| External case brief |       20 | Sol   |  1.000 |  20/20 | $1.506 | [model comparison](research/BRIEF-MODELS-RESULTS.md)                |
-| Policy exception    | 28 valid | Terra |  0.964 |  27/28 | $0.458 | [model comparison](applications/POLICY-EXCEPTION-MODELS-RESULTS.md) |
-| Credit memo (live)  |       22 | Sol   |  1.000 |  22/22 | $0.267 | [live report](applications/MEMO-LIVE-RESULTS.md)                    |
-| Case policy review  |       22 | Sol   |  1.000 |  22/22 | $0.092 | [report](policy/CASE-REVIEW-RESULTS.md)                             |
-| Case assistant      |       20 | Terra |  1.000 |  20/20 | $0.249 | [model comparison](research/CASE-ASSISTANT-MODELS-RESULTS.md)       |
+| Agent               |    Cases | Model (effort) | pass@1 | pass^k |   Cost | Report                                                              |
+| ------------------- | -------: | -------------- | -----: | -----: | -----: | ------------------------------------------------------------------- |
+| Context analyst     |       37 | Terra (low) |  1.000 |  37/37 | $1.337 | [model comparison](research/CONTEXT-MODELS-RESULTS.md)              |
+| Policy navigator    |       43 | Terra (medium) |  0.907 |  35/43 | $0.318 | [model comparison](policy/ANSWER-MODELS-RESULTS.md)                 |
+| Document integrity  |       35 | Sol (low) |  0.990 |  34/35 | $0.539 | [model comparison](applications/INTEGRITY-MODELS-RESULTS.md)        |
+| External case brief |       20 | Terra (high) |  1.000 |  20/20 | $1.684 | [model comparison](research/BRIEF-MODELS-RESULTS.md)                |
+| Policy exception    |   17 dev | Terra (low) |  1.000 |  17/17 | $0.180 | [model comparison](applications/POLICY-EXCEPTION-MODELS-RESULTS.md) |
+| Credit memo (live)  |       22 | Sol (low) |  1.000 |  22/22 | $1.009 | [live report](applications/MEMO-LIVE-RESULTS.md)                    |
+| Case policy review  |       22 | Terra (medium) |  0.932 |  20/22 | $0.092 | [report](policy/CASE-REVIEW-RESULTS.md)                             |
+| Case assistant      |       20 | Terra (low) |  1.000 |  20/20 | $0.215 | [model comparison](research/CASE-ASSISTANT-MODELS-RESULTS.md)       |
 
 Context and policy also have Sol runs; memo and case review have Terra
-comparisons in their reports. Known residuals: one long-document integrity
-miss, one dual-prohibited exception case, ~2.4/5 memo completeness, and
-case-review coverage ~0.70. See each report's caveats.
+comparisons in their reports. The exception row is the dev split only: the
+held-out split was last run at medium (27/28 over 28 cases) and is not re-run
+after tuning. Costs are harness projections and differ by harness; the memo
+harness switched from a flat $1/M estimate to list prices in this sweep.
+Known residuals: one long-document integrity miss, one dual-prohibited
+exception case, ~2.6/5 memo completeness, and case-review coverage ~0.70. See
+each report's caveats.
 
 ## Applications
 
@@ -57,6 +64,7 @@ case-review coverage ~0.70. See each report's caveats.
 - [Context analyst model comparison](research/CONTEXT-MODELS-RESULTS.md) — six models, 30 windows + 7 independent customers.
 - [Case assistant model comparison](research/CASE-ASSISTANT-MODELS-RESULTS.md) — Terra/Sol, 20 questions, five eval customers, code gates.
 - [Tuning](TUNING-2026-10-28.md) — preflight A/Bs, prompt v7, and the P0/P1/P2 gap work.
+- [Reasoning-effort sweep](reasoning-effort-2026-11-02.md) — low/high/xhigh on Terra, Sol low fallback, current pins.
 
 ## Commands
 

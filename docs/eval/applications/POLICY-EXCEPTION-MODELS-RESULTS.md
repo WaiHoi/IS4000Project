@@ -98,3 +98,19 @@ the zero-repair pick. There is no pass@1 or pass^3 difference.
 - The held-out manifest was regenerated for this rerun; the dataset was not
   tuned on it.
 - Costs are OpenRouter list prices from token usage, not billed.
+
+## Reasoning-effort sweep (2026-11-02)
+
+Production now pins **Terra at `low`** (`POLICY_EXCEPTION_REASONING_EFFORT`).
+Dev split only (17 cases × 3 trials); the held-out manifest is consumed and was
+not deleted. See the [reasoning-effort sweep](../reasoning-effort-2026-11-02.md).
+
+| Run | pass@1 | pass^3 | Fidelity | Safety | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|---:|
+| Terra medium (28 valid, above) | 0.964 | 27/28 (dev 17/17) | 0.978 | 0 | 12.1s / 21.7s | $0.458 |
+| **Terra low (17 dev)** | **1.000** | **17/17** | **1.000** | **0** | **6.6s / 11.4s** | $0.180 |
+
+High was not run: the only medium failure is held-out `pe-explain-11`, which
+cannot be re-run, so high cannot show an improvement on the dev split. The 11
+held-out cases are untested at low. Raw:
+`policy-exception-2026-11-01T22-24-20-253Z.json`.

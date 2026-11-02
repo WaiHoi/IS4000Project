@@ -59,7 +59,7 @@ follow-ups refuse without a model call.
 Flag `ASSIST_POLICY_EXCEPTION_ENABLED` (default off; off is opaque 404).
 Config: `POLICY_EXCEPTION_*` (`MODEL`, `PROMPT_VERSION`, `AGENT_VERSION`,
 `VALIDATOR_VERSION`, `MAX_STEPS`, `MAX_TOOL_CALLS`, `TIMEOUT_MS`,
-`MAX_COST_USD`, `MAX_OUTPUT_TOKENS`).
+`MAX_COST_USD`, `MAX_OUTPUT_TOKENS`, `REASONING_EFFORT` (default `low`)).
 
 Model calls retry transient failures (429, 5xx, network) under the shared
 policy in [agent-layout.md](agent-layout.md#model-call-retries), inside

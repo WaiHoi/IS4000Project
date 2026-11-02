@@ -5,6 +5,7 @@
 // HTTP DTOs cannot drift. Nothing here carries raw document text into a log
 // or a trace; page text lives only in the in-memory snapshot and citations.
 
+import type { ReasoningEffort } from "@credit/agent-kit";
 import type { DocumentKind } from "../documents/pipeline.js";
 import type { OcrStatus, TextSource } from "../documents/ocr.js";
 import type { CitationRecord, DocumentIntegrityBriefContent, EvidenceBundle } from "@credit/core";
@@ -61,6 +62,7 @@ export interface IntegrityConfig {
 	timeoutMs: number;
 	maxCostUsd: number;
 	maxOutputTokens: number;
+	reasoningEffort: ReasoningEffort;
 	flagSeverity: IntegritySeverity;
 	retentionDays: number;
 	systemUserId: string;

@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { REASONING_EFFORTS } from "@credit/agent-kit";
 import { assertProductionSecrets } from "@credit/service-kit";
 import { createEnv } from "@t3-oss/env-core";
 import dotenv from "dotenv";
@@ -31,7 +32,10 @@ const schema = {
 	POLICY_ASSIST_ENABLED: z.string().default("false"),
 	// Policy-navigator winner: docs/eval/policy/ANSWER-MODELS-RESULTS.md.
 	POLICY_AGENT_MODEL: z.string().min(1).default("openai/gpt-6.1-terra"),
-	POLICY_AGENT_TEMPERATURE: z.coerce.number().min(0).max(1).default(0),
+	// Shared by the navigator and case review (one answerer config). Low did
+	// not reproduce a gain over medium on a second run; high was worse:
+	// docs/eval/reasoning-effort-2026-11-02.md.
+	POLICY_AGENT_REASONING_EFFORT: z.enum(REASONING_EFFORTS).default("medium"),
 	// DeepSeek emits reasoning tokens; 2k was exhausted on multi-section
 	// case prompts, yielding an empty content field. 6k leaves room for the
 	// JSON answer while the per-query cost cap still bounds spend.
@@ -94,7 +98,7 @@ export const env = {
 	openrouterBaseUrl: parsed.OPENROUTER_BASE_URL,
 	assistEnabled: parsed.POLICY_ASSIST_ENABLED.trim().toLowerCase() === "true",
 	agentModel: parsed.POLICY_AGENT_MODEL,
-	agentTemperature: parsed.POLICY_AGENT_TEMPERATURE,
+	agentReasoningEffort: parsed.POLICY_AGENT_REASONING_EFFORT,
 	agentMaxOutputTokens: parsed.POLICY_AGENT_MAX_OUTPUT_TOKENS,
 	agentTimeoutMs: parsed.POLICY_AGENT_TIMEOUT_MS,
 	caseTimeoutMs: parsed.POLICY_CASE_TIMEOUT_MS,

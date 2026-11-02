@@ -72,7 +72,6 @@ export interface Observability {
 				operation?: string;
 				model: string;
 				provider?: ModelProvider;
-				temperature?: number;
 				maxTokens?: number;
 				tags?: Record<string, string>;
 				metadata?: Record<string, unknown>;
@@ -215,7 +214,6 @@ export function getObservability(serviceName = "credit-app"): Observability {
 						userId: opts.userId,
 						operationName: opts.operation,
 						model: { provider: opts.provider ?? "openrouter", name: opts.model },
-						temperature: opts.temperature,
 						maxTokens: opts.maxTokens,
 						tags: { feature: opts.feature, ...opts.tags },
 						metadata: opts.metadata,

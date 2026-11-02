@@ -826,7 +826,7 @@ async function judgeSummary(
 	try {
 		const res = await openai.chat.completions.create({
 			model: judgeModel,
-			temperature: 0,
+			reasoning_effort: "medium",
 			max_tokens: 2_000,
 			response_format: { type: "json_object" },
 			messages: [
@@ -1103,7 +1103,7 @@ const trials = Math.max(1, Number(arg("trials", "3")) || 3);
 const only = arg("case", "");
 const selected = only ? cases.filter((c) => c.id === only) : cases;
 console.log(
-	`brief eval: ${selected.length} cases x ${trials} trials, model=${evalEnv.agentModel}, temp=${env.agentTemperature}, tokens=${env.agentMaxOutputTokens}, turns=${env.agentMaxTurns}, tools=${env.agentMaxToolCalls}`,
+	`brief eval: ${selected.length} cases x ${trials} trials, model=${evalEnv.agentModel}, effort=${env.agentReasoningEffort}, tokens=${env.agentMaxOutputTokens}, turns=${env.agentMaxTurns}, tools=${env.agentMaxToolCalls}`,
 );
 const rows: TrialRow[] = [];
 for (const c of selected) {
@@ -1221,7 +1221,7 @@ const file = writeResults("brief", {
 		model: evalEnv.agentModel,
 		promptVersion: PROMPT_VERSION,
 		validatorVersion: VALIDATOR_VERSION,
-		temperature: env.agentTemperature,
+		reasoningEffort: env.agentReasoningEffort,
 		maxOutputTokens: env.agentMaxOutputTokens,
 		maxTurns: env.agentMaxTurns,
 		maxToolCalls: env.agentMaxToolCalls,

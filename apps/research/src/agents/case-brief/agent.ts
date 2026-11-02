@@ -32,7 +32,7 @@ export const definition = defineAgent({
 	owner: "research",
 	description:
 		"Neutral, cited external research brief on the applicant for the officer; advisory only.",
-	model: { env: "AGENT_MODEL", default: "openai/gpt-6.1-sol" },
+	model: { env: "AGENT_MODEL", default: "openai/gpt-6.1-terra" },
 	flags: ["AGENTS_ENABLED"],
 	versions: { prompt: PROMPT_VERSION, agent: AGENT_VERSION, validator: VALIDATOR_VERSION },
 	tools: ["search_sources", "fetch_source"],
@@ -209,10 +209,10 @@ export function createRealRunner(opts: {
 				tools: [searchTool, fetchTool],
 				outputType: modelBriefSchema,
 				modelSettings: {
-					...(env.agentTemperature !== undefined ? { temperature: env.agentTemperature } : {}),
 					...(env.agentMaxOutputTokens !== undefined
 						? { maxTokens: env.agentMaxOutputTokens }
 						: {}),
+					reasoning: { effort: env.agentReasoningEffort ?? "medium" },
 				},
 			});
 			const runner = new Runner();
@@ -226,6 +226,7 @@ export function createRealRunner(opts: {
 						operation: "generateText",
 						agentName: "case-brief",
 						agentVersion: AGENT_VERSION,
+						reasoningEffort: env.agentReasoningEffort ?? "medium",
 					},
 					() =>
 						runner.run(agent, userPrompt, {
@@ -245,6 +246,7 @@ export function createRealRunner(opts: {
 							operation: "generateText",
 							agentName: "case-brief",
 							agentVersion: AGENT_VERSION,
+							reasoningEffort: env.agentReasoningEffort ?? "medium",
 						},
 						() =>
 							runner.run(

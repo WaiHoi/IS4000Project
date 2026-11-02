@@ -467,8 +467,8 @@ async function runContextModel(
 		tools: exposeTools ? list : [],
 		outputType: contextModelOutputSchema,
 		modelSettings: {
-			temperature: env.contextTemperature,
 			maxTokens: env.contextMaxOutputTokens,
+			reasoning: { effort: env.contextReasoningEffort },
 			...(exposeTools ? {} : { toolChoice: "none" }),
 		},
 	});
@@ -481,6 +481,7 @@ async function runContextModel(
 				operation: "generateText",
 				agentName: "context-analyst",
 				agentVersion: CONTEXT_PROMPT_VERSION,
+				reasoningEffort: env.contextReasoningEffort,
 			},
 			() =>
 				runner.run(agent, prompt, {

@@ -50,7 +50,8 @@ The applications service is Bun, and the Agents SDK is Bun-compatible.
   (`ASSIST_MEMO_MAX_TOOL_CALLS`, default 40), wall-clock timeout
   (`ASSIST_MEMO_TIMEOUT_MS`, default 90s), token/cost budget
   (`ASSIST_MEMO_MAX_COST_USD`, default 0.25). The gateway proxy bound for
-  `/api/assist/*` is 120s.
+  `/api/assist/*` is 120s. Reasoning effort is `ASSIST_MEMO_REASONING_EFFORT`
+  (default `low`; see `docs/eval/reasoning-effort-2026-11-02.md`).
 - Model calls retry transient failures (429, 5xx, network) under the shared
   policy in [agent-layout.md](agent-layout.md#model-call-retries), inside the
   same wall-clock timeout. A failed call returns no usage, so its tokens are

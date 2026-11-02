@@ -84,7 +84,9 @@ Raw: `brief-2026-10-28T14-13-13-512Z.json` (20-case, 3 trials);
 
 ## Verdict
 
-**GPT-6.1 Sol wins the case brief**: perfect pass@3, best entity grounding,
+**Superseded 2026-11-02:** Terra at high effort matches Sol and is now pinned (see the sweep section below).
+
+**GPT-6.1 Sol wins the case brief** (at the provider-default effort): perfect pass@3, best entity grounding,
 clean safety, and lower cost than Opus. Terra is the cheap tie on the code
 gates but its weak entity matching makes it the wrong default for this agent.
 
@@ -102,3 +104,19 @@ gates but its weak entity matching makes it the wrong default for this agent.
   self-preference bias; the code pass does not depend on the judge. The 20-label
   calibration (0.95) is on Sol's judge, not Terra's.
 - Raw results are gitignored; costs are projected list prices.
+
+## Reasoning-effort sweep (2026-11-02)
+
+The case brief now runs **Terra at `high`** (`AGENT_MODEL`,
+`AGENT_REASONING_EFFORT`), superseding the Sol verdict above. 20 cases × 3
+trials, preflight on, prompt `v7`, Terra support judge; see the [reasoning-effort sweep](../reasoning-effort-2026-11-02.md).
+
+| Run | pass@1 | pass^3 | Entity (original 3) | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|
+| Sol medium (above) | 1.000 | 20/20 | 0.83 | 17.4s / 21.2s | $1.506 |
+| **Terra high** | **1.000** | **20/20** | **1.00** | 17.3s / 22.5s | $1.684 |
+
+At medium, Terra's weak entity matching (0.20) was the reason Sol won; at high
+it resolves all three original entities at 1.00. Overall entity mean is 0.75
+because the no-hit fixtures correctly report 0. Repair and the support judge
+stay pinned at `medium`. Raw: `brief-2026-11-01T21-21-44-171Z.json`.

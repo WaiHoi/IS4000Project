@@ -77,3 +77,21 @@ are rejected 4/4 before any model call.
 - The policy service has one `POLICY_AGENT_MODEL` for both navigator and case
   review. Sol wins this eval, Terra wins the navigator and is cheaper; the
   service default stays Terra until the model can be split per path.
+
+## Reasoning-effort sweep (2026-11-02)
+
+The policy service stays at **Terra `medium`** (`POLICY_AGENT_REASONING_EFFORT`,
+shared with the navigator). 22 contexts × 2 trials, Terra judge; see the [reasoning-effort sweep](../reasoning-effort-2026-11-02.md).
+
+| Run | pass@1 | pass^2 | Coverage | Judge G/C | Mean | Cost |
+|---|---:|---:|---:|---:|---:|---:|
+| Sol medium (above) | 1.000 | 22/22 | 0.705 | 4.23 / 4.55 | 9.6s | $0.092 |
+| Terra medium (above) | 0.932 | 20/22 | 0.693 | 4.96 / 4.62 | 7.2s | $0.092 |
+| Terra low | 0.932 | 20/22 | 0.656 | 4.38 / 4.22 | 5.4s | $0.084 |
+| Terra high | 0.932 | 20/22 | 0.738 | 4.93 / 4.64 | 11.3s | $0.107 |
+| Terra xhigh | 0.773 | 15/22 | 0.813 | 4.94 / 4.84 | 20.1s | $0.103 |
+
+No Terra effort reaches Sol's 22/22: `case-sme-insufficient-data` fails at
+every effort, and xhigh times out on 7 trials at the 45s case timeout. Raw:
+`case-review-2026-11-01T21-48-21-551Z.json` (low), `…T20-09-37-436Z.json`
+(high), `…T20-18-04-865Z.json` (xhigh).

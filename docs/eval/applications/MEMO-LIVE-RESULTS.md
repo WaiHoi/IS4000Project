@@ -74,3 +74,22 @@ not a safe trade. Treat this as a known quality gap, not a pass/fail gate.
   default model changed.
 - The scripted 8-case mechanics suite still runs separately and is not replaced
   by this eval.
+
+## Reasoning-effort sweep (2026-11-02)
+
+Production now pins **Sol at `low`** (`ASSIST_MEMO_REASONING_EFFORT`). Same
+22 bundles × 2 trials, Terra judge; see the [reasoning-effort sweep](../reasoning-effort-2026-11-02.md).
+
+| Run | pass@1 | pass^2 | Judge G / C | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|
+| Sol medium (above) | 1.000 | 22/22 | 5.00 / 2.41 | 21.5s / 32.8s | — |
+| **Sol low** | **1.000** | **22/22** | 4.91 / 2.59 | **16.4s / 25.4s** | $1.009 |
+| Terra high | 0.955 | 21/22 | 5.00 / 2.90 | 52.8s / 81.4s | $1.143 |
+| Terra xhigh (`large-bundle-20` only) | 0/2 | — | — | 120s timeouts | — |
+
+Terra high fails `large-bundle-20` (one `INVALID_OUTPUT`, one 120s timeout);
+xhigh timed out on both trials, so the full xhigh run was skipped. The memo
+harness now prices tokens at list price (Terra $1/$5, Sol $2/$10 per 1M); the
+costs in the table above this section used a flat $1/M estimate and are not
+comparable. Raw: `memo-live-2026-11-01T20-50-05-532Z.json` (Sol low),
+`…T20-39-53-090Z.json` (Terra high), `…T20-42-22-973Z.json` (Terra xhigh).

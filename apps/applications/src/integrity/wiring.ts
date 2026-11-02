@@ -23,6 +23,7 @@ export function createIntegrityRunnerFromEnv(
 				promptVersion: env.integrity.promptVersion,
 				maxToolCalls: env.integrity.maxToolCalls,
 				maxOutputTokens: env.integrity.maxOutputTokens,
+				reasoningEffort: env.integrity.reasoningEffort,
 				timeoutMs: env.integrity.timeoutMs,
 				logger,
 			})

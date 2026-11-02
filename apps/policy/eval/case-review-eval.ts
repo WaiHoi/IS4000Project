@@ -907,7 +907,7 @@ async function chatJson(
 ): Promise<{ json: unknown; usage: Usage }> {
 	const body = {
 		model: JUDGE_MODEL,
-		temperature: 0,
+		reasoning_effort: "medium",
 		max_tokens: maxTokens,
 		response_format: { type: "json_object" },
 		messages: [
@@ -1261,7 +1261,6 @@ async function main(): Promise<void> {
 		model: env.agentModel,
 		dimensions: env.embeddingDimensions,
 		embeddingModel: env.embeddingModel,
-		temperature: env.agentTemperature,
 		maxOutputTokens: env.agentMaxOutputTokens,
 	});
 	console.log(`corpus: ${corpus.length} sections; embedding with ${env.embeddingModel}...`);
@@ -1327,7 +1326,7 @@ async function main(): Promise<void> {
 				model,
 				dimensions: env.embeddingDimensions,
 				embeddingModel: env.embeddingModel,
-				temperature: env.agentTemperature,
+				reasoningEffort: env.agentReasoningEffort,
 				maxOutputTokens: env.agentMaxOutputTokens,
 				answererProviderOrder: env.answererProviderOrder
 					.split(",")
@@ -1471,7 +1470,7 @@ async function main(): Promise<void> {
 					truncated,
 					judgeModel: JUDGE_MODEL,
 					promptVersion: POLICY_CASE_PROMPT_VERSION,
-					temperature: env.agentTemperature,
+					reasoningEffort: env.agentReasoningEffort,
 					maxOutputTokens: env.agentMaxOutputTokens,
 					topK: env.retrievalTopK,
 					cases: selected.length,

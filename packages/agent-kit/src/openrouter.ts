@@ -31,3 +31,11 @@ export function createOpenRouterClient(opts: OpenRouterClientOptions): OpenAI {
 		fetch: fetchImpl,
 	});
 }
+
+/**
+ * Reasoning effort sent with every agent model call (`reasoning_effort` on
+ * OpenRouter). Pinned explicitly so a provider default change cannot move
+ * eval numbers. Evals: docs/eval/reasoning-effort-2026-11-02.md.
+ */
+export const REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];

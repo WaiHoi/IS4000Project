@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { REASONING_EFFORTS } from "@credit/agent-kit";
 import { assertProductionSecrets } from "@credit/service-kit";
 import { createEnv } from "@t3-oss/env-core";
 import dotenv from "dotenv";
@@ -18,8 +19,8 @@ export const ALLOWED_MODELS = [
 
 export type AllowedModel = (typeof ALLOWED_MODELS)[number];
 
-// Case-brief winner: docs/eval/research/BRIEF-MODELS-RESULTS.md.
-export const DEFAULT_MODEL: AllowedModel = "openai/gpt-6.1-sol";
+// Case-brief pin (Terra at high effort): docs/eval/reasoning-effort-2026-11-02.md.
+export const DEFAULT_MODEL: AllowedModel = "openai/gpt-6.1-terra";
 // Context-analyst winner: docs/eval/research/CONTEXT-MODELS-RESULTS.md.
 export const DEFAULT_CONTEXT_MODEL: AllowedModel = "openai/gpt-6.1-terra";
 
@@ -55,7 +56,9 @@ export const researchServerSchema = {
 	// (docs/eval/research/BRIEF-MODELS-RESULTS.md); the brief eval exercises
 	// the production validator.
 	// 3000 output tokens fit the collision fixture without truncating JSON.
-	AGENT_TEMPERATURE: z.coerce.number().min(0).max(1).default(0.1),
+	// Terra high matched the Sol brief baseline (20/20, entity 1.00 vs 0.83):
+	// docs/eval/reasoning-effort-2026-11-02.md.
+	AGENT_REASONING_EFFORT: z.enum(REASONING_EFFORTS).default("high"),
 	AGENT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(8_000).default(3_000),
 	AGENT_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(20).default(8),
 	AGENT_MAX_TURNS: z.coerce.number().int().min(2).max(24).default(12),
@@ -96,7 +99,8 @@ export const researchServerSchema = {
 	// bounded preflight fallback for a weaker model.
 	CONTEXT_AGENT_PREFLIGHT_ENABLED: z.string().default("false"),
 	CONTEXT_AGENT_MAX_TURNS: z.coerce.number().int().min(2).max(40).default(16),
-	CONTEXT_AGENT_TEMPERATURE: z.coerce.number().min(0).max(1).default(0.1),
+	// Low held 37/37 for less: docs/eval/reasoning-effort-2026-11-02.md.
+	CONTEXT_AGENT_REASONING_EFFORT: z.enum(REASONING_EFFORTS).default("low"),
 	CONTEXT_AGENT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(12_000).default(6_000),
 	CONTEXT_AGENT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(180_000),
 	CONTEXT_AGENT_MAX_COST_USD: z.coerce.number().min(0).default(1.5),
@@ -120,7 +124,8 @@ export const researchServerSchema = {
 	CASE_ASSISTANT_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(40).default(12),
 	CASE_ASSISTANT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(8_000).default(1200),
 	CASE_ASSISTANT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(50_000).default(45_000),
-	CASE_ASSISTANT_TEMPERATURE: z.coerce.number().min(0).max(1).default(0.1),
+	// Low held 20/20, faster and cheaper: docs/eval/reasoning-effort-2026-11-02.md.
+	CASE_ASSISTANT_REASONING_EFFORT: z.enum(REASONING_EFFORTS).default("low"),
 	CASE_ASSISTANT_MAX_QUESTION_CHARS: z.coerce.number().int().min(1).max(1000).default(1000),
 	CASE_ASSISTANT_MAX_HISTORY_MESSAGES: z.coerce.number().int().min(0).max(8).default(8),
 	CASE_ASSISTANT_MAX_HISTORY_CHARS: z.coerce.number().int().min(0).max(6000).default(6000),
@@ -156,7 +161,7 @@ export const env = {
 	maxSources: parsed.AGENT_MAX_SOURCES,
 	maxFetches: parsed.AGENT_MAX_FETCHES,
 	timeoutMs: parsed.AGENT_TIMEOUT_MS,
-	agentTemperature: parsed.AGENT_TEMPERATURE,
+	agentReasoningEffort: parsed.AGENT_REASONING_EFFORT,
 	agentMaxOutputTokens: parsed.AGENT_MAX_OUTPUT_TOKENS,
 	agentMaxToolCalls: parsed.AGENT_MAX_TOOL_CALLS,
 	agentMaxTurns: parsed.AGENT_MAX_TURNS,
@@ -179,7 +184,7 @@ export const env = {
 	contextPreflightToolCalls: parsed.CONTEXT_AGENT_PREFLIGHT_TOOL_CALLS,
 	contextPreflightEnabled: parsed.CONTEXT_AGENT_PREFLIGHT_ENABLED.trim().toLowerCase() === "true",
 	contextMaxTurns: parsed.CONTEXT_AGENT_MAX_TURNS,
-	contextTemperature: parsed.CONTEXT_AGENT_TEMPERATURE,
+	contextReasoningEffort: parsed.CONTEXT_AGENT_REASONING_EFFORT,
 	contextMaxOutputTokens: parsed.CONTEXT_AGENT_MAX_OUTPUT_TOKENS,
 	contextTimeoutMs: parsed.CONTEXT_AGENT_TIMEOUT_MS,
 	contextMaxCostUsd: parsed.CONTEXT_AGENT_MAX_COST_USD,
@@ -197,7 +202,7 @@ export const env = {
 	caseAssistantMaxToolCalls: parsed.CASE_ASSISTANT_MAX_TOOL_CALLS,
 	caseAssistantMaxOutputTokens: parsed.CASE_ASSISTANT_MAX_OUTPUT_TOKENS,
 	caseAssistantTimeoutMs: parsed.CASE_ASSISTANT_TIMEOUT_MS,
-	caseAssistantTemperature: parsed.CASE_ASSISTANT_TEMPERATURE,
+	caseAssistantReasoningEffort: parsed.CASE_ASSISTANT_REASONING_EFFORT,
 	caseAssistantMaxQuestionChars: parsed.CASE_ASSISTANT_MAX_QUESTION_CHARS,
 	caseAssistantMaxHistoryMessages: parsed.CASE_ASSISTANT_MAX_HISTORY_MESSAGES,
 	caseAssistantMaxHistoryChars: parsed.CASE_ASSISTANT_MAX_HISTORY_CHARS,

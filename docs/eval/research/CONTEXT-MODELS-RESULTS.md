@@ -158,3 +158,16 @@ quality-per-dollar model in this suite.
   because the server composes persisted prose.
 - The production `get_transactions` schema changed for strict providers, so
   this run is not byte-identical to the pre-fix agent.
+
+## Reasoning-effort sweep (2026-11-02)
+
+Production now pins **Terra at `low`** (`CONTEXT_AGENT_REASONING_EFFORT`).
+37 cases × 3 trials; see the [reasoning-effort sweep](../reasoning-effort-2026-11-02.md).
+
+| Run | pass@1 | pass^3 | Narrative drops/run | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|
+| Terra medium (above) | 1.000 | 37/37 | 0.38 | 13.0s / 22.6s | $1.386 |
+| **Terra low** | **1.000** | **37/37** | **0.17** | **11.7s / 21.5s** | $1.337 |
+
+High was not run: medium is already perfect. Raw:
+`context-models-2026-11-01T21-30-01-213Z.json`.

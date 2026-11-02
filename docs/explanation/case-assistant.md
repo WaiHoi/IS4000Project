@@ -159,7 +159,7 @@ text/event-stream`.
 | `CASE_ASSISTANT_MAX_TOOL_CALLS` | `12` | Tool invocations per question |
 | `CASE_ASSISTANT_MAX_OUTPUT_TOKENS` | `1200` | Answer cap |
 | `CASE_ASSISTANT_TIMEOUT_MS` | `45000` | Research deadline (1s–50s; review proxy 60s, gateway 120s) |
-| `CASE_ASSISTANT_TEMPERATURE` | `0.1` | Sampling |
+| `CASE_ASSISTANT_REASONING_EFFORT` | `low` | `reasoning_effort`; [sweep](../eval/reasoning-effort-2026-11-02.md) |
 | `CASE_ASSISTANT_MAX_QUESTION_CHARS` | `1000` | Inbound question |
 | `CASE_ASSISTANT_MAX_HISTORY_MESSAGES` | `8` | Trailing history |
 | `CASE_ASSISTANT_MAX_HISTORY_CHARS` | `6000` | Summed history text |

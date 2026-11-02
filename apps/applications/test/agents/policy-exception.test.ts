@@ -96,6 +96,24 @@ describe("policy-exception prompts", () => {
 	});
 });
 
+describe("policy-exception reasoning effort", () => {
+	it("sends medium by default and the configured effort when set", async () => {
+		const pinned = scriptedFetch([() => completion()]);
+		await makeRunner(pinned.fetchImpl).run(input());
+		expect((pinned.bodies[0] as { reasoning_effort?: string }).reasoning_effort).toBe("medium");
+		const low = scriptedFetch([() => completion()]);
+		await createAgentsPolicyExceptionRunner({
+			...runnerBase,
+			reasoningEffort: "low",
+			fetchImpl: low.fetchImpl,
+			policyClient: {} as never,
+			actorId: "a",
+			actorRole: "officer",
+		}).run(input());
+		expect((low.bodies[0] as { reasoning_effort?: string }).reasoning_effort).toBe("low");
+	});
+});
+
 describe("policy-exception model-call retries", () => {
 	it("retries a 503 and succeeds on the second call", async () => {
 		const { fetchImpl, bodies } = scriptedFetch([() => errorResponse(503), () => completion("{}")]);

@@ -1,4 +1,9 @@
-import { createRetryingFetch, type RetryEvent, type RetryOptions } from "@credit/agent-kit";
+import {
+	createRetryingFetch,
+	type ReasoningEffort,
+	type RetryEvent,
+	type RetryOptions,
+} from "@credit/agent-kit";
 import type { Embedder } from "./store.js";
 import { policyObservability } from "./observability.js";
 
@@ -8,8 +13,9 @@ export interface OpenRouterConfig {
 	model: string;
 	dimensions: number;
 	embeddingModel: string;
-	temperature: number;
 	maxOutputTokens: number;
+	/** Answerer only; omitted means "medium". */
+	reasoningEffort?: ReasoningEffort;
 	embeddingProviders?: string[];
 	answererProviderOrder?: string[];
 	fetchImpl?: typeof fetch;
@@ -25,7 +31,7 @@ export interface OpenRouterEnv {
 	agentModel: string;
 	embeddingDimensions: number;
 	embeddingModel: string;
-	agentTemperature: number;
+	agentReasoningEffort: ReasoningEffort;
 	agentMaxOutputTokens: number;
 	embeddingProviders: string;
 	answererProviderOrder: string;
@@ -39,7 +45,7 @@ export function openRouterConfigFromEnv(env: OpenRouterEnv): OpenRouterConfig {
 		model: env.agentModel,
 		dimensions: env.embeddingDimensions,
 		embeddingModel: env.embeddingModel,
-		temperature: env.agentTemperature,
+		reasoningEffort: env.agentReasoningEffort,
 		maxOutputTokens: env.agentMaxOutputTokens,
 		embeddingProviders: env.embeddingProviders ? env.embeddingProviders.split(",") : [],
 		answererProviderOrder: env.answererProviderOrder ? env.answererProviderOrder.split(",") : [],

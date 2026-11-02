@@ -57,9 +57,9 @@ export function createOpenRouterAnswerer(config: OpenRouterConfig): PolicyAnswer
 				conversationId,
 				model: config.model,
 				provider: "openrouter",
-				temperature: config.temperature,
 				maxTokens: config.maxOutputTokens,
 				tags: { operation: "answer" },
+				metadata: { reasoningEffort: config.reasoningEffort ?? "medium" },
 				onSuccess: (result) => ({
 					usage: {
 						inputTokens: result.usage.inputTokens,
@@ -75,8 +75,8 @@ export function createOpenRouterAnswerer(config: OpenRouterConfig): PolicyAnswer
 					config.apiKey,
 					{
 						model: config.model,
-						temperature: config.temperature,
 						max_tokens: config.maxOutputTokens,
+						reasoning_effort: config.reasoningEffort ?? "medium",
 						response_format: { type: "json_object" },
 						...(provider ? { provider } : {}),
 						messages: [

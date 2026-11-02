@@ -30,7 +30,8 @@ describe("createLlmLanguageRepair", () => {
 		expect(recorded).toHaveLength(1);
 		const params = recorded[0].params as Record<string, unknown>;
 		expect(params.model).toBe("deepseek/deepseek-v4.1-flash-1017");
-		expect(params.temperature).toBe(0);
+		expect(params).not.toHaveProperty("temperature");
+		expect(params.reasoning_effort).toBe("medium");
 		expect(params.response_format).toEqual({ type: "json_object" });
 		expect(out.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
 		expect(out.brief.summary).toBe("Registry shows timely filings in the public record.");

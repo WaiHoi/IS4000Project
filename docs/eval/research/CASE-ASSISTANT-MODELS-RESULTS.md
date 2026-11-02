@@ -79,3 +79,16 @@ docker compose up -d --wait
 pnpm run setup
 pnpm --filter @credit/research eval:case-assistant -- --trials=3
 ```
+
+## Reasoning-effort sweep (2026-11-02)
+
+Production now pins **Terra at `low`** (`CASE_ASSISTANT_REASONING_EFFORT`).
+20 questions × 3 trials; see the [reasoning-effort sweep](../reasoning-effort-2026-11-02.md).
+
+| Run | pass@1 | pass^3 | Errors | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|
+| Terra medium (above) | 1.000 | 20/20 | 0 | 5.32s / 11.23s | $0.2488 |
+| **Terra low** | **1.000** | **20/20** | **0** | **4.4s / 8.2s** | $0.215 |
+
+High was not run: medium is already perfect. Raw:
+`case-assistant-2026-11-01T22-26-11-726Z.json`.

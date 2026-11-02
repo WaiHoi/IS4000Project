@@ -509,7 +509,7 @@ try {
 		`case-assistant eval: ${selectedModels.length} models x ${selectedQuestions.length} questions x ${trials} trials, max spend $${maxSpend}, concurrency ${concurrency}`,
 	);
 	console.log(
-		`prompt=${CASE_ASSISTANT_PROMPT_VERSION} agent=${CASE_ASSISTANT_AGENT_VERSION} temp=${env.caseAssistantTemperature} tokens=${env.caseAssistantMaxOutputTokens} turns=${env.caseAssistantMaxTurns} tools=${env.caseAssistantMaxToolCalls}`,
+		`prompt=${CASE_ASSISTANT_PROMPT_VERSION} agent=${CASE_ASSISTANT_AGENT_VERSION} effort=${env.caseAssistantReasoningEffort} tokens=${env.caseAssistantMaxOutputTokens} turns=${env.caseAssistantMaxTurns} tools=${env.caseAssistantMaxToolCalls}`,
 	);
 	const spend = { usd: 0, cap: maxSpend };
 	const allRows: TrialRow[] = [];
@@ -565,7 +565,7 @@ try {
 		meta: {
 			promptVersion: CASE_ASSISTANT_PROMPT_VERSION,
 			agentVersion: CASE_ASSISTANT_AGENT_VERSION,
-			temperature: env.caseAssistantTemperature,
+			reasoningEffort: env.caseAssistantReasoningEffort,
 			maxOutputTokens: env.caseAssistantMaxOutputTokens,
 			maxTurns: env.caseAssistantMaxTurns,
 			maxToolCalls: env.caseAssistantMaxToolCalls,

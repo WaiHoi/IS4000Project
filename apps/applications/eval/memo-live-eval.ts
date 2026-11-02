@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
+import type { ReasoningEffort } from "@credit/agent-kit";
 import { z } from "zod";
 import {
 	containsDecisionLanguage,
@@ -64,6 +65,7 @@ const BASE_URL = envStr("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1");
 const PROMPT_VERSION = envStr("ASSIST_MEMO_PROMPT_VERSION", "memo-agent-v1");
 const AGENT_VERSION = envStr("ASSIST_MEMO_AGENT_VERSION", "memo-agent-v1");
 const JUDGE_MODEL = envStr("MEMO_LIVE_JUDGE_MODEL", "openai/gpt-6.1-terra");
+const REASONING_EFFORT = envStr("ASSIST_MEMO_REASONING_EFFORT", "low") as ReasoningEffort;
 
 if (API_KEY === "") {
 	console.error("memo-live eval: OPENROUTER_API_KEY is missing (loaded from the repo-root .env).");
@@ -738,9 +740,15 @@ const AGENT_CONFIG = (model: string): MemoAgentConfig => ({
 });
 
 // ponytail: provider-billed cost is dropped by the orchestrator trace, so
-// trials estimate (input+output)/1M exactly like the SDK fallback.
-function estimateCostUsd(inputTokens: number, outputTokens: number): number {
-	return (inputTokens + outputTokens) / 1_000_000;
+// trials project OpenRouter list prices (USD per 1M in/out) from tokens.
+// Unknown models fall back to $1/$1, which understates output-heavy runs.
+const PRICE_PER_M: Record<string, [number, number]> = {
+	"openai/gpt-6.1-terra": [1, 5],
+	"openai/gpt-6.1-sol": [2, 10],
+};
+function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number {
+	const [inPerM, outPerM] = PRICE_PER_M[model] ?? [1, 1];
+	return (inputTokens * inPerM + outputTokens * outPerM) / 1_000_000;
 }
 
 let spentUsd = 0;
@@ -781,6 +789,7 @@ async function runTrial(testCase: LiveCase, model: string, trial: number): Promi
 			promptVersion: PROMPT_VERSION,
 			maxToolCalls: AGENT_CONFIG(model).maxToolCalls,
 			maxOutputTokens: 4000,
+			reasoningEffort: REASONING_EFFORT,
 			timeoutMs: 120_000,
 		});
 		const { content, trace } = await runMemoAgent({
@@ -791,7 +800,7 @@ async function runTrial(testCase: LiveCase, model: string, trial: number): Promi
 			config: AGENT_CONFIG(model),
 		});
 		base.latencyMs = trace.latencyMs;
-		base.costUsd = estimateCostUsd(trace.inputTokens, trace.outputTokens);
+		base.costUsd = estimateCostUsd(model, trace.inputTokens, trace.outputTokens);
 		spentUsd += base.costUsd;
 		base.toolCalls = trace.toolCalls.length;
 		base.steps = trace.steps;
@@ -866,7 +875,7 @@ async function chatJudge(
 ): Promise<{ json: unknown; costUsd: number }> {
 	const body = {
 		model: JUDGE_MODEL,
-		temperature: 0,
+		reasoning_effort: "medium",
 		max_tokens: 300,
 		response_format: { type: "json_object" },
 		messages: [
@@ -1123,6 +1132,7 @@ writeFileSync(
 				judgeModel: JUDGE_MODEL,
 				promptVersion: PROMPT_VERSION,
 				agentVersion: AGENT_VERSION,
+				reasoningEffort: REASONING_EFFORT,
 				trials: TRIALS,
 				budgetUsd: BUDGET_USD,
 				maxRunCostUsd: MAX_RUN_COST_USD,

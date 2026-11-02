@@ -4,6 +4,11 @@ Six OpenRouter models across the five live LLM agents. GLM 5.3 and Kimi K3.1
 Pro were dropped after the context sweep; GPT-6.1 Terra was added. Policy
 exception was rerun with Terra/Sol only, per the follow-up request.
 
+> **2026-11-02:** these results ran at the provider-default reasoning effort
+> (medium). The [reasoning-effort sweep](reasoning-effort-2026-11-02.md) moved
+> the case brief to Terra at high effort and pinned an explicit effort per
+> agent; the per-agent winners below are otherwise unchanged.
+
 **Verdict:** GPT-6.1 Terra is the best overall value (context and policy wins,
 exception tie at lower cost). GPT-6.1 Sol is the quality-depth pick (integrity
 and brief wins, zero-repair exception). Opus, Muse, Gemini, and DeepSeek are

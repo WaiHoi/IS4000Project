@@ -560,7 +560,7 @@ try {
 		`context-models eval: ${selectedModels.length} models x ${seeded.length} cases x ${trials} trials, max spend $${maxSpend}, concurrency ${concurrency}`,
 	);
 	console.log(
-		`prompt=${CONTEXT_PROMPT_VERSION} validator=${CONTEXT_VALIDATOR_VERSION} temp=${env.contextTemperature} tokens=${env.contextMaxOutputTokens} turns=${env.contextMaxTurns} tools=${env.contextMaxToolCalls}`,
+		`prompt=${CONTEXT_PROMPT_VERSION} validator=${CONTEXT_VALIDATOR_VERSION} effort=${env.contextReasoningEffort} tokens=${env.contextMaxOutputTokens} turns=${env.contextMaxTurns} tools=${env.contextMaxToolCalls}`,
 	);
 	const spend = { usd: 0, cap: maxSpend };
 	const allRows: TrialRow[] = [];
@@ -620,7 +620,7 @@ try {
 		meta: {
 			promptVersion: CONTEXT_PROMPT_VERSION,
 			validatorVersion: CONTEXT_VALIDATOR_VERSION,
-			temperature: env.contextTemperature,
+			reasoningEffort: env.contextReasoningEffort,
 			maxOutputTokens: env.contextMaxOutputTokens,
 			maxTurns: env.contextMaxTurns,
 			maxToolCalls: env.contextMaxToolCalls,

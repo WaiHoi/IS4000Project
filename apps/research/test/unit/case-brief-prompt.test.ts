@@ -77,7 +77,7 @@ describe("case-brief manifest", () => {
 		expect(definition.name).toBe("case-brief");
 		expect(definition.owner).toBe("research");
 		expect(definition.model).toEqual({ env: "AGENT_MODEL", default: DEFAULT_MODEL });
-		expect(DEFAULT_MODEL).toBe("openai/gpt-6.1-sol");
+		expect(DEFAULT_MODEL).toBe("openai/gpt-6.1-terra");
 		expect(definition.flags).toEqual(["AGENTS_ENABLED"]);
 		expect(definition.versions).toEqual({
 			prompt: PROMPT_VERSION,

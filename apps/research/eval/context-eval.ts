@@ -230,7 +230,7 @@ try {
 }
 
 console.log(
-	`context eval: ${cases.length} cases x ${trials} trials, model=${env.contextModel}, temp=${env.contextTemperature}, tokens=${env.contextMaxOutputTokens}, turns=${env.contextMaxTurns}, tools=${env.contextMaxToolCalls}`,
+	`context eval: ${cases.length} cases x ${trials} trials, model=${env.contextModel}, tokens=${env.contextMaxOutputTokens}, turns=${env.contextMaxTurns}, tools=${env.contextMaxToolCalls}`,
 );
 const rows: TrialRow[] = [];
 try {
@@ -320,7 +320,6 @@ const file = writeResults("context", {
 		model: env.contextModel,
 		promptVersion: CONTEXT_PROMPT_VERSION,
 		validatorVersion: CONTEXT_VALIDATOR_VERSION,
-		temperature: env.contextTemperature,
 		maxOutputTokens: env.contextMaxOutputTokens,
 		maxTurns: env.contextMaxTurns,
 		maxToolCalls: env.contextMaxToolCalls,

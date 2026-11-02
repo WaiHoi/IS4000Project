@@ -16,7 +16,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDb } from "@credit/db/applications";
 import { ensureCase, type ContextCase } from "./fixtures.js";
-import { createOpenRouterClient } from "@credit/agent-kit";
+import { createOpenRouterClient, type ReasoningEffort } from "@credit/agent-kit";
 import { createLogger } from "@credit/service-kit";
 import {
 	createRealRunner,
@@ -57,7 +57,8 @@ const openai = createOpenRouterClient({
 
 interface ContextConfig {
 	name: string;
-	temperature: number;
+	/** Omitted = the production pin (CONTEXT_AGENT_REASONING_EFFORT). */
+	reasoningEffort?: ReasoningEffort;
 	maxOutputTokens: number;
 	maxTurns: number;
 	maxToolCalls: number;
@@ -85,7 +86,8 @@ interface ContextRow {
 
 interface WebConfig {
 	name: string;
-	temperature?: number;
+	/** Omitted = the production pin (AGENT_REASONING_EFFORT). */
+	reasoningEffort?: ReasoningEffort;
 	maxOutputTokens?: number;
 	maxTurns: number;
 	maxToolCalls: number;
@@ -115,30 +117,48 @@ interface WebRow {
 }
 
 const contextConfigs: ContextConfig[] = [
-	{ name: "baseline", temperature: 0.1, maxOutputTokens: 6000, maxTurns: 16, maxToolCalls: 24 },
-	{ name: "temp-0.0", temperature: 0, maxOutputTokens: 6000, maxTurns: 16, maxToolCalls: 24 },
-	{ name: "temp-0.3", temperature: 0.3, maxOutputTokens: 6000, maxTurns: 16, maxToolCalls: 24 },
-	{ name: "tokens-3000", temperature: 0.1, maxOutputTokens: 3000, maxTurns: 16, maxToolCalls: 24 },
-	{ name: "tokens-9000", temperature: 0.1, maxOutputTokens: 9000, maxTurns: 16, maxToolCalls: 24 },
-	{ name: "turns-8", temperature: 0.1, maxOutputTokens: 6000, maxTurns: 8, maxToolCalls: 24 },
-	{ name: "turns-24", temperature: 0.1, maxOutputTokens: 6000, maxTurns: 24, maxToolCalls: 24 },
-	{ name: "tools-16", temperature: 0.1, maxOutputTokens: 6000, maxTurns: 16, maxToolCalls: 16 },
-	{ name: "tools-32", temperature: 0.1, maxOutputTokens: 6000, maxTurns: 16, maxToolCalls: 32 },
+	{ name: "baseline", maxOutputTokens: 6000, maxTurns: 16, maxToolCalls: 24 },
+	{
+		name: "effort-medium",
+		reasoningEffort: "medium",
+		maxOutputTokens: 6000,
+		maxTurns: 16,
+		maxToolCalls: 24,
+	},
+	{
+		name: "effort-high",
+		reasoningEffort: "high",
+		maxOutputTokens: 6000,
+		maxTurns: 16,
+		maxToolCalls: 24,
+	},
+	{ name: "tokens-3000", maxOutputTokens: 3000, maxTurns: 16, maxToolCalls: 24 },
+	{ name: "tokens-9000", maxOutputTokens: 9000, maxTurns: 16, maxToolCalls: 24 },
+	{ name: "turns-8", maxOutputTokens: 6000, maxTurns: 8, maxToolCalls: 24 },
+	{ name: "turns-24", maxOutputTokens: 6000, maxTurns: 24, maxToolCalls: 24 },
+	{ name: "tools-16", maxOutputTokens: 6000, maxTurns: 16, maxToolCalls: 16 },
+	{ name: "tools-32", maxOutputTokens: 6000, maxTurns: 16, maxToolCalls: 32 },
 ];
 
 const webConfigs: WebConfig[] = [
-	{ name: "temp-0.0", temperature: 0, maxTurns: 12, maxToolCalls: 8, maxSources: 6, maxFetches: 4 },
 	{
-		name: "temp-0.1",
-		temperature: 0.1,
+		name: "effort-medium",
+		reasoningEffort: "medium",
 		maxTurns: 12,
 		maxToolCalls: 8,
 		maxSources: 6,
 		maxFetches: 4,
 	},
 	{
-		name: "temp-0.3",
-		temperature: 0.3,
+		name: "baseline",
+		maxTurns: 12,
+		maxToolCalls: 8,
+		maxSources: 6,
+		maxFetches: 4,
+	},
+	{
+		name: "effort-xhigh",
+		reasoningEffort: "xhigh",
 		maxTurns: 12,
 		maxToolCalls: 8,
 		maxSources: 6,
@@ -146,7 +166,6 @@ const webConfigs: WebConfig[] = [
 	},
 	{
 		name: "tokens-1200",
-		temperature: 0.1,
 		maxOutputTokens: 1200,
 		maxTurns: 12,
 		maxToolCalls: 8,
@@ -155,7 +174,6 @@ const webConfigs: WebConfig[] = [
 	},
 	{
 		name: "tokens-2000",
-		temperature: 0.1,
 		maxOutputTokens: 2000,
 		maxTurns: 12,
 		maxToolCalls: 8,
@@ -164,17 +182,15 @@ const webConfigs: WebConfig[] = [
 	},
 	{
 		name: "tokens-3000",
-		temperature: 0.1,
 		maxOutputTokens: 3000,
 		maxTurns: 12,
 		maxToolCalls: 8,
 		maxSources: 6,
 		maxFetches: 4,
 	},
-	{ name: "turns-8", temperature: 0.1, maxTurns: 8, maxToolCalls: 8, maxSources: 6, maxFetches: 4 },
+	{ name: "turns-8", maxTurns: 8, maxToolCalls: 8, maxSources: 6, maxFetches: 4 },
 	{
 		name: "tools-12",
-		temperature: 0.1,
 		maxTurns: 12,
 		maxToolCalls: 12,
 		maxSources: 6,
@@ -182,7 +198,6 @@ const webConfigs: WebConfig[] = [
 	},
 	{
 		name: "sources-4",
-		temperature: 0.1,
 		maxTurns: 12,
 		maxToolCalls: 8,
 		maxSources: 4,
@@ -190,7 +205,6 @@ const webConfigs: WebConfig[] = [
 	},
 	{
 		name: "fetches-3",
-		temperature: 0.1,
 		maxTurns: 12,
 		maxToolCalls: 8,
 		maxSources: 6,
@@ -520,7 +534,7 @@ async function runContextEval(): Promise<void> {
 		const runner = createRealContextRunner({
 			env: {
 				...env,
-				contextTemperature: cfg.temperature,
+				contextReasoningEffort: cfg.reasoningEffort ?? env.contextReasoningEffort,
 				contextMaxOutputTokens: cfg.maxOutputTokens,
 				contextMaxTurns: cfg.maxTurns,
 				contextMaxToolCalls: cfg.maxToolCalls,
@@ -545,7 +559,7 @@ async function runContextEval(): Promise<void> {
 		const runner = createRealContextRunner({
 			env: {
 				...env,
-				contextTemperature: bestCfg.temperature,
+				contextReasoningEffort: bestCfg.reasoningEffort ?? env.contextReasoningEffort,
 				contextMaxOutputTokens: bestCfg.maxOutputTokens,
 				contextMaxTurns: bestCfg.maxTurns,
 				contextMaxToolCalls: bestCfg.maxToolCalls,
@@ -584,7 +598,7 @@ async function runWebEval(): Promise<void> {
 			const runner = createRealRunner({
 				env: {
 					...env,
-					agentTemperature: cfg.temperature ?? env.agentTemperature,
+					agentReasoningEffort: cfg.reasoningEffort ?? env.agentReasoningEffort,
 					agentMaxOutputTokens: cfg.maxOutputTokens ?? env.agentMaxOutputTokens,
 					agentMaxTurns: cfg.maxTurns,
 					agentMaxToolCalls: cfg.maxToolCalls,

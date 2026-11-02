@@ -25,6 +25,8 @@ export interface ModelCallOpts {
 	operation: ModelOperation;
 	agentName?: string;
 	agentVersion?: string;
+	/** Recorded on the generation; direct repair/judge calls pin "medium". */
+	reasoningEffort?: string;
 }
 
 export interface Observability {
@@ -92,9 +94,12 @@ export function getObservability(): Observability {
 					operation: opts.operation,
 					model: opts.model,
 					provider: "openrouter",
-					temperature: 0,
 					tags: { operation: opts.operation },
-					metadata: { operation: opts.operation, model: opts.model },
+					metadata: {
+						operation: opts.operation,
+						model: opts.model,
+						reasoningEffort: opts.reasoningEffort ?? "medium",
+					},
 					onSuccess: (result: unknown) => {
 						const usage = readCallUsage(result);
 						return {

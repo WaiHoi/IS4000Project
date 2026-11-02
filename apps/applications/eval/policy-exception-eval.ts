@@ -16,6 +16,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
+import type { ReasoningEffort } from "@credit/agent-kit";
 import {
 	hashQuote,
 	ruleDefinitionById,
@@ -98,6 +99,7 @@ const VALIDATOR_VERSION = envStr(
 	"policy-exception-validator-v1",
 );
 const JUDGE_MODEL = envStr("POLICY_EXCEPTION_JUDGE_MODEL", MODEL);
+const REASONING_EFFORT = envStr("POLICY_EXCEPTION_REASONING_EFFORT", "low") as ReasoningEffort;
 
 if (!FROZEN && API_KEY === "") {
 	console.error(
@@ -1217,7 +1219,7 @@ function checkStructural(
 	return { pass: gateFailures.length === 0, gateFailures, statuses };
 }
 
-// --- Judge (OpenRouter chat completions, temperature 0, hash cache) ---
+// --- Judge (OpenRouter chat completions, medium effort, hash cache) ---
 
 const RUBRIC = readFileSync(join(HERE, "judges", "claim-support.md"), "utf8");
 const RUBRIC_HASH = createHash("sha256").update(RUBRIC, "utf8").digest("hex");
@@ -1234,7 +1236,7 @@ async function chatJson(
 ): Promise<{ json: unknown; usage: JudgeUsage }> {
 	const body = {
 		model: JUDGE_MODEL,
-		temperature: 0,
+		reasoning_effort: "medium",
 		max_tokens: 500,
 		response_format: { type: "json_object" },
 		messages: [
@@ -1430,6 +1432,7 @@ function createLiveRunner(policyClient: PolicyClient): PolicyExceptionAgentRunne
 		validatorVersion: VALIDATOR_VERSION,
 		maxToolCalls: MAX_TOOL_CALLS,
 		maxOutputTokens: 8_000,
+		reasoningEffort: REASONING_EFFORT,
 		timeoutMs: 120_000,
 		policyClient,
 		actorId: "00000000-0000-0000-0000-000000000001",
@@ -2009,6 +2012,7 @@ writeFileSync(
 				promptVersion: PROMPT_VERSION,
 				agentVersion: AGENT_VERSION,
 				validatorVersion: VALIDATOR_VERSION,
+				reasoningEffort: FROZEN ? null : REASONING_EFFORT,
 				registryVersion: POLICY_REGISTRY_VERSION,
 				registryHash: POLICY_REGISTRY_HASH,
 				rubric: "eval/judges/claim-support.md",

@@ -237,14 +237,14 @@ a supported capability.
 | ------------------------------------------------ | ---------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Policy navigator (`apps/policy`)                 | Retrieval-augmented answer               | `apps/policy/eval/answer-cases.json` (43 cases)           | `pnpm --filter @credit/policy eval:answers`                | passing: held-out 12/14 pass^3, 20-label judge calibration (0.85); model comparison Terra best (`ANSWER-MODELS-RESULTS.md`) |
 | Case policy review (`apps/policy` explain-case)   | Explain/classify                         | 22 structured contexts in `apps/policy/eval/case-review-eval.ts` | `pnpm --filter @credit/policy eval:case-review`            | passing: Sol 22/22 pass^2, Terra 20/22; coverage ~0.70; see `CASE-REVIEW-RESULTS.md` |
-| External case brief (`apps/research`)            | Tool-using research                      | 20 fixture cases in `apps/research/eval/brief-eval.ts`     | `pnpm --filter @credit/research eval:brief`                | passing: 20/20 pass^3; 20-label judge calibration (0.95); Sol best (`BRIEF-MODELS-RESULTS.md`) |
+| External case brief (`apps/research`)            | Tool-using research                      | 20 fixture cases in `apps/research/eval/brief-eval.ts`     | `pnpm --filter @credit/research eval:brief`                | passing: 20/20 pass^3; 20-label judge calibration (0.95); Terra high pinned, matches Sol (`reasoning-effort-2026-11-02.md`) |
 | Context analyst (`apps/research`)                | Structured extraction/selection          | 30 window cases + 7 independent-customer cases in `eval/context-models-cases.json` | `pnpm --filter @credit/research eval:context` / `eval:context-models` | saturated: Terra/Sol 37/37 pass^3; model comparison Terra best (`CONTEXT-MODELS-RESULTS.md`) |
 | Advisory-only invariant                          | System invariant                         | same approval with/without advisory bundle                 | `pnpm --filter @credit/worker test -- refer`               | covered at workflow level: score, policy, terms, booking identical; full HTTP e2e remains open |
 | Case-assist validator (`apps/applications`)      | Pure gate/classifier                     | 27 code-defined cases in `eval/assist-eval.ts`            | `pnpm --filter @credit/applications eval:assist`           | passing: 27/27 at pass^3, 0 unsafe pass-through                            |
 | Adverse-action letter (`apps/applications`)      | Pure gate/classifier                     | 19 code-defined cases in `eval/adverse-eval.ts`           | `pnpm --filter @credit/applications eval:adverse`          | passing: 19/19 at pass^3, 0 unsafe pass-through                            |
 | Document integrity (`apps/applications`)         | Explain/classify + structured extraction | `apps/applications/eval/integrity-cases.json` (35)        | `pnpm --filter @credit/applications eval:integrity`        | passing: dev 19/19, held-out 15/16 at pass^3; Sol 34/35 full suite, 0 safety (`INTEGRITY-MODELS-RESULTS.md`) |
 | Policy exception navigator (`apps/applications`) | Explain/classify                         | `apps/applications/eval/policy-exception-cases.json` (28) | `pnpm --filter @credit/applications eval:policy-exception` | passing: Terra 27/28 pass^3, structural/semantic 1.0, 0 safety, calibration 0.90; one bounded-residual held-out failure (`POLICY-EXCEPTION-MODELS-RESULTS.md`) |
-| Credit memo (live) (`apps/applications`)          | Bounded tool loop                        | 22 evidence bundles in `eval/memo-live-eval.ts`            | `pnpm --filter @credit/applications eval:memo-live`        | passing: Sol 22/22, Terra 20/22; Sol pinned; judge completeness ~2.4 (`MEMO-LIVE-RESULTS.md`) |
+| Credit memo (live) (`apps/applications`)          | Bounded tool loop                        | 22 evidence bundles in `eval/memo-live-eval.ts`            | `pnpm --filter @credit/applications eval:memo-live`        | passing: Sol 22/22, Terra 20/22; Sol low pinned (22/22); judge completeness ~2.6 (`MEMO-LIVE-RESULTS.md`) |
 | Case assistant (`apps/research`)                 | Bounded tool loop (case Q&A)        | 20 questions x 5 eval-owned customers in `eval/case-assistant-eval.ts` | `pnpm --filter @credit/research eval:case-assistant` | passing: Terra 20/20 pass^3, code gates, no PII/injection hits (`CASE-ASSISTANT-MODELS-RESULTS.md`) |
 | Future feature                                   | Pick §1.2                                | `apps/<app>/eval/cases.json`                              | `pnpm --filter @credit/<app> eval:<feature>`               | required                                                                   |
 
@@ -290,11 +290,13 @@ Model comparisons:
 
 The same rules apply to a future feature even if its model, provider, or
 tooling changes. Model defaults are pinned to the agent winners:
-`openai/gpt-6.1-terra` for context, policy, and policy exception;
-`openai/gpt-6.1-sol` for case brief and document integrity. Overrides remain
-available, and evals must record the model and must not silently swap it. See
-the per-agent reports and
-[docs/eval/model-comparison-2026-10-28.md](model-comparison-2026-10-28.md).
+`openai/gpt-6.1-terra` for context, policy, policy exception, the case
+assistant, and the case brief; `openai/gpt-6.1-sol` for document integrity and
+the memo. Each agent also pins its reasoning effort (`*_REASONING_EFFORT`, §6.2).
+Overrides remain available, and evals must record the model and effort and must
+not silently swap them. See the per-agent reports,
+[docs/eval/model-comparison-2026-10-28.md](model-comparison-2026-10-28.md), and
+[docs/eval/reasoning-effort-2026-11-02.md](reasoning-effort-2026-11-02.md).
 
 ## 5. The suite
 
@@ -513,14 +515,15 @@ Judge rules:
 - One dimension per call. Binary or three levels. Explicit definitions and
   2–3 examples per level.
 - Ask for evidence first, then the verdict; allow `unknown`.
-- Temperature 0; pin the judge model and prompt version; keep the prompt in
-  `eval/judges/`.
+- Pin the judge model, reasoning effort (`medium`), and prompt version; keep
+  the prompt in `eval/judges/`. Temperature is not a control on these models
+  (§6.2).
 - Calibrate on 20 human-labelled examples before trusting it. Report simple
   agreement; if it is below 85%, fix the rubric or use human labels.
 - Cache by `hash(input + rubric + model)` so re-runs are cheap.
 - Use a different model family from the generator where practical. For a
-  school project, the same model at temperature 0 is acceptable if you note
-  the self-preference bias.
+  school project, the same model is acceptable if you note the
+  self-preference bias.
 
 Do not grade exact wording, tool order, number of turns (except as a budget
 check), or self-reported confidence. Do not judge prose the server composes
@@ -535,6 +538,47 @@ thresholds live in `scripts/eval-guardrails.mjs`; they are deliberately loose
 enough to absorb model-provider variance. Missing result files are skipped, so
 the command is safe before any evals have run. Wire it into CI after the eval
 artifacts are published; do not gate a cold checkout on gitignored results.
+
+### 6.2 Reasoning effort, not temperature
+
+GPT-6.1 Terra and Sol are reasoning models and do not accept `temperature`.
+OpenRouter's `supported_parameters` for both omit it, and the request does not
+fail: the unsupported parameter is dropped. Every run before 2026-11-02 sent
+`temperature` 0 or 0.1 and was sampled at the provider default anyway, so
+"temperature 0" in older reports records a setting, not a sampling condition.
+The code no longer sends `temperature`, and the `*_TEMPERATURE` settings are
+gone.
+
+The setting that still takes effect is `reasoning_effort` (`low` / `medium` /
+`high` / `xhigh`). It sets how much hidden reasoning the model does before it
+answers. On Terra, low produced about 0.8× and high about 2× medium's output
+tokens, and latency and cost moved with it. Effort is not a determinism control.
+Outputs vary from run to run at every effort, so nothing replaces the old
+"pin temperature to 0" step.
+
+Rules:
+
+- **Send an explicit effort on every model call.** Agents use their
+  `*_REASONING_EFFORT` pin. Judges, and the brief's repair and support-judge
+  calls, pin `medium`. Medium is the provider default, so judge scores from
+  earlier runs stay comparable.
+- **Record it.** Effort goes in trace metadata and in eval `meta`, next to the
+  model. A result that does not state its effort cannot be reproduced.
+- **Treat effort as part of the model pin.** Changing it means re-running that
+  agent's eval and `pnpm eval:guardrails`, the same as a model swap.
+- **Handle variance with trials, not sampling.** Run k ≥ 3 trials (2 when a
+  case is expensive) and report pass^k. Treat a 1–2 case pass^k swing as
+  noise: four policy-navigator runs ranged from 35/43 to 39/43 across two
+  efforts. Write the adoption rule before the run, and do not adopt a setting
+  on one run that only ties.
+- **Check the caps when raising effort.** Reasoning tokens count against
+  `max_tokens`, and more reasoning means more latency. In the 2026-11-02 sweep,
+  going above medium did not improve pass^k on the policy navigator or case
+  review, and xhigh caused timeouts on the memo and on case review.
+- **Sweep effort where you used to sweep temperature.** `settings-eval.ts` now
+  varies effort.
+
+Results: [reasoning-effort-2026-11-02.md](reasoning-effort-2026-11-02.md).
 
 ## 7. The scorecard
 

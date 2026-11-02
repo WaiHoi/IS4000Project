@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { REASONING_EFFORTS } from "@credit/agent-kit";
 import { resolveWorkspacePath } from "@credit/service-kit";
 import { assertProductionSecrets, MAX_UPLOAD_BYTES } from "@credit/service-kit";
 import { createEnv } from "@t3-oss/env-core";
@@ -108,6 +109,8 @@ const parsed = createEnv({
 		ASSIST_MEMO_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(90_000),
 		ASSIST_MEMO_MAX_COST_USD: z.coerce.number().min(0).default(0.25),
 		ASSIST_MEMO_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(32_000).default(4_000),
+		// Sol low matched medium 22/22, faster: docs/eval/reasoning-effort-2026-11-02.md.
+		ASSIST_MEMO_REASONING_EFFORT: z.enum(REASONING_EFFORTS).default("low"),
 		OPENROUTER_API_KEY: z.string().min(1).optional(),
 		OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
 		// EN-08 adverse-action taxonomy/profile. SG is the v1 default; US is
@@ -141,6 +144,8 @@ const parsed = createEnv({
 		POLICY_EXCEPTION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
 		POLICY_EXCEPTION_MAX_COST_USD: z.coerce.number().min(0).default(0.35),
 		POLICY_EXCEPTION_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(32_000).default(8_000),
+		// Low held dev 17/17, cheaper/faster: docs/eval/reasoning-effort-2026-11-02.md.
+		POLICY_EXCEPTION_REASONING_EFFORT: z.enum(REASONING_EFFORTS).default("low"),
 		POLICY_EXCEPTION_RATE_PER_MIN: z.coerce.number().int().min(1).max(120).default(10),
 		// E2 document integrity + EN-05 fraud review. Flags default off; the
 		// deterministic panel works without a model. The advisory brief needs
@@ -150,7 +155,9 @@ const parsed = createEnv({
 		DOCUMENT_INTEGRITY_AGENT_ENABLED: z.enum(["true", "false"]).default("false"),
 		DOCUMENT_INTEGRITY_TRIAGE_ENABLED: z.enum(["true", "false"]).default("false"),
 		// Document-integrity winner:
-		// docs/eval/applications/INTEGRITY-MODELS-RESULTS.md.
+		// docs/eval/applications/INTEGRITY-MODELS-RESULTS.md. Terra at high
+		// matched it but broke the p95 guardrail; Sol low held 34/35 faster:
+		// docs/eval/reasoning-effort-2026-11-02.md.
 		DOCUMENT_INTEGRITY_MODEL: z.string().min(1).default("openai/gpt-6.1-sol"),
 		DOCUMENT_INTEGRITY_PROMPT_VERSION: z.string().min(1).default("integrity-analysis-v1"),
 		DOCUMENT_INTEGRITY_AGENT_VERSION: z.string().min(1).default("integrity-agent-v1"),
@@ -165,6 +172,7 @@ const parsed = createEnv({
 			.min(256)
 			.max(32_000)
 			.default(4_000),
+		DOCUMENT_INTEGRITY_REASONING_EFFORT: z.enum(REASONING_EFFORTS).default("low"),
 		DOCUMENT_INTEGRITY_FLAG_SEVERITY: z.enum(["low", "medium", "high"]).default("high"),
 		DOCUMENT_INTEGRITY_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
 		DOCUMENT_INTEGRITY_SYSTEM_USER_ID: z
@@ -275,6 +283,7 @@ export const env = {
 		memoTimeoutMs: parsed.ASSIST_MEMO_TIMEOUT_MS,
 		memoMaxCostUsd: parsed.ASSIST_MEMO_MAX_COST_USD,
 		memoMaxOutputTokens: parsed.ASSIST_MEMO_MAX_OUTPUT_TOKENS,
+		memoReasoningEffort: parsed.ASSIST_MEMO_REASONING_EFFORT,
 		openRouterApiKey: parsed.OPENROUTER_API_KEY ?? null,
 		openRouterBaseUrl: parsed.OPENROUTER_BASE_URL,
 		adverseJurisdiction: parsed.ASSIST_ADVERSE_JURISDICTION,
@@ -291,6 +300,7 @@ export const env = {
 		policyExceptionTimeoutMs: parsed.POLICY_EXCEPTION_TIMEOUT_MS,
 		policyExceptionMaxCostUsd: parsed.POLICY_EXCEPTION_MAX_COST_USD,
 		policyExceptionMaxOutputTokens: parsed.POLICY_EXCEPTION_MAX_OUTPUT_TOKENS,
+		policyExceptionReasoningEffort: parsed.POLICY_EXCEPTION_REASONING_EFFORT,
 		policyExceptionRatePerMin: parsed.POLICY_EXCEPTION_RATE_PER_MIN,
 		policyUrl: parsed.POLICY_URL ?? null,
 		policyInternalSecret: parsed.POLICY_INTERNAL_SECRET ?? null,
@@ -312,6 +322,7 @@ export const env = {
 		timeoutMs: parsed.DOCUMENT_INTEGRITY_TIMEOUT_MS,
 		maxCostUsd: parsed.DOCUMENT_INTEGRITY_MAX_COST_USD,
 		maxOutputTokens: parsed.DOCUMENT_INTEGRITY_MAX_OUTPUT_TOKENS,
+		reasoningEffort: parsed.DOCUMENT_INTEGRITY_REASONING_EFFORT,
 		flagSeverity: parsed.DOCUMENT_INTEGRITY_FLAG_SEVERITY,
 		retentionDays: parsed.DOCUMENT_INTEGRITY_RETENTION_DAYS,
 		systemUserId: parsed.DOCUMENT_INTEGRITY_SYSTEM_USER_ID,

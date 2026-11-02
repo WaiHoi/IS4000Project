@@ -12,7 +12,7 @@ import {
 	tool,
 } from "@openai/agents";
 import { APIConnectionTimeoutError } from "openai";
-import { defineAgent } from "@credit/agent-kit";
+import { defineAgent, type ReasoningEffort } from "@credit/agent-kit";
 import { readRunUsage, type AgentsOpenAIClient } from "@credit/agent-observability/openai-agents";
 import type { Logger } from "@credit/service-kit";
 import { applicationObservability } from "../../observability.js";
@@ -60,6 +60,8 @@ export interface AgentsMemoRunnerOptions {
 	promptVersion?: string;
 	maxToolCalls: number;
 	maxOutputTokens: number;
+	/** Pinned per agent; omitted means "medium". */
+	reasoningEffort?: ReasoningEffort;
 	timeoutMs: number;
 	fetchImpl?: typeof fetch;
 	logger?: Pick<Logger, "warn">;
@@ -144,7 +146,10 @@ export function createAgentsMemoRunner(opts: AgentsMemoRunnerOptions): MemoAgent
 						execute: async (args) => invoke("list_unavailable", args),
 					}),
 				],
-				modelSettings: { temperature: 0, maxTokens: opts.maxOutputTokens },
+				modelSettings: {
+					maxTokens: opts.maxOutputTokens,
+					reasoning: { effort: opts.reasoningEffort ?? "medium" },
+				},
 			});
 
 			const prompt = input.repair
@@ -168,7 +173,10 @@ export function createAgentsMemoRunner(opts: AgentsMemoRunnerOptions): MemoAgent
 						model: opts.model,
 						provider: "openrouter",
 						tags: { operation: "agent" },
-						metadata: { promptVersion: opts.promptVersion },
+						metadata: {
+							promptVersion: opts.promptVersion,
+							reasoningEffort: opts.reasoningEffort ?? "medium",
+						},
 						onSuccess: (value) => {
 							const runUsage = readRunUsage(value);
 							return {

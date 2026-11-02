@@ -29,8 +29,10 @@ export async function callJsonModel(opts: {
 		opts.openai.chat.completions.create(
 			{
 				model: opts.model,
-				temperature: 0,
 				max_tokens: opts.maxTokens,
+				// Repair and the blocking support judge stay pinned at medium so
+				// the brief's effort setting never moves its own validator.
+				reasoning_effort: "medium",
 				response_format: { type: "json_object" },
 				messages: opts.messages as never,
 			},
