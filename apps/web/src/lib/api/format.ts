@@ -27,6 +27,13 @@ const dateTimeFmt = new Intl.DateTimeFormat(DATE_LOCALE, {
 	timeZone: TIME_ZONE,
 });
 
+const timeFmt = new Intl.DateTimeFormat(DATE_LOCALE, {
+	hour: "2-digit",
+	minute: "2-digit",
+	hour12: false,
+	timeZone: TIME_ZONE,
+});
+
 /** Null-safe cents → USD; check-only decisions carry null amounts (SPEC §2.2). */
 export function formatMoney(cents: number | null | undefined): string {
 	return cents === null || cents === undefined ? "—" : usd.format(cents / 100);
@@ -53,6 +60,12 @@ export function formatDateTime(iso: string | null | undefined): string {
 	if (!iso) return "—";
 	const d = new Date(iso);
 	return Number.isNaN(d.getTime()) ? iso : dateTimeFmt.format(d);
+}
+
+export function formatTime(iso: string | null | undefined): string {
+	if (!iso) return "—";
+	const d = new Date(iso);
+	return Number.isNaN(d.getTime()) ? iso : timeFmt.format(d);
 }
 
 export function formatWait(ms: number): string {

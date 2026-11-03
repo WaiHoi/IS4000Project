@@ -1,9 +1,11 @@
-// Officer case detail (prototype layout): PageHead, fact strip, decision
-// banner, fraud warning, 8/4 grid with application/credit/policy/
-// verification/documents/DocumentPanel/IntegrityPanel/timeline in main and
-// tabbed assist + decision in the rail. Reuses the shared panels unchanged.
+// Officer case detail: PageHead, fact strip, decision banner, fraud warning,
+// 6/6 grid with application/credit/policy/verification/documents/integrity in
+// the case column and a tabbed assist workspace in the secondary column.
+// The timeline lives in a right-hand sheet; the officer decision sits below
+// both columns. Reuses the shared panels unchanged.
 import { reasonText } from "@credit/core/browser";
 import { Link } from "@tanstack/react-router";
+import { Clock } from "lucide-react";
 import { useState } from "react";
 import { CaseAssistantPanel } from "../case-assistant-panel";
 import { DecisionPanel } from "../decision-panel";
@@ -12,6 +14,8 @@ import { IntegrityPanel } from "../integrity-panel";
 import { MemoPanel } from "../memo-panel";
 import { PolicyExceptionPanel } from "../policy-exception-panel";
 import { ResearchPanel } from "../research-panel";
+import { Button } from "../ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../ui/sheet";
 import { ButtonLink } from "../ubs/button-link";
 import {
 	BarRow,
@@ -32,6 +36,7 @@ import {
 	formatDateTime,
 	formatFieldValue,
 	formatMoney,
+	formatTime,
 	formatWait,
 	productLabel,
 	typeLabel,
@@ -218,7 +223,7 @@ function ApplicationPanel({ data }: { data: CaseDetail }) {
 	if (dti) rows.push(["DTI", dti]);
 	return (
 		<Panel title="Application" outline>
-			<dl className="grid gap-x-8 sm:grid-cols-2">
+			<dl className="grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3">
 				{rows.map(([label, value]) => (
 					<Kv key={label} label={label} value={value} />
 				))}
@@ -241,33 +246,40 @@ function CreditPanel({ data }: { data: CaseDetail }) {
 			{!score ? (
 				<p className="text-sm text-slate">Not scored yet.</p>
 			) : (
-				<div>
-					<div className="flex flex-wrap items-end justify-between gap-4">
-						<div>
-							<p className="text-4xl leading-none font-light text-ink tabular">{score.score}</p>
-							<p className="mt-1 text-sm text-slate">Grade {score.grade}</p>
+				<div className="grid gap-6 xl:grid-cols-5">
+					<div className="xl:col-span-2">
+						<div className="flex flex-wrap items-end justify-between gap-4">
+							<div>
+								<p className="text-4xl leading-none font-light text-ink tabular">{score.score}</p>
+								<p className="mt-1 text-sm text-slate">Grade {score.grade}</p>
+							</div>
+							<div className="text-right text-sm text-slate">
+								{aff?.dscr !== undefined && <p>DSCR {aff.dscr.toFixed(2)}×</p>}
+								{aff?.dti !== undefined && <p>DTI {(aff.dti * 100).toFixed(2)}%</p>}
+							</div>
 						</div>
-						<div className="text-right text-sm text-slate">
-							{aff?.dscr !== undefined && <p>DSCR {aff.dscr.toFixed(2)}×</p>}
-							{aff?.dti !== undefined && <p>DTI {(aff.dti * 100).toFixed(2)}%</p>}
+						<div className="mt-3">
+							<Meter
+								value={score.score - 300}
+								max={550}
+								tone={score.score >= 720 ? "success" : score.score >= 640 ? "warning" : "danger"}
+								label={`Score ${score.score}`}
+							/>
+							<div className="mt-1 flex justify-between text-xs text-slate tabular">
+								<span>300</span>
+								<span>580</span>
+								<span>650</span>
+								<span>720</span>
+								<span>850</span>
+							</div>
 						</div>
+						{aff?.newPaymentCents !== undefined && (
+							<p className="mt-3 text-sm text-slate">
+								New payment <Money cents={aff.newPaymentCents} />
+							</p>
+						)}
 					</div>
-					<div className="mt-3">
-						<Meter
-							value={score.score - 300}
-							max={550}
-							tone={score.score >= 720 ? "success" : score.score >= 640 ? "warning" : "danger"}
-							label={`Score ${score.score}`}
-						/>
-						<div className="mt-1 flex justify-between text-xs text-slate tabular">
-							<span>300</span>
-							<span>580</span>
-							<span>650</span>
-							<span>720</span>
-							<span>850</span>
-						</div>
-					</div>
-					<ul className="mt-4 space-y-3">
+					<ul className="space-y-3 xl:col-span-3">
 						{[...score.factors]
 							.sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
 							.slice(0, 5)
@@ -282,11 +294,6 @@ function CreditPanel({ data }: { data: CaseDetail }) {
 								</li>
 							))}
 					</ul>
-					{aff?.newPaymentCents !== undefined && (
-						<p className="mt-3 text-sm text-slate">
-							New payment <Money cents={aff.newPaymentCents} />
-						</p>
-					)}
 				</div>
 			)}
 		</Panel>
@@ -331,7 +338,7 @@ function PolicyPanel({ data }: { data: CaseDetail }) {
 
 function VerificationDocuments({ data }: { data: CaseDetail }) {
 	return (
-		<div className="grid gap-8 md:grid-cols-2">
+		<div className="grid gap-8 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
 			<Panel title="Verification" outline>
 				{data.checks.length === 0 ? (
 					<p className="text-sm text-slate">No checks yet.</p>
@@ -369,24 +376,34 @@ function VerificationDocuments({ data }: { data: CaseDetail }) {
 	);
 }
 
-function TimelinePanel({ data }: { data: CaseDetail }) {
+function TimelineEntries({ data }: { data: CaseDetail }) {
 	const hidden = /^(access\.|context\.read|policy_exception\.viewed)/;
-	const visible = data.timeline.filter((e) => !hidden.test(e.action ?? "")).slice(0, 20);
+	const filtered = data.timeline.filter((e) => !hidden.test(e.action ?? ""));
+	const visible = filtered.slice(0, 20);
+	if (visible.length === 0) return <p className="text-sm text-slate">No activity yet.</p>;
+
+	const groups = new Map<string, typeof visible>();
+	for (const entry of visible) {
+		const day = formatDate(entry.at);
+		const entries = groups.get(day) ?? [];
+		entries.push(entry);
+		groups.set(day, entries);
+	}
+
 	return (
-		<Panel title="Timeline" outline>
-			{visible.length === 0 ? (
-				<p className="text-sm text-slate">No activity yet.</p>
-			) : (
-				<>
-					<ol className="divide-y divide-rule text-sm">
-						{visible.map((e, index) => (
+		<div>
+			{[...groups.entries()].map(([day, entries]) => (
+				<section key={day} className="mt-4 first:mt-0">
+					<h3 className="overline">{day}</h3>
+					<ol className="mt-2 divide-y divide-rule text-sm">
+						{entries.map((e, index) => (
 							<li
 								// Audit rows can share the same millisecond and action
 								// (e.g. several document.reused); index keeps them keyed.
 								key={`${e.at}-${e.kind ?? "audit"}-${e.action ?? e.type ?? ""}-${index}`}
 								className="flex flex-wrap gap-x-3 gap-y-0.5 py-2"
 							>
-								<span className="tabular text-slate">{formatDateTime(e.at)}</span>
+								<span className="tabular text-slate">{formatTime(e.at)}</span>
 								<span className="font-medium text-ink">
 									{actionLabel(e.kind === "feed" ? e.type : e.action)}
 								</span>
@@ -394,14 +411,41 @@ function TimelinePanel({ data }: { data: CaseDetail }) {
 							</li>
 						))}
 					</ol>
-					{visible.length < data.timeline.length && (
-						<p className="mt-2 text-xs text-slate">
-							Showing the latest {visible.length} business events.
-						</p>
-					)}
-				</>
+				</section>
+			))}
+			{visible.length < filtered.length && (
+				<p className="mt-3 text-xs text-slate">
+					Showing the latest {visible.length} business events.
+				</p>
 			)}
-		</Panel>
+		</div>
+	);
+}
+
+function TimelineSheet({
+	open,
+	onOpenChange,
+	data,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	data: CaseDetail;
+}) {
+	return (
+		<Sheet open={open} onOpenChange={onOpenChange}>
+			<SheetContent side="right" className="flex w-full flex-col overflow-hidden sm:max-w-110">
+				<SheetHeader className="mr-8 flex-none">
+					<Overline>Case activity</Overline>
+					<SheetTitle>Case timeline</SheetTitle>
+					<SheetDescription>
+						Business events, newest first. Access checks and context reads are hidden.
+					</SheetDescription>
+				</SheetHeader>
+				<div className="mt-4 min-h-0 flex-1 overflow-y-auto">
+					<TimelineEntries data={data} />
+				</div>
+			</SheetContent>
+		</Sheet>
 	);
 }
 
@@ -419,6 +463,7 @@ export function OfficerCaseView({
 	const app = data.application;
 	const decided = app.status !== "pending_review";
 	const [assistTab, setAssistTab] = useState<AssistTab>("brief");
+	const [timelineOpen, setTimelineOpen] = useState(false);
 	return (
 		<>
 			<PageHead
@@ -427,6 +472,24 @@ export function OfficerCaseView({
 				actions={
 					<>
 						<StatusBadge status={app.status} />
+						<Button
+							variant="secondary"
+							size="sm"
+							onClick={() => setTimelineOpen(true)}
+							aria-haspopup="dialog"
+							aria-expanded={timelineOpen}
+						>
+							<Clock className="size-4" strokeWidth={1.5} aria-hidden="true" />
+							Show case timeline
+						</Button>
+						{!decided && (
+							<a
+								href="#officer-decision"
+								className="text-sm font-medium text-red-link hover:underline"
+							>
+								Record decision
+							</a>
+						)}
 						<Link
 							to="/officer/review"
 							className="inline-flex items-center gap-1 text-sm font-medium text-red-link hover:underline"
@@ -441,8 +504,8 @@ export function OfficerCaseView({
 			<DecisionBanner data={data} />
 			<FraudWarning data={data} />
 
-			<div className="mt-8 grid gap-8 lg:grid-cols-12">
-				<div className="min-w-0 space-y-8 lg:col-span-8">
+			<div className="mt-8 grid gap-10 lg:grid-cols-2">
+				<div className="min-w-0 space-y-6">
 					<ApplicationPanel data={data} />
 					<CreditPanel data={data} />
 					<PolicyPanel data={data} />
@@ -454,15 +517,20 @@ export function OfficerCaseView({
 						documentProcessingConsent={app.documentProcessingConsent}
 					/>
 					<IntegrityPanel applicationId={app.id} />
-					<TimelinePanel data={data} />
 				</div>
-				<aside className="min-w-0 lg:col-span-4">
-					<div className="space-y-8 lg:sticky lg:top-6">
-						<section aria-label="AI case assist" className="rounded-sm bg-warm p-6">
+				<aside className="min-w-0">
+					<section
+						aria-label="AI case assist"
+						className="assist-pane flex flex-col rounded-sm bg-warm p-6 lg:overflow-hidden"
+					>
+						<div className="flex-none">
 							<div className="mb-2 flex items-start justify-between gap-4">
 								<div>
 									<Overline>Advisory</Overline>
-									<h2 className="mt-1 text-2xl leading-8 font-light text-ink">Case assist</h2>
+									<div className="mt-1 flex items-center gap-3">
+										<span className="h-1 w-10 bg-red" aria-hidden="true" />
+										<h2 className="text-2xl leading-8 font-light text-ink">Case assist</h2>
+									</div>
 								</div>
 								<Tag tone="neutral">AI</Tag>
 							</div>
@@ -478,56 +546,63 @@ export function OfficerCaseView({
 								value={assistTab}
 								onChange={setAssistTab}
 							/>
-							<div className="mt-4">
-								<div hidden={assistTab !== "brief"}>
-									<ResearchPanel
-										applicationId={app.id}
-										caseStatus={app.status}
-										aiResearchConsent={app.aiResearchConsent}
-										onSelectionChange={onResearchSelection}
-									/>
-								</div>
-								<div hidden={assistTab !== "memo"}>
-									<MemoPanel applicationId={app.id} caseStatus={app.status} />
-								</div>
-								<div hidden={assistTab !== "policy"}>
-									<PolicyExceptionPanel applicationId={app.id} caseStatus={app.status} />
-								</div>
-								<div hidden={assistTab !== "ask"}>
-									<CaseAssistantPanel
-										key={app.id}
-										applicationId={app.id}
-										contextAnalysisConsent={app.contextAnalysisConsent}
-									/>
-								</div>
+						</div>
+						<div className="mt-6 min-h-0 lg:flex-1 lg:overflow-y-auto">
+							<div hidden={assistTab !== "brief"}>
+								<ResearchPanel
+									applicationId={app.id}
+									caseStatus={app.status}
+									aiResearchConsent={app.aiResearchConsent}
+									onSelectionChange={onResearchSelection}
+								/>
 							</div>
-						</section>
-						{decided ? (
-							<Panel title="Officer decision" outline>
-								<p className="text-sm text-slate">Case is {app.status} — no decision needed.</p>
-								{data.loan && (
-									<p className="mt-3">
-										<ButtonLink to="/officer/portfolio" variant="link">
-											View portfolio
-										</ButtonLink>
-									</p>
-								)}
-							</Panel>
-						) : (
-							<DecisionPanel
-								applicationId={app.id}
-								requestedAmountCents={app.amountCents}
-								requestedTermMonths={app.termMonths}
-								maxAmountCents={data.policyEvaluation?.maxAmountCents ?? app.amountCents}
-								product={app.product}
-								researchSelection={researchSelection}
-								onResearchStale={() => onResearchSelection(null)}
-								onDecided={onDecided}
-							/>
-						)}
-					</div>
+							<div hidden={assistTab !== "memo"}>
+								<MemoPanel applicationId={app.id} caseStatus={app.status} />
+							</div>
+							<div hidden={assistTab !== "policy"}>
+								<PolicyExceptionPanel applicationId={app.id} caseStatus={app.status} />
+							</div>
+							<div hidden={assistTab !== "ask"}>
+								<CaseAssistantPanel
+									key={app.id}
+									applicationId={app.id}
+									contextAnalysisConsent={app.contextAnalysisConsent}
+								/>
+							</div>
+						</div>
+					</section>
 				</aside>
 			</div>
+
+			<div id="officer-decision" className="mt-12 border-t border-rule-illustrative pt-6">
+				<div className="max-w-3xl">
+					{decided ? (
+						<Panel title="Officer decision" outline>
+							<p className="text-sm text-slate">Case is {app.status} — no decision needed.</p>
+							{data.loan && (
+								<p className="mt-3">
+									<ButtonLink to="/officer/portfolio" variant="link">
+										View portfolio
+									</ButtonLink>
+								</p>
+							)}
+						</Panel>
+					) : (
+						<DecisionPanel
+							applicationId={app.id}
+							requestedAmountCents={app.amountCents}
+							requestedTermMonths={app.termMonths}
+							maxAmountCents={data.policyEvaluation?.maxAmountCents ?? app.amountCents}
+							product={app.product}
+							researchSelection={researchSelection}
+							onResearchStale={() => onResearchSelection(null)}
+							onDecided={onDecided}
+						/>
+					)}
+				</div>
+			</div>
+
+			<TimelineSheet open={timelineOpen} onOpenChange={setTimelineOpen} data={data} />
 		</>
 	);
 }

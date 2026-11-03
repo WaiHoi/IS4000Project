@@ -139,8 +139,9 @@ export function MemoPanel({
 
 	return (
 		<Card
-			title="Credit memo"
+			title={<span className="text-lg leading-7 font-light">Credit memo</span>}
 			actions={artifact ? <StatusBadge status={artifact.status} /> : undefined}
+			className="border-0 bg-transparent p-0"
 		>
 			{drafting && <ToolActivity entries={[]} running pendingLabel="Reading case evidence…" />}
 			{memos.isPending ? (

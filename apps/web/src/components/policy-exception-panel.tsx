@@ -372,7 +372,7 @@ function FollowUpSection({ applicationId }: { applicationId: string }) {
 											))}
 										</ul>
 									)}
-									<TraceDetails trace={entry.answer.trace} />
+									<TraceDetails trace={entry.answer.trace} showMeta={false} />
 								</div>
 							) : (
 								<div className="mt-1">
@@ -646,6 +646,7 @@ function MemoSection({
 									}
 								: null
 						}
+						showMeta={false}
 					/>
 					{artifact.status === "approved" ? (
 						<p className="mt-3 text-sm text-slate">
@@ -820,7 +821,7 @@ function ExplainSection({
 							</ul>
 						</div>
 					)}
-					<TraceDetails trace={explanation.trace} />
+					<TraceDetails trace={explanation.trace} showMeta={false} />
 				</div>
 			)}
 		</section>
@@ -853,12 +854,13 @@ export function PolicyExceptionPanel({
 
 	return (
 		<Card
-			title="Policy & exception navigator"
+			title={<span className="text-lg leading-7 font-light">Policy & exception navigator</span>}
 			actions={
 				view.data ? (
 					<span className="text-xs text-slate">source: {view.data.sourceStatus}</span>
 				) : undefined
 			}
+			className="border-0 bg-transparent p-0"
 		>
 			{view.isPending ? (
 				<Skeleton label="Loading policy and exception details" />

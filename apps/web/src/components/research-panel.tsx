@@ -925,11 +925,8 @@ export function ResearchPanel({
 	const runAllowed = canRun && !consentBlocked;
 
 	return (
-		<section
-			aria-label="Agent research"
-			className="rounded-sm border border-rule bg-card p-4 sm:p-5"
-		>
-			<h2 className="text-base font-semibold">Agent research brief</h2>
+		<section aria-label="Agent research" className="min-w-0">
+			<h2 className="text-lg leading-7 font-light">Agent research brief</h2>
 			<p className="mt-0.5 text-xs text-slate">
 				Advisory only — cited public sources for context. It never decides the case.
 			</p>

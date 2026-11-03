@@ -218,4 +218,14 @@
 	.shadow-float {
 		box-shadow: 0 8px 24px rgba(28, 28, 28, 0.1);
 	}
+
+	/* The case-assist workspace: sticky and capped only at desktop. Below xl
+	   it grows with the page so the case and assist columns stack cleanly. */
+	@media (min-width: 1024px) {
+		.assist-pane {
+			position: sticky;
+			top: 24px;
+			max-height: calc(100vh - 3rem);
+		}
+	}
 }

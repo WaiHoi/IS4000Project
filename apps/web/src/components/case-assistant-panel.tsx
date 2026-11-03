@@ -160,8 +160,8 @@ export function CaseAssistantPanel({
 	const consentMissing = contextAnalysisConsent === false;
 
 	return (
-		<section aria-label="Case assistant" className="rounded-sm border border-rule bg-card p-4">
-			<h3 className="text-base font-semibold">Case assistant</h3>
+		<section aria-label="Case assistant" className="min-w-0">
+			<h3 className="text-lg leading-7 font-light">Case assistant</h3>
 			<p className="mt-0.5 text-xs text-slate">
 				Read-only. No recommendations — the decision is yours.
 			</p>
@@ -264,7 +264,7 @@ export function CaseAssistantPanel({
 								send(draft);
 							}
 						}}
-						className="min-h-12 text-sm"
+						className="min-h-12"
 					/>
 					<div className="flex items-center justify-between gap-2">
 						{draft.length > 800 ? (
