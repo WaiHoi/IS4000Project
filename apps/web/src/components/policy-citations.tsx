@@ -9,6 +9,7 @@ import {
 	type PolicyCitation,
 	type PolicySection,
 } from "../lib/api";
+import { policyParagraphs, policyQuote } from "../lib/policy-text";
 import { ErrorBox, Skeleton } from "./ui";
 import { Button } from "./ui/button";
 
@@ -77,9 +78,13 @@ function DrawerBody({ citation }: { citation: PolicyCitation }) {
 				</div>
 			</dl>
 			<blockquote className="border-l-2 border-rule-strong pl-2 text-sm text-slate italic">
-				“{citation.quote}”
+				“{policyQuote(citation.quote)}”
 			</blockquote>
-			<div className="whitespace-pre-wrap text-sm text-ink">{section.body}</div>
+			<div className="space-y-3 text-sm text-ink">
+				{policyParagraphs(section.body).map((paragraph) => (
+					<p key={paragraph}>{paragraph}</p>
+				))}
+			</div>
 			{(section.neighbours?.length ?? 0) > 0 && (
 				<p className="text-xs text-slate">
 					Nearby: {section.neighbours?.map((n) => `§${n.sectionId} ${n.heading}`).join(" · ")}
