@@ -12,6 +12,7 @@ describe("pnpm start flags", () => {
 			"AGENT_CASE_BRIEF_ENABLED",
 			"CONTEXT_ANALYST_ENABLED",
 			"POLICY_ASSIST_ENABLED",
+			"AGENT_AUTO_TRIGGER_ENABLED",
 		]) {
 			expect(flags[key]).toBe("true");
 		}
@@ -19,12 +20,13 @@ describe("pnpm start flags", () => {
 	});
 
 	it("keeps AI off without an OpenRouter key and everything off in lite", () => {
-		expect(deriveFlags({ ...full, ai: false, brief: false, policy: false }).AGENTS_ENABLED).toBe(
-			"false",
-		);
+		const noAi = deriveFlags({ ...full, ai: false, brief: false, policy: false });
+		expect(noAi.AGENTS_ENABLED).toBe("false");
+		expect(noAi.AGENT_AUTO_TRIGGER_ENABLED).toBe("false");
 		const lite = deriveFlags({ lite: true, ai: false, brief: false, docs: false, policy: false });
 		expect(lite.ASSIST_ENABLED).toBe("false");
 		expect(lite.DOCUMENT_FEATURE_ENABLED).toBe("false");
+		expect(lite.AGENT_AUTO_TRIGGER_ENABLED).toBe("false");
 	});
 
 	it("overrides values that came from .env (the Bun auto-load regression)", () => {

@@ -29,6 +29,7 @@ export function deriveFlags(c: StackCapabilities): Record<string, string> {
 		CONTEXT_ANALYST_ENABLED: on(c.ai),
 		AGENT_CASE_BRIEF_ENABLED: on(c.brief),
 		POLICY_ASSIST_ENABLED: on(c.policy),
+		AGENT_AUTO_TRIGGER_ENABLED: on(c.ai),
 		DOCUMENT_INTEGRITY_AGENT_ENABLED: on(c.ai && c.docs),
 		DOCUMENT_INTEGRITY_TRIAGE_ENABLED: on(c.ai && c.docs),
 	};

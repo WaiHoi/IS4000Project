@@ -47,8 +47,9 @@ why any are off. There are no feature flags to set by hand:
   review, policy exceptions, document integrity analysis and triage). It
   also seeds the policy corpus.
 - **`TAVILY_API_KEY` as well:** adds the external case brief.
-- **Auto-research on every referral:** stays off because it spends money
-  automatically. Set `AGENT_AUTO_TRIGGER_ENABLED=true` to opt in.
+- **Auto-research on every referral:** on when the stack has an OpenRouter
+  key (caps and budget apply). Set `AGENT_AUTO_TRIGGER_ENABLED=false` to opt
+  out.
 
 `pnpm start` seeds the reference data (demo customer profiles, evidence,
 policy corpus) once every service is healthy, but creates no applications.

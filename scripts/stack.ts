@@ -251,7 +251,7 @@ function summary(stackUp: boolean, policySeeded: boolean): string {
 │ AI: external case brief                             ${why(brief, ai ? "no TAVILY_API_KEY in .env" : noKey)}
 │ AI: policy navigator + case review + exceptions     ${why(policySeeded, ai ? "policy corpus seed failed" : noKey)}
 │ AI: document integrity analysis + triage            ${why(ai && docs, ai ? "documents off" : noKey)}
-│ auto-research on every referral                     off  (spends automatically; set AGENT_AUTO_TRIGGER_ENABLED=true)
+│ auto-research on every referral                     ${why(env.AGENT_AUTO_TRIGGER_ENABLED === "true", ai ? "AGENT_AUTO_TRIGGER_ENABLED=false" : noKey)}
 │
 │ web       http://localhost:3000   (password demo1234)
 │           maria@example.com · breadtalk@example.com · envy@example.com · officer@example.com
