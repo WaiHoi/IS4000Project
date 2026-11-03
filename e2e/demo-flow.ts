@@ -62,12 +62,7 @@ export async function applyAsProfiledSme(
 	// The real registered company the research agent will look up.
 	await expect(page.locator("#field-company-name")).toHaveValue(loan.companyName);
 	await page.getByRole("button", { name: "Continue" }).click();
-	await page.getByLabel("Credit check consent").check();
-	await page.getByLabel("Data processing consent").check();
-	await page.getByLabel("Terms consent").check();
-	await page.getByLabel("Document processing consent", { exact: false }).check();
-	await page.getByLabel("Context analysis consent", { exact: false }).check();
-	await page.getByLabel("AI research consent", { exact: false }).check();
+	await page.getByLabel("I consent to the checks and processing described below").check();
 	await page.getByRole("button", { name: "Create draft" }).click();
 	await page.waitForURL(/\/applications\/.+/);
 	const caseId = page.url().split("/").pop() ?? "";

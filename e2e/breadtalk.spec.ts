@@ -91,15 +91,8 @@ test("BreadTalk draft: prefill → stale checklist → blocked submit → reuse 
 	await expect(page.locator("#field-company-name")).toHaveValue("BreadTalk Group Pte. Ltd.");
 	await page.getByRole("button", { name: "Continue" }).click();
 
-	// --- Step 3: consents + draft create (never the legacy direct path). ---
-	await page.getByLabel("Credit check consent").check();
-	await page.getByLabel("Data processing consent").check();
-	await page.getByLabel("Terms consent").check();
-	await page.getByLabel("Document processing consent", { exact: false }).check();
-	await page.getByLabel("Context analysis consent", { exact: false }).check();
-	// The research/context legs require the optional AI research consent;
-	// without it ensure 403s and the spec's context assertions never run.
-	await page.getByLabel("AI research consent", { exact: false }).check();
+	// --- Step 3: one consent disclosure covers base + AI/document/context. ---
+	await page.getByLabel("I consent to the checks and processing described below").check();
 	await page.getByRole("button", { name: "Create draft" }).click();
 	await page.waitForURL(/\/applications\/.+/);
 	const appId = page.url().split("/").pop() ?? "";

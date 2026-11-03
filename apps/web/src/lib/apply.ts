@@ -102,10 +102,9 @@ export function validateApplyStep(target: number, s: ApplyStepInput): Errors {
 }
 
 export interface ApplyPayloadInput extends ApplyStepInput {
-	consents: boolean[];
-	aiResearchConsent: boolean;
-	documentProcessingConsent: boolean;
-	contextAnalysisConsent: boolean;
+	/** One disclosure checkbox covers the 3 base consents plus the AI,
+	 * document, and context flags; the API keeps them as separate fields. */
+	consent: boolean;
 }
 
 export function buildApplyPayload(s: ApplyPayloadInput) {
@@ -115,10 +114,10 @@ export function buildApplyPayload(s: ApplyPayloadInput) {
 		amountCents: dollars(s.amount) as number,
 		termMonths: Number(s.term),
 		purpose: s.purpose.trim(),
-		consents: s.consents,
-		aiResearchConsent: s.aiResearchConsent,
-		documentProcessingConsent: s.documentProcessingConsent,
-		contextAnalysisConsent: s.contextAnalysisConsent,
+		consents: [s.consent, s.consent, s.consent],
+		aiResearchConsent: s.consent,
+		documentProcessingConsent: s.consent,
+		contextAnalysisConsent: s.consent,
 		identity: { ...s.identity, fullName: s.identity.fullName.trim() },
 	};
 	return s.borrowerType === "individual"

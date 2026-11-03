@@ -401,9 +401,7 @@ export async function submitApplication(page: Page, app: ApplicationFixture): Pr
 	}
 	await page.getByRole("button", { name: "Continue" }).click();
 
-	await page.getByLabel("Credit check consent").check();
-	await page.getByLabel("Data processing consent").check();
-	await page.getByLabel("Terms consent").check();
+	await page.getByLabel("I consent to the checks and processing described below").check();
 	await page.getByRole("button", { name: "Submit application" }).click();
 	await page.waitForURL(/\/applications\/.+/);
 	const appId = page.url().split("/").pop() ?? "";

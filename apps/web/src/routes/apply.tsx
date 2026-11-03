@@ -47,7 +47,7 @@ const STEP_TITLES = ["Loan details", "About you", "Review & consent"];
 const STEP_SUBTITLES = [
 	"Tell us what you need and for how long. You can change everything before you submit.",
 	"We use this to verify your identity. It is encrypted and never shared with other clients.",
-	"Review the details, choose your consents, and submit. Nothing is sent before this step.",
+	"Review the details, accept the consent, and submit. Nothing is sent before this step.",
 ];
 
 function Wizard() {
@@ -91,10 +91,7 @@ function Wizard() {
 		monthlyFcf: "2600",
 		existingDebtService: "0",
 	});
-	const [consents, setConsents] = useState([false, false, false]);
-	const [aiResearchConsent, setAiResearchConsent] = useState(false);
-	const [documentProcessingConsent, setDocumentProcessingConsent] = useState(false);
-	const [contextAnalysisConsent, setContextAnalysisConsent] = useState(false);
+	const [consent, setConsent] = useState(false);
 	// T17 (SPEC-t17-t18 §2.4): profiled customers get prefilled fields and
 	// create a draft; legacy users without a profile keep direct create.
 	const profileQuery = useQuery({
@@ -162,16 +159,13 @@ function Wizard() {
 			product,
 			minCents,
 			maxCents,
-			consents,
-			aiResearchConsent,
-			documentProcessingConsent,
-			contextAnalysisConsent,
+			consent,
 		});
 	}
 
 	async function submit() {
-		if (!consents.every(Boolean)) {
-			setErrors({ consents: "all 3 consents are required" });
+		if (!consent) {
+			setErrors({ consents: "you must accept the consent terms to submit" });
 			return;
 		}
 		// A profiled customer must never take the legacy direct path (the
@@ -680,56 +674,33 @@ function Wizard() {
 								</div>
 							</dl>
 							<fieldset>
-								<legend className="mb-2 text-sm font-medium text-ink">
-									Consents (all required)
-								</legend>
-								{["Credit check consent", "Data processing consent", "Terms consent"].map(
-									(label, i) => (
-										<label key={label} className="flex items-center gap-2 py-1 text-sm text-ink">
-											<input
-												type="checkbox"
-												className="size-4"
-												checked={consents[i] ?? false}
-												onChange={(e) =>
-													setConsents((p) => p.map((c, j) => (j === i ? e.target.checked : c)))
-												}
-												aria-label={label}
-											/>
-											{label}
-										</label>
-									),
-								)}
+								<legend className="mb-2 text-sm font-medium text-ink">Consent</legend>
+								<label className="flex items-start gap-2 text-sm text-ink">
+									<input
+										type="checkbox"
+										className="mt-0.5 size-4 shrink-0"
+										checked={consent}
+										onChange={(e) => setConsent(e.target.checked)}
+										aria-describedby="consent-details"
+									/>
+									<span className="font-medium">
+										I consent to the checks and processing described below
+									</span>
+								</label>
+								<p id="consent-details" className="mt-2 text-xs leading-relaxed text-slate">
+									I consent to UBS obtaining a credit report and credit check on me (and, for a
+									business application, on my business), and to my information — including my
+									national ID, income, debts and any documents I upload — being collected, processed
+									and stored to assess this application and service any loan that results from it. I
+									accept the application terms and conditions. I also consent to UBS using
+									AI-assisted tools on my case: research over public and internal sources, document
+									scanning and cross-checks, and internal context analysis. Those tools are advisory
+									only — they never approve, decline, score, price or set terms; a human credit
+									officer makes every decision. I can withdraw document-processing and
+									context-analysis consent at any time from my application, which stops any further
+									document or context use.
+								</p>
 							</fieldset>
-							<label className="mt-2 flex items-center gap-2 py-1 text-sm text-ink">
-								<input
-									type="checkbox"
-									className="size-4"
-									checked={aiResearchConsent}
-									onChange={(e) => setAiResearchConsent(e.target.checked)}
-									aria-label="AI research consent"
-								/>
-								AI research consent (optional)
-							</label>
-							<label className="mt-2 flex items-center gap-2 py-1 text-sm text-ink">
-								<input
-									type="checkbox"
-									className="size-4"
-									checked={documentProcessingConsent}
-									onChange={(e) => setDocumentProcessingConsent(e.target.checked)}
-									aria-label="Document processing consent"
-								/>
-								Document processing consent (optional for now)
-							</label>
-							<label className="mt-2 flex items-center gap-2 py-1 text-sm text-ink">
-								<input
-									type="checkbox"
-									className="size-4"
-									checked={contextAnalysisConsent}
-									onChange={(e) => setContextAnalysisConsent(e.target.checked)}
-									aria-label="Context analysis consent"
-								/>
-								Context analysis consent (optional)
-							</label>
 							{errors.consents && (
 								<p role="alert" className="mt-1 text-sm text-danger-ink">
 									{errors.consents}
