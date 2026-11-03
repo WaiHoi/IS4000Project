@@ -176,7 +176,6 @@ export function verifyDrawerToken(
 	secret: string,
 	token: string,
 	input: { versionId: string; sectionId: string },
-	now = Date.now(),
 ): { asOf: string } | null {
 	let parsed: { v?: string; s?: string; a?: string; e?: number; sig?: string };
 	try {
@@ -186,7 +185,11 @@ export function verifyDrawerToken(
 	}
 	if (parsed.v !== input.versionId || parsed.s !== input.sectionId) return null;
 	if (typeof parsed.a !== "string") return null;
-	if (!Number.isFinite(parsed.e) || (parsed.e as number) * 1000 < now) return null;
+	// The `e` field is signed but deliberately not enforced: citations are
+	// persisted in research briefs and approved artifacts that outlive a
+	// short-lived live-answer token. The route still requires an officer
+	// session and the per-policy ACL.
+	if (!Number.isFinite(parsed.e)) return null;
 	const payload = [parsed.v, parsed.s, parsed.a, String(parsed.e)].join("\n");
 	const expected = createHmac("sha256", secret).update(payload).digest("base64url");
 	const a = Buffer.from(parsed.sig ?? "");

@@ -251,6 +251,49 @@ describe("policy routes", () => {
 		expect(bad.status).toBe(404);
 	});
 
+	it("opens a persisted citation after the drawer token has expired", async () => {
+		const { deps: inner } = baseDeps();
+		const section = {
+			policyId,
+			policyKey: "POL-CR-001",
+			title: "Credit Underwriting Policy",
+			policyVersionId: versionId,
+			version: "v1",
+			status: "approved",
+			effectiveFrom: "2026-01-01",
+			effectiveTo: null,
+			sectionId: "4.2",
+			heading: "4.2 Affordability",
+			body: "DSCR must be at least 1.25x for SME term loans.",
+			neighbours: [],
+		};
+		const d: PolicyDeps = {
+			...inner,
+			store: fakePolicyStore({
+				async getSection() {
+					return section;
+				},
+			}),
+		};
+		// Research briefs and approved artifacts persist their citation tokens;
+		// a token minted for a live answer must still open the same section later.
+		const token = createDrawerToken(
+			d.env.citationSecret,
+			{
+				versionId,
+				sectionId: "4.2",
+				asOf: "2026-06-30",
+				queryId: "test-query",
+			},
+			-1,
+		);
+		const res = await officerApp(d).request(
+			`/api/policy/sections/${versionId}/4.2?token=${encodeURIComponent(token)}`,
+		);
+		expect(res.status).toBe(200);
+		expect(((await res.json()) as { sectionId: string }).sectionId).toBe("4.2");
+	});
+
 	it("rejects a drawer read when the ACL denies it", async () => {
 		const { deps: inner } = baseDeps();
 		const section = {
