@@ -58,11 +58,26 @@ export interface ResearchFindingItem {
 	reviewedAt?: string | null;
 }
 
+export interface ResearchAcraStatus {
+	uen: string;
+	entityName: string;
+	entityType?: string | null;
+	status: string;
+	incorporationDate?: string | null;
+	ssicCode?: string | null;
+	ssicDescription?: string | null;
+	officers?: number | null;
+	datasetUrl: string;
+	retrievedAt?: string | null;
+}
+
 export interface ResearchBrief {
 	summary?: string;
 	contradictions?: Array<{ description: string; evidenceIds?: string[] }>;
 	unknowns?: string[];
 	questionsForOfficer?: string[];
+	/** Current ACRA open-data snapshot; absent on old runs or lookup misses. */
+	acra?: ResearchAcraStatus | null;
 }
 
 // --- T18 internal context (SPEC-t17-t18 §3.6, D4). Metadata only: signal

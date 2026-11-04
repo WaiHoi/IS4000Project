@@ -13,6 +13,7 @@ import {
 	createLlmSupportJudge,
 	createRealRunner,
 	createTavilyClient,
+	lookupAcra,
 } from "./agents/case-brief/index.js";
 import { createRealContextRunner } from "./agents/context-analyst/index.js";
 import { createHttpPolicyRunner } from "./agents/policy-review/index.js";
@@ -48,7 +49,7 @@ export function createResearchRuntime() {
 	// Same cached instance createApp defaults to: direct repair/judge calls join
 	// the run conversation without a second pipeline.
 	const observability = getObservability();
-	const runner = createRealRunner({ env, tavily, openai: briefClient });
+	const runner = createRealRunner({ env, tavily, openai: briefClient, acra: lookupAcra });
 	const judge = createLlmSupportJudge(briefClient, env.agentModel, { observability });
 	const repair = createLlmLanguageRepair(briefClient, env.agentModel, { observability });
 	const contextRunner = createRealContextRunner({ env, openai: contextClient });

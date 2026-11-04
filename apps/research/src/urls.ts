@@ -1,7 +1,8 @@
 // Final-URL validation (§9): http/https only, no credentials, ports
-// 80/443, no private/loopback/link-local/metadata IPs. Tavily does all
-// fetching, so this is officer-browser defense, not SSRF prevention —
-// literal-IP + denylisted-hostname checks only, no DNS resolution.
+// 80/443, no private/loopback/link-local/metadata IPs. Tavily and the fixed
+// data.gov.sg registry lookup do all fetching, so this is officer-browser
+// defense, not SSRF prevention — literal-IP + denylisted-hostname checks only,
+// no DNS resolution.
 // Ranges use node:net BlockList (no new deps); brackets/zones are stripped
 // before classification so `[::1]` cannot slip through as "not an IP".
 import { BlockList, isIP } from "node:net";

@@ -236,15 +236,18 @@ export async function executeRun(deps: ExecDeps, runId: string, token: string): 
 				runId,
 			});
 			const usage = checkBudget(env, result, validated.judgeUsage, validated.repairUsage);
+			// Server-derived ACRA status rides the brief JSON (no migration):
+			// the officer UI renders it independently of model findings.
+			const brief = { ...validated.brief, acra: result.acra ?? null };
 			await persistExternalSuccess(db, runId, token, {
-				brief: validated.brief,
+				brief,
 				validation: validated.validation,
 				evidence: validated.evidence,
 				findings: validated.findings,
 				links: validated.links,
 				costUsd: usage.costUsd,
 			});
-			external = { ok: true as const, usage, brief: validated.brief, findings: validated.findings };
+			external = { ok: true as const, usage, brief, findings: validated.findings };
 		} catch (err) {
 			if (err instanceof StaleRunError) throw err;
 			throwIfCancelled(deps);

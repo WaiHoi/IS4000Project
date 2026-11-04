@@ -16,6 +16,7 @@ import {
 	stubAgentRunner,
 	AgentTimeoutError,
 	ModelUnavailableError,
+	type AcraRecord,
 	type AgentResult,
 	stubLanguageRepair,
 	type LanguageRepair,
@@ -83,7 +84,11 @@ interface LatestResponse {
 		observability: string;
 		errorCode: string | null;
 	};
-	brief: { summary: string; unknowns: string[] } | null;
+	brief: {
+		summary: string;
+		unknowns: string[];
+		acra?: { uen: string; status: string } | null;
+	} | null;
 	validation: {
 		scores: Record<string, number>;
 		unsupportedClaims: number;
@@ -185,6 +190,38 @@ describe("POST /internal/research/runs/ensure", () => {
 				expect(e.publishedAt).not.toBe(null);
 				expect(e.dateBasis).toBe("publisher_metadata");
 			}
+		} finally {
+			await teardown(ctx);
+		}
+	});
+
+	it("persists the server-derived ACRA status on the brief", async () => {
+		const use = successFixture();
+		const acra: AcraRecord = {
+			uen: "201941770R",
+			entityName: "ENVY GLOBAL TRADING PTE. LTD.",
+			entityType: "Local Company",
+			status: "In Liquidation - Compulsory Winding Up (Insolvency)",
+			incorporationDate: "2019-12-10",
+			ssicCode: "46900",
+			ssicDescription: null,
+			officers: 11,
+			datasetUrl: "https://data.gov.sg/datasets/d_124a9bd407c7a25f8335b93b86e50fdd/view",
+			retrievedAt: "2026-11-04T00:00:00.000Z",
+		};
+		const ctx = setupApp(use, {
+			runner: stubAgentRunner({ brief: use.brief, fetched: use.fetched, acra }),
+		});
+		try {
+			const officer = user("officer");
+			const facts = caseFacts();
+			const res = await post(ctx, "/internal/research/runs/ensure", officer, ensurePayload(facts));
+			expect(res.status).toBe(202);
+			const latest = await waitLatest(ctx, facts.applicationId, officer);
+			expect(latest.brief?.acra).toMatchObject({
+				uen: "201941770R",
+				status: "In Liquidation - Compulsory Winding Up (Insolvency)",
+			});
 		} finally {
 			await teardown(ctx);
 		}

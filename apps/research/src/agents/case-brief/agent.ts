@@ -19,6 +19,7 @@ import {
 	type PromptCaseFacts,
 } from "./prompt.js";
 import { buildSearchQuery, TavilyError, type QueryEntity, type TavilyClient } from "./tavily.js";
+import { buildAcraContext, type AcraLookup, type AcraRecord } from "./acra.js";
 import { createFetchSourceTool } from "./tools/fetch-source.js";
 import { createSearchSourcesTool } from "./tools/search-sources.js";
 import type { BriefToolRuntime, FetchedEvidence, TavilySearchHitLite } from "./tool-runtime.js";
@@ -52,6 +53,8 @@ export interface AgentResult {
 	fetched: FetchedEvidence[];
 	usage: BriefUsage;
 	model: string;
+	/** Current ACRA open-data snapshot; null when absent or not an SME. */
+	acra?: AcraRecord | null;
 }
 
 export interface AgentRunner {
@@ -82,6 +85,8 @@ export function createRealRunner(opts: {
 	env: ResearchEnv;
 	tavily: TavilyClient;
 	openai: OpenAI;
+	/** ACRA open-data lookup; production passes lookupAcra. */
+	acra: AcraLookup;
 }): AgentRunner {
 	const env = opts.env;
 	return {
@@ -95,6 +100,22 @@ export function createRealRunner(opts: {
 				openai as unknown as AgentsOpenAIClient,
 				env.agentModel,
 			);
+
+			// Best-effort, server-side ACRA lookup keyed on the case UEN.
+			// Started before the Tavily preflight so the two overlap; a miss,
+			// timeout, or malformed response leaves the brief unchanged.
+			const acraPromise = (async (): Promise<AcraRecord | null> => {
+				if (!input.caseFacts.companyName || !input.entity.registrationNumber) return null;
+				try {
+					return await opts.acra({
+						uen: input.entity.registrationNumber,
+						entityName: input.entity.name,
+						signal: input.signal,
+					});
+				} catch {
+					return null;
+				}
+			})();
 
 			// Per-run state shared with the tool files (./tools). The Runner
 			// hooks do not surface tool spans for these calls, so each is
@@ -185,6 +206,10 @@ export function createRealRunner(opts: {
 				}
 			}
 
+			const acraRecord = await acraPromise;
+			const acraContext = acraRecord ? buildAcraContext(acraRecord) : null;
+			if (acraContext) fetched.push(acraContext.evidence);
+
 			const searchTool = createSearchSourcesTool(rt);
 			const fetchTool = createFetchSourceTool(rt);
 
@@ -199,7 +224,7 @@ export function createRealRunner(opts: {
 							.join(
 								"\n---\n",
 							)}\n</preflight_sources>\nThe preflight sources above were already fetched for the mandatory adverse_media and registry searches. Use them as evidence; you may still call the tools for more. Quote from CONTENT verbatim.`;
-			const userPrompt = `${buildUserPrompt(input.caseFacts)}${preflightBlock}`;
+			const userPrompt = `${buildUserPrompt(input.caseFacts)}${acraContext?.block ?? ""}${preflightBlock}`;
 
 			const agent = new Agent({
 				// Model + eval: docs/eval/research/BRIEF-MODELS-RESULTS.md.
@@ -275,6 +300,7 @@ export function createRealRunner(opts: {
 						extracts: counters.extracts,
 					},
 					model: env.agentModel,
+					acra: acraRecord,
 				};
 			} catch (err) {
 				if (err instanceof AgentTimeoutError || err instanceof TavilyError) throw err;
@@ -291,6 +317,7 @@ export function stubAgentRunner(scenario: {
 	fetched: FetchedEvidence[];
 	usage?: Partial<BriefUsage>;
 	throw?: Error;
+	acra?: AcraRecord | null;
 }): AgentRunner & { calls: number } {
 	let calls = 0;
 	return {
@@ -312,6 +339,7 @@ export function stubAgentRunner(scenario: {
 					...scenario.usage,
 				},
 				model: "deepseek/deepseek-v4.1-flash-1017",
+				acra: scenario.acra ?? null,
 			};
 		},
 	};

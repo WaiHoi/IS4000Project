@@ -1,6 +1,8 @@
-// Tavily search + extract only (§6.2, §9). No direct fetches anywhere in
-// this service. The server builds every query from a fixed template — the
-// model passes only (entity, category), never a free-form query.
+// Tavily search + extract only (§6.2, §9). The only other outbound fetch is
+// the fixed-host ACRA open-data lookup in ./acra.ts; there are no
+// model-controlled direct fetches anywhere in this service. The server builds
+// every query from a fixed template — the model passes only (entity,
+// category), never a free-form query.
 import { createRetryingFetch, type RetryOptions } from "@credit/agent-kit";
 import { normalizePublishedAt } from "./brief-schema.js";
 

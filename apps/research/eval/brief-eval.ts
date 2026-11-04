@@ -875,6 +875,8 @@ async function runTrial(c: BriefCase, trial: number): Promise<TrialRow> {
 		env: { ...evalEnv, tavilyApiKey: env.tavilyApiKey || "fixture" },
 		tavily: createFakeTavily(c.key, tavilyMisses),
 		openai,
+		// Synthetic fixtures are not ACRA entities; keep the eval offline.
+		acra: async () => null,
 	});
 	let usage: BriefUsage = {
 		inputTokens: 0,

@@ -607,6 +607,8 @@ async function runWebEval(): Promise<void> {
 				},
 				tavily: fakeTavily,
 				openai,
+				// Synthetic fixture entity; keep the eval offline.
+				acra: async () => null,
 			});
 			console.log(`web ${cfg.name} (run ${r + 1}/${repeats}) ...`);
 			const started = Date.now();

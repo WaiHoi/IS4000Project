@@ -24,6 +24,7 @@ import {
 	reviewResearchFinding,
 	viewResearch,
 	type PolicyReviewItem,
+	type ResearchAcraStatus,
 	type ResearchAggregate,
 	type ResearchAuditEntry,
 	type ResearchContext,
@@ -125,6 +126,47 @@ function SourceCard({ evidence, support }: { evidence: ResearchEvidenceItem; sup
 				<SourceLink url={evidence.finalUrl || evidence.url} />
 			</div>
 		</li>
+	);
+}
+
+function acraTone(status: string): string {
+	if (/^live/i.test(status)) return "bg-tag-green text-success-ink";
+	if (
+		/liquidat|winding up|insolven|struck off|dissolved|terminated|cancelled|deregistered/i.test(
+			status,
+		)
+	) {
+		return "bg-tag-red text-danger-ink";
+	}
+	return "bg-tag-amber text-warning-ink";
+}
+
+/** One compact ACRA line above the brief: status, legal name, incorporation,
+ * source. Current snapshot only — never a decision or a risk verdict. */
+function AcraStatus({ acra }: { acra: ResearchAcraStatus }) {
+	return (
+		<section aria-label="ACRA registry status" className="rounded border border-rule bg-raised p-3">
+			<div className="flex flex-wrap items-center gap-2 text-sm">
+				<span className="font-medium text-ink">ACRA</span>
+				<span
+					className={`max-w-full rounded px-1.5 py-0.5 text-xs font-medium break-words ${acraTone(acra.status)}`}
+				>
+					{acra.status}
+				</span>
+				<span className="text-ink">{acra.entityName}</span>
+				{acra.incorporationDate && (
+					<span className="text-xs text-slate">
+						incorporated {formatDateOnly(acra.incorporationDate)}
+					</span>
+				)}
+			</div>
+			<div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate">
+				<span>Current ACRA open-data snapshot</span>
+				{acra.retrievedAt && <span>· retrieved {formatDateTime(acra.retrievedAt)}</span>}
+				<span className="font-mono">· UEN {acra.uen}</span>
+				<SourceLink url={acra.datasetUrl} />
+			</div>
+		</section>
 	);
 }
 
@@ -1096,6 +1138,7 @@ export function ResearchPanel({
 				</div>
 			) : (
 				<div className="mt-3 space-y-4">
+					{data?.brief?.acra && <AcraStatus acra={data.brief.acra} />}
 					{data?.brief?.summary ? (
 						<p className="text-sm text-ink">{data.brief.summary}</p>
 					) : (
