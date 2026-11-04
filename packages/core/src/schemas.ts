@@ -63,6 +63,9 @@ export const individualBlockSchema = z
 		monthlyIncomeCents: centsSchema.min(MIN_MONTHLY_INCOME_CENTS),
 		existingDebtCents: centsSchema.min(0),
 		bankRelationshipYears: z.number().min(0).max(60),
+		monthlyExpensesCents: centsSchema.min(0).optional(),
+		employmentSummary: z.string().max(500).optional(),
+		creditHistorySummary: z.string().max(500).optional(),
 	})
 	.strict()
 	.refine(
@@ -88,6 +91,11 @@ export const smeBlockSchema = z
 		annualRevenueCents: centsSchema.min(0),
 		monthlyFcfCents: centsSchema.min(0),
 		existingDebtServiceCents: centsSchema.min(0),
+		ownershipStructure: z.string().max(500).optional(),
+		managementSummary: z.string().max(500).optional(),
+		existingFacilitiesSummary: z.string().max(500).optional(),
+		leverageRatio: z.number().min(0).max(100).optional(),
+		currentRatio: z.number().min(0).max(100).optional(),
 		collateral: z
 			.object({
 				hasCollateral: z.boolean(),

@@ -24,6 +24,7 @@ import {
 	type MemoAgentRunner,
 	runMemoEvidenceTool,
 } from "../src/agents/memo-writer/index.js";
+import { buildCreditMemo, composeCreditMemo } from "../src/assist/memo.js";
 import type { MemoAgentTrace } from "../src/agents/shared/trace.js";
 
 dotenv.config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -162,7 +163,7 @@ function validMemo(): Record<string, unknown> {
 					],
 				},
 			]),
-			section("entity", "Entity", [
+			section("borrower", "Borrower profile", [
 				{
 					text: "The applicant company operates in the sector stated in the case record.",
 					citations: [
@@ -171,18 +172,20 @@ function validMemo(): Record<string, unknown> {
 					],
 				},
 			]),
-			section("financial_summary", "Financial summary", [
+			section("financial_analysis", "Financial analysis", [
 				{
 					text: "Annual revenue is USD 1,200,000.00 for the stated period.",
 					citations: [{ ref: REVENUE_REF, quote: "120000000" }],
 				},
 			]),
-			section("strengths", "Strengths", [
+			section("debt_service", "Debt service and existing facilities", [
 				{
 					text: "A positive assessment factor is noted for the case.",
 					citations: [{ ref: FACTOR_REF, quote: FACTOR_CONTENT }],
 				},
 			]),
+			section("credit_history", "Credit history", []),
+			section("collateral_security", "Collateral and security", []),
 			section("risks", "Risks", [
 				{
 					text: "A policy section is cited for this case.",
@@ -441,12 +444,13 @@ async function runOnce(evalCases: AgentEvalCase[]): Promise<TrialOutcome> {
 		let sourceTypes: string[] = [];
 		let repairAttempted: boolean | null = null;
 		try {
-			const { content, trace } = await runMemoAgent({
+			const { content: raw, trace } = await runMemoAgent({
 				application,
 				evidence: bundle,
 				runner,
 				config: agentConfig(testCase.config),
 			});
+			const content = composeCreditMemo(raw, buildCreditMemo({ application, evidence: bundle }));
 			const validation = validateGeneratedText({
 				artifactType: "credit_memo",
 				content,
@@ -575,8 +579,8 @@ if (process.argv.includes("--live")) {
 	const apiKey = process.env.OPENROUTER_API_KEY ?? "";
 	if (!apiKey) throw new Error("OPENROUTER_API_KEY is required for --live");
 	const model = process.env.ASSIST_MEMO_MODEL ?? "deepseek/deepseek-v4.1-flash-1017";
-	const promptVersion = process.env.ASSIST_MEMO_PROMPT_VERSION ?? "memo-agent-v1";
-	const agentVersion = process.env.ASSIST_MEMO_AGENT_VERSION ?? "memo-agent-v1";
+	const promptVersion = process.env.ASSIST_MEMO_PROMPT_VERSION ?? "memo-agent-v3";
+	const agentVersion = process.env.ASSIST_MEMO_AGENT_VERSION ?? "memo-agent-v3";
 	const runner = createAgentsMemoRunner({
 		apiKey,
 		baseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
@@ -604,7 +608,7 @@ if (process.argv.includes("--live")) {
 	});
 	const validation = validateGeneratedText({
 		artifactType: "credit_memo",
-		content: live.content,
+		content: composeCreditMemo(live.content, buildCreditMemo({ application, evidence: bundle })),
 		evidence: bundle,
 	});
 	console.log(

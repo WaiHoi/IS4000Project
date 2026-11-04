@@ -3,9 +3,11 @@
 // Pure: no clock, no DB, no logging. Every narrative claim cites bundle items
 // (quotes are exact item content). Free text is static or number-formatted so
 // it passes the EN-03 decision-language, PII, and protected-attribute scans:
-// in particular the word "term" never appears ("duration"/"months" instead).
+// in particular the words "term", "score", "rate", "limit" and decision verbs
+// never appear in claims.
 import {
 	FACTOR_LABELS,
+	containsDecisionLanguage,
 	parseSourceRef,
 	type CreditMemoContent,
 	type EvidenceBundle,
@@ -20,6 +22,7 @@ export interface MemoInput {
 }
 
 type ApplicationRow = typeof applications.$inferSelect;
+type MemoSection = CreditMemoContent["sections"][number];
 
 const POLICY_RISK_TEXT: Record<string, string> = {
 	SCORE_TOO_LOW: "The assessment factor is below the preferred minimum.",
@@ -43,13 +46,17 @@ const POLICY_RISK_FALLBACK = "A policy evaluation reason is recorded for officer
 const OFFICER_QUESTIONS = [
 	"What is the current status of the requested documents?",
 	"Are the latest financial statements available for review?",
-	"Which policy exception route applies to this case?",
+	"Does the bank statement cover the required lookback period?",
 	"Are there any outstanding open items that need follow-up?",
 ];
 
-function asRecord(value: unknown): Record<string, unknown> {
-	return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
+/** The agent may draft these for context, but the code owns the numbers. */
+export const DETERMINISTIC_MEMO_SECTIONS = [
+	"financial_analysis",
+	"debt_service",
+	"collateral_security",
+	"policy_compliance",
+] as const;
 
 function asNumber(value: unknown): number | null {
 	return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -147,11 +154,7 @@ interface SectionClaim {
 	citations: Array<{ ref: string; quote: string }>;
 }
 
-function section(
-	key: CreditMemoContent["sections"][number]["key"],
-	title: string,
-	claims: SectionClaim[],
-): CreditMemoContent["sections"][number] {
+function section(key: MemoSection["key"], title: string, claims: SectionClaim[]): MemoSection {
 	// ponytail: cap at the validator's 20-claim section bound. Aggregate the
 	// overflow if evidence volume grows beyond a demo case.
 	const capped = claims.slice(0, 20);
@@ -160,14 +163,23 @@ function section(
 		: { key, title, claims: [], notAvailable: true };
 }
 
+function fact(
+	items: Map<string, EvidenceItem>,
+	applicationId: string,
+	field: string,
+): EvidenceItem | null {
+	const item = items.get(`case_fact:${applicationId}:${field}`);
+	return item !== undefined && item.sourceType === "case_fact" ? item : null;
+}
+
+function claimFor(item: EvidenceItem, text: string): SectionClaim {
+	return { text, citations: [citationOf(item)] };
+}
+
 function buildRequest(app: ApplicationRow, items: Map<string, EvidenceItem>): SectionClaim[] {
-	const byField = (field: string): EvidenceItem | null => {
-		const item = items.get(`case_fact:${app.id}:${field}`);
-		return item !== undefined && item.sourceType === "case_fact" ? item : null;
-	};
-	const amount = byField("amountCents");
-	const months = byField("termMonths");
-	const product = byField("product");
+	const amount = fact(items, app.id, "amountCents");
+	const months = fact(items, app.id, "termMonths");
+	const product = fact(items, app.id, "product");
 	if (amount === null && months === null && product === null) return [];
 	const fragments: string[] = [];
 	const citations: Array<{ ref: string; quote: string }> = [];
@@ -195,87 +207,275 @@ function buildRequest(app: ApplicationRow, items: Map<string, EvidenceItem>): Se
 	return [{ text: `The request is ${fragments.join(" ")}.`, citations: citations.slice(0, 5) }];
 }
 
-function buildEntity(app: ApplicationRow, items: Map<string, EvidenceItem>): SectionClaim[] {
+function buildBorrower(app: ApplicationRow, items: Map<string, EvidenceItem>): SectionClaim[] {
 	const isSme = app.type === "sme";
-	const candidates: Array<{ field: string; text: string }> = [];
-	if (isSme) {
-		candidates.push(
-			{ field: "companyName", text: "The applicant is the company named in the case record." },
-			{
-				field: "industry",
-				text: "The applicant operates in the sector stated in the case record.",
-			},
-			{
-				field: "yearsTrading",
-				text: "The trading history stated in the case record is noted for review.",
-			},
-			{ field: "city", text: "The applicant is based in the city stated in the case record." },
-		);
-	} else {
-		candidates.push(
-			{ field: "applicantName", text: "The application relates to an individual applicant." },
-			{ field: "city", text: "The applicant is based in the city stated in the case record." },
-		);
-	}
+	const candidates: Array<{ field: string; text: string }> = isSme
+		? [
+				{ field: "companyName", text: "The applicant is the company named in the case record." },
+				{
+					field: "industry",
+					text: "The applicant operates in the sector stated in the case record.",
+				},
+				{
+					field: "yearsTrading",
+					text: "The trading history stated in the case record is noted for review.",
+				},
+				{ field: "city", text: "The applicant is based in the city stated in the case record." },
+				{
+					field: "business.ownershipStructure",
+					text: "The case file records the ownership structure.",
+				},
+				{
+					field: "business.managementSummary",
+					text: "The case file records the management structure.",
+				},
+			]
+		: [
+				{
+					field: "applicantName",
+					text: "The application relates to an individual applicant.",
+				},
+				{ field: "city", text: "The applicant is based in the city stated in the case record." },
+				{
+					field: "financial.employmentSummary",
+					text: "The case file records the employment history.",
+				},
+			];
 	const claims: SectionClaim[] = [];
 	for (const candidate of candidates) {
-		const item = items.get(`case_fact:${app.id}:${candidate.field}`);
-		if (item !== undefined && item.sourceType === "case_fact") {
-			claims.push({ text: candidate.text, citations: [citationOf(item)] });
-		}
+		const item = fact(items, app.id, candidate.field);
+		if (item !== null) claims.push(claimFor(item, candidate.text));
 	}
 	return claims;
 }
 
-function buildFinancials(app: ApplicationRow, items: Map<string, EvidenceItem>): SectionClaim[] {
+function buildFinancialAnalysis(
+	app: ApplicationRow,
+	items: Map<string, EvidenceItem>,
+): SectionClaim[] {
 	const isSme = app.type === "sme";
-	const block = asRecord(isSme ? app.business : app.financial);
-	const fields = isSme
+	const claims: SectionClaim[] = [];
+	const candidates = isSme
 		? [
 				{
 					field: "business.annualRevenueCents",
-					row: block["annualRevenueCents"],
-					generic: "A revenue figure is stated in the case record." as string,
-					money: (v: string) => `Annual revenue is ${v} for the stated period.`,
+					text: (v: string) => `Annual revenue is ${v}.`,
+					money: true,
 				},
 				{
 					field: "business.monthlyFcfCents",
-					row: block["monthlyFcfCents"],
-					generic: "A cash-flow figure is stated in the case record." as string,
-					money: (v: string) => `Average monthly free cash flow is ${v}.`,
+					text: (v: string) => `Average monthly free cash flow is ${v}.`,
+					money: true,
 				},
 				{
-					field: "business.existingDebtServiceCents",
-					row: block["existingDebtServiceCents"],
-					generic: "A debt-service figure is stated in the case record." as string,
-					money: (v: string) => `Existing monthly debt service is ${v}.`,
+					field: "business.leverageRatio",
+					text: (v: string) => `Leverage is ${v}x.`,
+					money: false,
+				},
+				{
+					field: "business.currentRatio",
+					text: (v: string) => `The current ratio is ${v}x.`,
+					money: false,
 				},
 			]
 		: [
 				{
 					field: "financial.monthlyIncomeCents",
-					row: block["monthlyIncomeCents"],
-					generic: "An income figure is stated in the case record." as string,
-					money: (v: string) => `Monthly income is ${v}.`,
+					text: (v: string) => `Monthly income is ${v}.`,
+					money: true,
+				},
+				{
+					field: "financial.monthlyExpensesCents",
+					text: (v: string) => `Monthly expenses are ${v}.`,
+					money: true,
 				},
 				{
 					field: "financial.existingDebtCents",
-					row: block["existingDebtCents"],
-					generic: "A debt figure is stated in the case record." as string,
-					money: (v: string) => `Existing debt is ${v}.`,
+					text: (v: string) => `Existing debt is ${v}.`,
+					money: true,
 				},
 			];
-	const claims: SectionClaim[] = [];
-	for (const entry of fields) {
-		const item = items.get(`case_fact:${app.id}:${entry.field}`);
-		if (item === undefined || item.sourceType !== "case_fact") continue;
-		const display = moneyText(entry.row, item.content);
-		claims.push({
-			text: display !== null ? entry.money(display) : entry.generic,
-			citations: [citationOf(item)],
-		});
+	for (const candidate of candidates) {
+		const item = fact(items, app.id, candidate.field);
+		if (item === null) continue;
+		const value = candidate.money
+			? moneyText(null, item.content)
+			: Number.isFinite(Number(item.content))
+				? Number(item.content).toFixed(2)
+				: null;
+		if (value !== null) claims.push(claimFor(item, candidate.text(value)));
 	}
 	return claims;
+}
+
+function buildDebtService(app: ApplicationRow, items: Map<string, EvidenceItem>): SectionClaim[] {
+	const claims: SectionClaim[] = [];
+	const debtField =
+		app.type === "sme" ? "business.existingDebtServiceCents" : "financial.existingDebtCents";
+	const debt = fact(items, app.id, debtField);
+	if (debt !== null) {
+		const value = moneyText(null, debt.content);
+		if (value !== null) claims.push(claimFor(debt, `Existing monthly debt service is ${value}.`));
+	}
+	const dscr = fact(items, app.id, "score.dscr");
+	if (dscr !== null) {
+		const value = Number(dscr.content);
+		if (Number.isFinite(value))
+			claims.push(claimFor(dscr, `Debt-service coverage is ${value.toFixed(2)}x.`));
+	}
+	const dti = fact(items, app.id, "score.dti");
+	if (dti !== null) {
+		const value = Number(dti.content);
+		if (Number.isFinite(value))
+			claims.push(claimFor(dti, `Debt-to-income is ${value.toFixed(2)}%.`));
+	}
+	const payment = fact(items, app.id, "score.newPaymentCents");
+	if (payment !== null) {
+		const value = moneyText(null, payment.content);
+		if (value !== null) claims.push(claimFor(payment, `The proposed monthly payment is ${value}.`));
+	}
+	const facilities = fact(items, app.id, "business.existingFacilitiesSummary");
+	if (facilities !== null)
+		claims.push(claimFor(facilities, "Existing facilities are recorded in the case file."));
+	return claims;
+}
+
+function buildCreditHistory(
+	applicationId: string,
+	items: Map<string, EvidenceItem>,
+): SectionClaim[] {
+	const claims: SectionClaim[] = [];
+	const candidates: Array<{ field: string; text: string }> = [
+		{ field: "bureau.bureauScore", text: "A bureau indicator is recorded for the case." },
+		{ field: "bureau.delinquencies", text: "Bureau delinquencies are recorded in the case file." },
+		{ field: "bureau.utilizationPct", text: "Bureau utilization is recorded in the case file." },
+		{
+			field: "financial.creditHistorySummary",
+			text: "Credit history is summarised in the case file.",
+		},
+	];
+	for (const candidate of candidates) {
+		const item = fact(items, applicationId, candidate.field);
+		if (item !== null) claims.push(claimFor(item, candidate.text));
+	}
+	return claims;
+}
+
+function buildCollateral(applicationId: string, items: Map<string, EvidenceItem>): SectionClaim[] {
+	const claims: SectionClaim[] = [];
+	const status = fact(items, applicationId, "security.status");
+	if (status !== null) {
+		const value = status.content.trim().toLowerCase();
+		claims.push(
+			claimFor(
+				status,
+				value === "secured"
+					? "Security is recorded for this facility."
+					: "No collateral or guarantee is recorded for this facility; the exposure is unsecured.",
+			),
+		);
+	}
+	const value = fact(items, applicationId, "business.collateral.valueCents");
+	if (value !== null) {
+		const money = moneyText(null, value.content);
+		if (money !== null) claims.push(claimFor(value, `The recorded collateral value is ${money}.`));
+	}
+	return claims;
+}
+
+function buildRisks(items: Map<string, EvidenceItem>): SectionClaim[] {
+	const risks: Array<{ claim: SectionClaim; priority: number }> = [];
+	for (const item of items.values()) {
+		if (item.sourceType === "score_reason") {
+			const kind = asText(item.metadata["kind"]);
+			const impact = asText(item.metadata["impact"]);
+			if (kind === "factor" && impact === "negative") {
+				risks.push({
+					priority: 0,
+					claim: claimFor(item, `${factorLabel(item)} is noted for officer review.`),
+				});
+			} else if (kind === "factor") {
+				continue;
+			} else {
+				risks.push({ priority: 0, claim: claimFor(item, policyRiskText(item)) });
+			}
+		} else if (item.sourceType === "document" && asText(item.metadata["status"]) === "mismatch") {
+			const field = asText(item.metadata["field"]);
+			risks.push({
+				priority: 1,
+				claim: claimFor(
+					item,
+					field !== null && safeToken(field)
+						? `A document consistency check recorded a mismatch for ${field}.`
+						: "A document consistency check recorded a mismatch for the record.",
+				),
+			});
+		} else if (item.sourceType === "external_evidence") {
+			if (asText(item.metadata["reviewStatus"]) === "rejected") continue;
+			risks.push({
+				priority: 2,
+				claim: claimFor(item, "An external report is recorded for officer review."),
+			});
+		} else if (item.sourceType === "context_signal") {
+			if (asText(item.metadata["reviewStatus"]) === "rejected") continue;
+			risks.push({
+				priority: 3,
+				claim: claimFor(item, "A cash-flow signal is recorded for officer review."),
+			});
+		}
+	}
+	return risks.sort((a, b) => a.priority - b.priority).map((entry) => entry.claim);
+}
+
+function buildPolicy(applicationId: string, items: Map<string, EvidenceItem>): SectionClaim[] {
+	const claims: SectionClaim[] = [];
+	const outcome = fact(items, applicationId, "policy.outcome");
+	if (outcome !== null) {
+		const text =
+			outcome.content === "auto_approve"
+				? "The policy engine found the case within automatic-processing thresholds."
+				: outcome.content === "refer"
+					? "The policy engine routed the case to officer review."
+					: "The policy engine recorded an outcome requiring officer review.";
+		claims.push(claimFor(outcome, text));
+	}
+	const max = fact(items, applicationId, "policy.maxAmountCents");
+	if (max !== null) {
+		const value = moneyText(null, max.content);
+		if (value !== null) claims.push(claimFor(max, `The policy maximum is ${value}.`));
+	}
+	const version = fact(items, applicationId, "policy.policyVersion");
+	if (version !== null)
+		claims.push(claimFor(version, `Policy version ${version.content} applies to this case.`));
+	for (const item of items.values()) {
+		if (item.sourceType !== "policy_section") continue;
+		const label = item.label.trim();
+		const safeLabel = label.length > 0 && !containsDecisionLanguage(label);
+		claims.push(
+			claimFor(
+				item,
+				safeLabel ? `${label} is cited for this case.` : "A policy section is cited for this case.",
+			),
+		);
+	}
+	return claims;
+}
+
+/** Replace the three number-led sections with code-built claims after the agent
+ * drafts. The agent is instructed to mark them notAvailable; this is the
+ * second line of defence against a model inventing financial arithmetic. */
+export function composeCreditMemo(
+	agent: CreditMemoContent,
+	built: CreditMemoContent,
+): CreditMemoContent {
+	const deterministic = new Set<string>(DETERMINISTIC_MEMO_SECTIONS);
+	const byKey = new Map(built.sections.map((entry) => [entry.key, entry]));
+	return {
+		...agent,
+		sections: agent.sections.map((entry) =>
+			deterministic.has(entry.key) ? (byKey.get(entry.key) ?? entry) : entry,
+		),
+	};
 }
 
 export function buildCreditMemo(input: MemoInput): CreditMemoContent {
@@ -285,88 +485,14 @@ export function buildCreditMemo(input: MemoInput): CreditMemoContent {
 		if (!items.has(item.ref)) items.set(item.ref, item);
 	}
 
-	const strengths: SectionClaim[] = [];
-	// Lower priority number survives the 20-claim cap first. Deterministic
-	// assessment/policy and document findings outrank bulk signals/reports.
-	const risks: Array<{ claim: SectionClaim; priority: number }> = [];
-	let scoreSeen = false;
-	let documentsSeen = false;
-	for (const item of evidence.items) {
-		if (item.sourceType === "document") documentsSeen = true;
-		if (item.sourceType === "score_reason") {
-			scoreSeen = true;
-			const kind = asText(item.metadata["kind"]);
-			const impact = asText(item.metadata["impact"]);
-			if (kind === "factor" && impact === "positive") {
-				strengths.push({
-					text: `${factorLabel(item)} is a positive assessment factor.`,
-					citations: [citationOf(item)],
-				});
-			} else if (kind === "factor" && impact === "negative") {
-				risks.push({
-					priority: 0,
-					claim: {
-						text: `${factorLabel(item)} is noted for officer review.`,
-						citations: [citationOf(item)],
-					},
-				});
-			} else if (kind === "factor") {
-				continue;
-			} else {
-				risks.push({
-					priority: 0,
-					claim: { text: policyRiskText(item), citations: [citationOf(item)] },
-				});
-			}
-		} else if (item.sourceType === "document" && asText(item.metadata["status"]) === "mismatch") {
-			const field = asText(item.metadata["field"]);
-			risks.push({
-				priority: 1,
-				claim: {
-					text:
-						field !== null && safeToken(field)
-							? `A document consistency check recorded a mismatch for ${field}.`
-							: "A document consistency check recorded a mismatch for the record.",
-					citations: [citationOf(item)],
-				},
-			});
-		} else if (item.sourceType === "external_evidence") {
-			if (asText(item.metadata["reviewStatus"]) === "rejected") continue;
-			risks.push({
-				priority: 2,
-				claim: {
-					text: "An external report is recorded for officer review.",
-					citations: [citationOf(item)],
-				},
-			});
-		} else if (item.sourceType === "context_signal") {
-			if (asText(item.metadata["reviewStatus"]) === "rejected") continue;
-			risks.push({
-				priority: 3,
-				claim: {
-					text: "A cash-flow signal is recorded for officer review.",
-					citations: [citationOf(item)],
-				},
-			});
-		}
-	}
-	const riskClaims = risks.sort((a, b) => a.priority - b.priority).map((entry) => entry.claim);
-
-	const policyClaims: SectionClaim[] = [];
-	for (const item of evidence.items) {
-		if (item.sourceType !== "policy_section") continue;
-		policyClaims.push({
-			// Keep the prose neutral: a policy key/section id could itself
-			// contain a banned word (e.g. `terms-1`). The citation metadata
-			// carries the exact identifiers.
-			text: "A policy section is cited for this case.",
-			citations: [citationOf(item)],
-		});
-	}
-
 	const request = buildRequest(app, items);
-	const entity = buildEntity(app, items);
-	const financials = buildFinancials(app, items);
+	const borrower = buildBorrower(app, items);
+	const financials = buildFinancialAnalysis(app, items);
+	const debtService = buildDebtService(app, items);
+	const creditHistory = buildCreditHistory(app.id, items);
+	const collateral = buildCollateral(app.id, items);
+	const risks = buildRisks(items);
+	const policy = buildPolicy(app.id, items);
 
 	const openItems: OpenItem[] = [];
 	for (const unavailable of evidence.unavailable) {
@@ -383,21 +509,33 @@ export function buildCreditMemo(input: MemoInput): CreditMemoContent {
 			code: "financials_unavailable",
 		});
 	}
-	if (!scoreSeen) {
+	if (debtService.length === 0) {
 		openItems.push({
-			text: "Assessment factor detail is not available in the case evidence.",
+			text: "Debt-service information is not available in the case record.",
+			code: "financials_unavailable",
+		});
+	}
+	if (creditHistory.length === 0) {
+		openItems.push({
+			text: "Credit-history information is not available in the case record.",
 			code: "other",
 		});
 	}
-	if (!documentsSeen) {
+	if (collateral.length === 0) {
 		openItems.push({
-			text: "Document citations are not available in the case evidence.",
-			code: "missing_document",
+			text: "Security information is not available in the case record.",
+			code: "other",
 		});
 	}
-	if (policyClaims.length === 0) {
+	if (risks.length === 0) {
 		openItems.push({
-			text: "Policy citations are not available in the case evidence.",
+			text: "No risk observations are recorded in the case evidence.",
+			code: "other",
+		});
+	}
+	if (policy.length === 0) {
+		openItems.push({
+			text: "Policy information is not available in the case evidence.",
 			code: "other",
 		});
 	}
@@ -406,11 +544,13 @@ export function buildCreditMemo(input: MemoInput): CreditMemoContent {
 		title: `Credit memorandum draft — ${app.reference}`,
 		sections: [
 			section("request", "Request", request),
-			section("entity", "Entity", entity),
-			section("financial_summary", "Financial summary", financials),
-			section("strengths", "Strengths", strengths),
-			section("risks", "Risks", riskClaims),
-			section("policy_compliance", "Policy compliance", policyClaims),
+			section("borrower", "Borrower profile", borrower),
+			section("financial_analysis", "Financial analysis", financials),
+			section("debt_service", "Debt service and existing facilities", debtService),
+			section("credit_history", "Credit history", creditHistory),
+			section("collateral_security", "Collateral and security", collateral),
+			section("risks", "Risks and mitigants", risks),
+			section("policy_compliance", "Policy compliance", policy),
 		],
 		openItems: openItems.slice(0, 50),
 		officerQuestions: [...OFFICER_QUESTIONS],

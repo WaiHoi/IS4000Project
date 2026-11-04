@@ -31,6 +31,9 @@ export interface ApplyIndividual {
 	monthlyIncome: string;
 	existingDebt: string;
 	bankRelationshipYears: string;
+	monthlyExpenses?: string;
+	employmentSummary?: string;
+	creditHistorySummary?: string;
 }
 
 export interface ApplySme {
@@ -42,6 +45,11 @@ export interface ApplySme {
 	annualRevenue: string;
 	monthlyFcf: string;
 	existingDebtService: string;
+	ownershipStructure?: string;
+	managementSummary?: string;
+	existingFacilitiesSummary?: string;
+	leverageRatio?: string;
+	currentRatio?: string;
 }
 
 export interface ApplyStepInput {
@@ -130,6 +138,9 @@ export function buildApplyPayload(s: ApplyPayloadInput) {
 					monthlyIncomeCents: dollars(s.ind.monthlyIncome) as number,
 					existingDebtCents: dollars(s.ind.existingDebt) as number,
 					bankRelationshipYears: Number(s.ind.bankRelationshipYears),
+					monthlyExpensesCents: dollars(s.ind.monthlyExpenses ?? "") ?? undefined,
+					employmentSummary: s.ind.employmentSummary?.trim() || undefined,
+					creditHistorySummary: s.ind.creditHistorySummary?.trim() || undefined,
 				},
 			}
 		: {
@@ -143,6 +154,11 @@ export function buildApplyPayload(s: ApplyPayloadInput) {
 					annualRevenueCents: dollars(s.sme.annualRevenue) as number,
 					monthlyFcfCents: dollars(s.sme.monthlyFcf) as number,
 					existingDebtServiceCents: dollars(s.sme.existingDebtService) as number,
+					ownershipStructure: s.sme.ownershipStructure?.trim() || undefined,
+					managementSummary: s.sme.managementSummary?.trim() || undefined,
+					existingFacilitiesSummary: s.sme.existingFacilitiesSummary?.trim() || undefined,
+					leverageRatio: s.sme.leverageRatio ? Number(s.sme.leverageRatio) : undefined,
+					currentRatio: s.sme.currentRatio ? Number(s.sme.currentRatio) : undefined,
 				},
 			};
 }
@@ -191,6 +207,11 @@ export function prefillFromProfile(
 					"sme.existingDebtServiceCents",
 					profCents(business.existingDebtServiceCents),
 				),
+				ownershipStructure: profStr(business.ownershipStructure),
+				managementSummary: profStr(business.managementSummary),
+				existingFacilitiesSummary: profStr(business.existingFacilitiesSummary),
+				leverageRatio: profNum(business.leverageRatio),
+				currentRatio: profNum(business.currentRatio),
 			}
 		: null;
 	return {

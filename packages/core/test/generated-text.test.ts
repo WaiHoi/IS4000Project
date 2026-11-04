@@ -134,8 +134,8 @@ export function validMemo(): CreditMemoContent {
 				notAvailable: false,
 			},
 			{
-				key: "entity",
-				title: "Borrower",
+				key: "borrower",
+				title: "Borrower profile",
 				claims: [
 					{
 						text: "Borrower is the company named in the case record, in hospitality, trading for 4 years.",
@@ -145,21 +145,28 @@ export function validMemo(): CreditMemoContent {
 				notAvailable: false,
 			},
 			{
-				key: "financial_summary",
-				title: "Financial summary",
+				key: "financial_analysis",
+				title: "Financial analysis",
 				claims: [],
 				notAvailable: true,
 			},
 			{
-				key: "strengths",
-				title: "Strengths",
-				claims: [
-					{
-						text: "The assessment factor is within the preferred range.",
-						citations: [cite(refs.score)],
-					},
-				],
-				notAvailable: false,
+				key: "debt_service",
+				title: "Debt service and existing facilities",
+				claims: [],
+				notAvailable: true,
+			},
+			{
+				key: "credit_history",
+				title: "Credit history",
+				claims: [],
+				notAvailable: true,
+			},
+			{
+				key: "collateral_security",
+				title: "Collateral and security",
+				claims: [],
+				notAvailable: true,
 			},
 			{
 				key: "risks",
@@ -366,7 +373,7 @@ describe("generated-text schemas", () => {
 describe("citation validation", () => {
 	it("rejects a narrative claim without a citation", () => {
 		const memo = validMemo();
-		memo.sections[4].claims[0].citations = [];
+		memo.sections.find((section) => section.key === "risks")!.claims[0].citations = [];
 		const result = validateGeneratedText({
 			artifactType: "credit_memo",
 			content: memo,
@@ -408,7 +415,7 @@ describe("citation validation", () => {
 
 	it("rejects a citation to an unavailable source", () => {
 		const memo = validMemo();
-		memo.sections[4].claims[0].citations = [
+		memo.sections.find((section) => section.key === "risks")!.claims[0].citations = [
 			{
 				ref: "document:11111111-1111-4111-8111-111111111111:p9:0-5",
 				quote: "xx",

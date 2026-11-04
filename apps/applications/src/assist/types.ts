@@ -18,6 +18,8 @@ export interface AssistConfig {
 	promptVersion: string;
 	/** Agentic memo writer selection; `agent` requires an OpenRouter key. */
 	memoWriter: "deterministic" | "agent";
+	/** Auto-draft a preliminary memo after referral (no docs/research). */
+	memoAutoEnabled: boolean;
 	memoModel: string;
 	memoPromptVersion: string;
 	memoAgentVersion: string;

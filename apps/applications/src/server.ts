@@ -9,6 +9,7 @@ import {
 	createHttpPolicyClient,
 } from "./agents/policy-exception/index.js";
 import { createAgentsMemoRunner, startArtifactRetention } from "./assist/index.js";
+import { startAutoMemoSweep } from "./assist/auto-memo.js";
 import { applicationObservability } from "./observability.js";
 import { createIntegrityRunnerFromEnv, integrityDispatchEnabled } from "./integrity/wiring.js";
 import { configFromEnv } from "./documents/index.js";
@@ -46,6 +47,22 @@ const integrityStarter = integrityDispatchEnabled(env, integrityRunner)
 // a missing endpoint/token degrades observability, never the service.
 applicationObservability();
 
+const memoAgentRunner =
+	env.assist.memoWriter === "agent" && env.assist.openRouterApiKey
+		? createAgentsMemoRunner({
+				apiKey: env.assist.openRouterApiKey,
+				baseUrl: env.assist.openRouterBaseUrl,
+				model: env.assist.memoModel,
+				agentVersion: env.assist.memoAgentVersion,
+				promptVersion: env.assist.memoPromptVersion,
+				maxToolCalls: env.assist.memoMaxToolCalls,
+				maxOutputTokens: env.assist.memoMaxOutputTokens,
+				reasoningEffort: env.assist.memoReasoningEffort,
+				timeoutMs: env.assist.memoTimeoutMs,
+				logger,
+			})
+		: undefined;
+
 const app = createApp({
 	db,
 	sql,
@@ -55,22 +72,7 @@ const app = createApp({
 	// Agent writer only: without an OpenRouter key there is no runner, so
 	// the memo route fails closed with a typed 503. Never fail process startup.
 	assist: {
-		...(env.assist.memoWriter === "agent" && env.assist.openRouterApiKey
-			? {
-					memoAgentRunner: createAgentsMemoRunner({
-						apiKey: env.assist.openRouterApiKey,
-						baseUrl: env.assist.openRouterBaseUrl,
-						model: env.assist.memoModel,
-						agentVersion: env.assist.memoAgentVersion,
-						promptVersion: env.assist.memoPromptVersion,
-						maxToolCalls: env.assist.memoMaxToolCalls,
-						maxOutputTokens: env.assist.memoMaxOutputTokens,
-						reasoningEffort: env.assist.memoReasoningEffort,
-						timeoutMs: env.assist.memoTimeoutMs,
-						logger,
-					}),
-				}
-			: {}),
+		...(memoAgentRunner ? { memoAgentRunner } : {}),
 		...(env.assist.policyUrl && env.assist.policyInternalSecret
 			? {
 					policyClient: createHttpPolicyClient({
@@ -112,6 +114,19 @@ const app = createApp({
 			: {}),
 	},
 	integrity: { agentRunner: integrityRunner ?? undefined, starter: integrityStarter },
+});
+
+// Preliminary memo sweep: case facts/score/policy only, no documents or
+// research. It is outside the referral workflow so it cannot delay a decision.
+startAutoMemoSweep({
+	db,
+	logger,
+	runtime: {
+		config: env.assist,
+		documentsEnabled: env.documents.featureEnabled,
+		memoAgentRunner,
+		now: () => new Date(),
+	},
 });
 
 // D1b document maintenance (SPEC-t01-t02 §6): boot + daily sweep of

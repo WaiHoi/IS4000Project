@@ -23,6 +23,7 @@ export function deriveFlags(c: StackCapabilities): Record<string, string> {
 		FRAUD_REVIEW_ENABLED: on(c.docs),
 		// Advisory AI (OpenRouter).
 		ASSIST_MEMO_WRITER: c.ai ? "agent" : "deterministic",
+		ASSIST_MEMO_AUTO_ENABLED: on(c.ai),
 		ASSIST_POLICY_EXCEPTION_ENABLED: on(c.ai && c.policy),
 		AGENTS_ENABLED: on(c.ai),
 		CASE_ASSISTANT_ENABLED: on(c.ai),

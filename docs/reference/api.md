@@ -765,9 +765,9 @@ persistence) and `evidenceHash`:
 		"evidenceHash": "<sha256-hex>",
 		"agentTrace": {
 			"writer": "agent",
-			"agentVersion": "memo-agent-v1",
+			"agentVersion": "memo-agent-v3",
 			"model": "deepseek/deepseek-v4.1-flash-1017",
-			"promptVersion": "memo-agent-v1",
+			"promptVersion": "memo-agent-v3",
 			"evidenceHash": "<sha256-hex>",
 			"steps": 3,
 			"toolCalls": [
@@ -777,6 +777,7 @@ persistence) and `evidenceHash`:
 			"repairAttempted": false,
 			"repairSucceeded": null,
 			"fallbackReason": null,
+			"autoDrafted": false,
 			"inputTokens": 1200,
 			"outputTokens": 800,
 			"latencyMs": 2310

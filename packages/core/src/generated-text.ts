@@ -74,9 +74,11 @@ const claimSchema = z
 
 export const MEMO_SECTION_KEYS = [
 	"request",
-	"entity",
-	"financial_summary",
-	"strengths",
+	"borrower",
+	"financial_analysis",
+	"debt_service",
+	"credit_history",
+	"collateral_security",
 	"risks",
 	"policy_compliance",
 ] as const;

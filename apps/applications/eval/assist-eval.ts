@@ -274,7 +274,7 @@ function cases(): EvalCase[] {
 			id: "missing-citation",
 			artifactType: "credit_memo",
 			content: mutateMemo((m) => {
-				m.sections[4].claims[0].citations = [];
+				m.sections.find((s) => s.key === "risks")!.claims[0].citations = [];
 			}),
 			expected: "UNSUPPORTED_CLAIM",
 			tags: ["citation"],
@@ -307,7 +307,9 @@ function cases(): EvalCase[] {
 			id: "unavailable-ref",
 			artifactType: "credit_memo",
 			content: mutateMemo((m) => {
-				m.sections[4].claims[0].citations = [{ ref: `document:${documentId}:p9:0-1`, quote: "xx" }];
+				m.sections.find((s) => s.key === "risks")!.claims[0].citations = [
+					{ ref: `document:${documentId}:p9:0-1`, quote: "xx" },
+				];
 			}),
 			expected: "CITATION_UNAVAILABLE",
 			tags: ["citation"],
@@ -345,7 +347,12 @@ function cases(): EvalCase[] {
 			id: "schema-empty-section",
 			artifactType: "credit_memo",
 			content: mutateMemo((m) => {
-				m.sections[3] = { key: "strengths", title: "Strengths", claims: [], notAvailable: false };
+				m.sections[3] = {
+					key: "risks",
+					title: "Risks and mitigants",
+					claims: [],
+					notAvailable: false,
+				};
 			}),
 			expected: "SCHEMA_INVALID",
 			tags: ["schema"],

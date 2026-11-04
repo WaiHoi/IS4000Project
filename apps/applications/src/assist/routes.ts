@@ -5,7 +5,6 @@
 // 404. Service-only hold/retention routes stay available while disabled.
 // Artifact content never enters logs or telemetry — only ids, versions, and
 // counts. Validation runs before persistence and again before approval.
-import { randomUUID } from "node:crypto";
 import { decisions, scores, withTx, type Db } from "@credit/db/applications";
 import {
 	ADVERSE_TAXONOMY_VERSION,
@@ -45,7 +44,6 @@ import {
 	approveArtifact,
 	createArtifact,
 	createArtifactHold,
-	findArtifactByEvidence,
 	getArtifact,
 	listArtifacts,
 	releaseArtifactHold,
@@ -53,6 +51,7 @@ import {
 	tombstoneArtifact,
 	updateArtifact,
 } from "./artifacts.js";
+import { draftCreditMemo } from "./draft.js";
 import { policyExceptionRoutes } from "./policy-exception/routes.js";
 import { policyExceptionEvidenceForArtifact } from "./policy-exception/view.js";
 import { RuleContextUnavailableError, UnsupportedPolicyVersionError } from "./policy-rules.js";
@@ -68,16 +67,7 @@ import {
 	type AdverseLetterBuildFailure,
 } from "./adverse.js";
 import { assembleCaseEvidence } from "./evidence.js";
-import { buildCreditMemo } from "./memo.js";
-import { MemoAgentError, runMemoAgent } from "../agents/memo-writer/index.js";
-import { evidenceHash } from "../agents/shared/trace.js";
-import type {
-	ArtifactAuditMetadata,
-	ArtifactDto,
-	AssistConfig,
-	AssistRuntime,
-	MemoAgentTrace,
-} from "./types.js";
+import type { ArtifactAuditMetadata, AssistRuntime } from "./types.js";
 
 const artifactTypeSchema = z.enum(ARTIFACT_TYPES);
 
@@ -252,26 +242,7 @@ function hasDocumentCitation(artifact: {
 	);
 }
 
-/** Idempotent replay only within the current writer configuration: the
- * existing artifact must have been produced by the current mode and
- * versions. A hash hit from the other writer (or a version drift)
- * regenerates instead of returning stale provenance. */
-function memoReplayMatches(artifact: ArtifactDto, config: AssistConfig): boolean {
-	const trace = artifact.agentTrace;
-	if (config.memoWriter === "agent") {
-		return (
-			trace?.writer === "agent" &&
-			artifact.model === config.memoModel &&
-			artifact.promptVersion === config.memoPromptVersion &&
-			trace?.agentVersion === config.memoAgentVersion
-		);
-	}
-	return (
-		trace?.writer === "deterministic" &&
-		artifact.model === config.model &&
-		artifact.promptVersion === config.promptVersion
-	);
-}
+/** Idempotent replay lives in the shared draft path. */
 
 function adverseAuditMetadata(input: {
 	content: AdverseActionLetterContent;
@@ -678,184 +649,21 @@ export function assistRoutes(deps: AssistRouteDeps): ServiceApp {
 		const actor = actorOf(c.var.user);
 		const kase = await loadCase(applicationId, actor);
 		requireMemoableCase(kase);
-		const evidence = await assembleFor(kase, actor);
-		const startedAt = Date.now();
-		// Idempotent replay: identical evidence replays the newest non-deleted
-		// memo instead of regenerating (and racing the draft guard).
-		const hash = evidenceHash(evidence);
-		const replayed = await findArtifactByEvidence(db, {
-			applicationId,
-			type: "credit_memo",
-			evidenceHash: hash,
+		const result = await draftCreditMemo({
+			db,
+			runtime,
+			logger,
+			application: kase.application,
+			actor,
+			assignedToMe: kase.assignedToMe,
+			documents: true,
+			research: true,
 		});
-		if (replayed && memoReplayMatches(replayed, config)) {
-			return c.json({ artifact: replayed, replayed: true }, 200);
-		}
-		const documentDerived = evidence.items.some((item) => item.sourceType === "document");
-
-		if (config.memoWriter === "agent") {
-			const memoAgentRunner = runtime.memoAgentRunner;
-			// Fails closed without leaking config: no key names, no model ids.
-			if (!memoAgentRunner) {
-				throw new HttpError(503, "MEMO_AGENT_UNAVAILABLE", "memo agent is not configured");
-			}
-			let result: Awaited<ReturnType<typeof runMemoAgent>>;
-			try {
-				result = await runMemoAgent({
-					application: kase.application,
-					evidence,
-					runner: memoAgentRunner,
-					runId: randomUUID(),
-					config: {
-						model: config.memoModel,
-						promptVersion: config.memoPromptVersion,
-						agentVersion: config.memoAgentVersion,
-						maxSteps: config.memoMaxSteps,
-						maxToolCalls: config.memoMaxToolCalls,
-						timeoutMs: config.memoTimeoutMs,
-						maxCostUsd: config.memoMaxCostUsd,
-					},
-					signal: AbortSignal.timeout(config.memoTimeoutMs),
-				});
-			} catch (err) {
-				if (err instanceof MemoAgentError) {
-					// Metadata only: error code plus the issue count, never
-					// generated text, quotes, or evidence.
-					logger.warn(
-						{
-							applicationId,
-							code: err.code,
-							issueCodes: err.issues.map((issue) => issue.code),
-						},
-						"assist memo agent failed",
-					);
-					if (err.code === "TIMEOUT") {
-						throw new HttpError(504, "MEMO_AGENT_TIMEOUT", "memo agent timed out");
-					}
-					if (err.code === "MODEL_ERROR") {
-						throw new HttpError(502, "MEMO_AGENT_UNAVAILABLE", "memo agent is unavailable");
-					}
-					if (
-						err.code === "STEP_LIMIT" ||
-						err.code === "TOOL_CALL_LIMIT" ||
-						err.code === "BUDGET_EXCEEDED"
-					) {
-						throw new HttpError(422, "MEMO_AGENT_BUDGET", "memo agent budget exceeded");
-					}
-					throw new HttpError(422, "MEMO_AGENT_INVALID", "memo agent output failed validation");
-				}
-				throw err;
-			}
-			const validation = validateGeneratedText({
-				artifactType: "credit_memo",
-				content: result.content,
-				evidence,
-			});
-			if (!validation.ok) {
-				// A model bug must fail closed, never persist a partial memo.
-				logger.warn(
-					{ applicationId, issueCodes: validation.issues.map((issue) => issue.code) },
-					"assist memo validation failed",
-				);
-				return c.json(validationFailure(validation.issues), 422);
-			}
-			const trace = result.trace;
-			const artifact = await createArtifact(db, {
-				applicationId,
-				type: "credit_memo",
-				content: validation.content,
-				citations: validation.citations,
-				documentDerived,
-				createdBy: actor.id,
-				actorRole: actor.role,
-				model: config.memoModel,
-				promptVersion: config.memoPromptVersion,
-				retentionDays: config.retentionDays,
-				supersedeDraft: true,
-				agentTrace: trace,
-				evidenceHash: hash,
-				auditMetadata: {
-					writer: trace.writer,
-					agentVersion: trace.agentVersion,
-					toolCallCount: trace.toolCalls.length,
-					sourceRefCount: trace.sourceRefs.length,
-					repairAttempted: trace.repairAttempted,
-				},
-				now: runtime.now(),
-			});
-			logger.info(
-				{
-					applicationId,
-					artifactId: artifact.id,
-					version: artifact.version,
-					writer: trace.writer,
-					toolCallCount: trace.toolCalls.length,
-				},
-				"assist memo drafted",
-			);
-			return c.json({ artifact }, 201);
-		}
-
-		const content = buildCreditMemo({ application: kase.application, evidence });
-		const validation = validateGeneratedText({
-			artifactType: "credit_memo",
-			content,
-			evidence,
-		});
-		if (!validation.ok) {
-			// A builder bug must fail closed, never persist a partial memo.
-			logger.warn(
-				{ applicationId, issueCount: validation.issues.length },
-				"assist memo validation failed",
-			);
-			return c.json(validationFailure(validation.issues), 422);
-		}
-		// Deterministic writer, agent-shaped provenance: zero tools/tokens,
-		// citations as the source refs, wall-clock latency only.
-		const trace: MemoAgentTrace = {
-			writer: "deterministic",
-			agentVersion: config.memoAgentVersion,
-			model: config.model,
-			promptVersion: config.promptVersion,
-			evidenceHash: hash,
-			steps: 1,
-			toolCalls: [],
-			sourceRefs: [...new Set(validation.citations.map((citation) => citation.ref))].sort(),
-			repairAttempted: false,
-			repairSucceeded: null,
-			fallbackReason: null,
-			inputTokens: 0,
-			outputTokens: 0,
-			latencyMs: Math.max(0, Date.now() - startedAt),
-		};
-		const artifact = await createArtifact(db, {
-			applicationId,
-			type: "credit_memo",
-			content: validation.content,
-			citations: validation.citations,
-			documentDerived,
-			createdBy: actor.id,
-			actorRole: actor.role,
-			model: config.model,
-			promptVersion: config.promptVersion,
-			retentionDays: config.retentionDays,
-			supersedeDraft: true,
-			agentTrace: trace,
-			evidenceHash: hash,
-			auditMetadata: {
-				writer: trace.writer,
-				agentVersion: trace.agentVersion,
-				toolCallCount: 0,
-				sourceRefCount: trace.sourceRefs.length,
-				repairAttempted: false,
-			},
-			now: runtime.now(),
-		});
-		logger.info(
-			{ applicationId, artifactId: artifact.id, version: artifact.version, writer: trace.writer },
-			"assist memo drafted",
+		if (!result.ok) return c.json(validationFailure(result.issues), 422);
+		return c.json(
+			{ artifact: result.artifact, ...(result.replayed ? { replayed: true } : {}) },
+			result.replayed ? 200 : 201,
 		);
-		return c.json({ artifact }, 201);
 	});
 
 	// EN-08 / US-ADV-1/2: deterministic letter from the terminal decline.

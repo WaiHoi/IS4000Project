@@ -28,6 +28,8 @@ export const memoAgentTraceSchema = z.object({
 	inputTokens: z.number().int().min(0),
 	outputTokens: z.number().int().min(0),
 	latencyMs: z.number().int().min(0),
+	/** Set by the preliminary auto-memo sweep. */
+	autoDrafted: z.boolean().optional(),
 	/** Provider-billed cost for this run when available (E3). */
 	costUsd: z.number().min(0).optional(),
 	/** E3 policy-exception provenance. Optional so existing credit-memo

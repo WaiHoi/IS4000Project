@@ -95,15 +95,16 @@ const parsed = createEnv({
 		ASSIST_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
 		ASSIST_RESEARCH_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
 		ASSIST_MODEL: z.string().min(1).default("deterministic"),
-		ASSIST_PROMPT_VERSION: z.string().min(1).default("memo-template-v1"),
+		ASSIST_PROMPT_VERSION: z.string().min(1).default("memo-template-v3"),
 		// Agentic credit-memo writer (SPEC agentic-memo, wave B). `agent`
 		// runs the bounded OpenRouter tool loop; default stays deterministic.
 		ASSIST_MEMO_WRITER: z.enum(["deterministic", "agent"]).default("deterministic"),
+		ASSIST_MEMO_AUTO_ENABLED: z.enum(["true", "false"]).default("false"),
 		// Not model-compared: the memo eval is scripted
 		// (docs/eval/applications/MEMO-AGENT-RESULTS.md).
 		ASSIST_MEMO_MODEL: z.string().min(1).default("openai/gpt-6.1-sol"),
-		ASSIST_MEMO_PROMPT_VERSION: z.string().min(1).default("memo-agent-v1"),
-		ASSIST_MEMO_AGENT_VERSION: z.string().min(1).default("memo-agent-v1"),
+		ASSIST_MEMO_PROMPT_VERSION: z.string().min(1).default("memo-agent-v3"),
+		ASSIST_MEMO_AGENT_VERSION: z.string().min(1).default("memo-agent-v3"),
 		ASSIST_MEMO_MAX_STEPS: z.coerce.number().int().min(1).max(64).default(30),
 		ASSIST_MEMO_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(100).default(40),
 		ASSIST_MEMO_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(90_000),
@@ -275,6 +276,7 @@ export const env = {
 		model: parsed.ASSIST_MODEL,
 		promptVersion: parsed.ASSIST_PROMPT_VERSION,
 		memoWriter: parsed.ASSIST_MEMO_WRITER,
+		memoAutoEnabled: parsed.ASSIST_MEMO_AUTO_ENABLED === "true",
 		memoModel: parsed.ASSIST_MEMO_MODEL,
 		memoPromptVersion: parsed.ASSIST_MEMO_PROMPT_VERSION,
 		memoAgentVersion: parsed.ASSIST_MEMO_AGENT_VERSION,

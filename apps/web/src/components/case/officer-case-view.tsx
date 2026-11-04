@@ -108,7 +108,10 @@ function DecisionBanner({ data }: { data: CaseDetail }) {
 	if (!decision) return null;
 	const approved = decision.outcome === "approved";
 	return (
-		<output className="mt-8 flex flex-wrap items-center gap-3 border border-rule bg-raised px-4 py-3 text-sm">
+		<output
+			id="decision-record"
+			className="mt-8 flex flex-wrap items-center gap-3 border border-rule bg-raised px-4 py-3 text-sm"
+		>
 			<Tag tone={approved ? "success" : "danger"}>{approved ? "Approved" : "Declined"}</Tag>
 			<p className="text-ink">
 				Decision: {decision.outcome} ({decision.decidedBy})
@@ -186,6 +189,65 @@ function FactStrip({ data }: { data: CaseDetail }) {
 				</p>
 			</div>
 		</section>
+	);
+}
+
+function CreditSnapshot({ data }: { data: CaseDetail }) {
+	const app = data.application;
+	const business = (app.business ?? {}) as Record<string, unknown>;
+	const financial = (app.financial ?? {}) as Record<string, unknown>;
+	const collateral = (business.collateral ?? null) as Record<string, unknown> | null;
+	const aff = data.score?.affordability;
+	const ratio = (value: unknown): string | null =>
+		typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}×` : null;
+	const rows: Array<[string, React.ReactNode]> = [];
+	if (app.type === "sme") {
+		const leverage = ratio(business.leverageRatio);
+		const current = ratio(business.currentRatio);
+		if (leverage) rows.push(["Leverage", leverage]);
+		if (current) rows.push(["Current ratio", current]);
+	} else {
+		if (typeof financial.monthlyIncomeCents === "number") {
+			rows.push(["Monthly income", formatMoney(financial.monthlyIncomeCents)]);
+		}
+		if (typeof financial.existingDebtCents === "number") {
+			rows.push(["Existing debt", formatMoney(financial.existingDebtCents)]);
+		}
+		if (typeof financial.employmentStatus === "string") {
+			rows.push(["Employment", formatFieldValue("employmentStatus", financial.employmentStatus)]);
+		}
+		if (aff?.dti !== undefined) rows.push(["DTI", `${(aff.dti * 100).toFixed(2)}%`]);
+	}
+	if (collateral === null) {
+		rows.push(["Security", "Not recorded"]);
+	} else if (collateral.hasCollateral === true) {
+		rows.push([
+			"Security",
+			typeof collateral.valueCents === "number"
+				? `${formatMoney(collateral.valueCents)} recorded`
+				: "Secured",
+		]);
+	} else {
+		rows.push(["Security", "Unsecured"]);
+	}
+	if (
+		typeof business.existingFacilitiesSummary === "string" &&
+		business.existingFacilitiesSummary.trim() !== ""
+	) {
+		rows.push(["Existing facilities", business.existingFacilitiesSummary]);
+	}
+	if (rows.length === 0) return null;
+	return (
+		<Panel title="Credit snapshot" outline>
+			<dl className="grid gap-4 sm:grid-cols-2">
+				{rows.map(([label, value]) => (
+					<div key={label}>
+						<dt className="text-xs text-slate">{label}</dt>
+						<dd className="mt-1 text-sm font-medium break-words text-ink tabular-nums">{value}</dd>
+					</div>
+				))}
+			</dl>
+		</Panel>
 	);
 }
 
@@ -506,6 +568,7 @@ export function OfficerCaseView({
 
 			<div className="mt-8 grid gap-10 lg:grid-cols-2">
 				<div className="min-w-0 space-y-6">
+					<CreditSnapshot data={data} />
 					<ApplicationPanel data={data} />
 					<CreditPanel data={data} />
 					<PolicyPanel data={data} />
@@ -557,7 +620,23 @@ export function OfficerCaseView({
 								/>
 							</div>
 							<div hidden={assistTab !== "memo"}>
-								<MemoPanel applicationId={app.id} caseStatus={app.status} />
+								<MemoPanel
+									applicationId={app.id}
+									caseStatus={app.status}
+									borrowerName={
+										((app.identity ?? {}) as Record<string, unknown>).fullName as string | undefined
+									}
+									companyName={
+										((app.business ?? {}) as Record<string, unknown>).companyName as
+											| string
+											| undefined
+									}
+									reference={app.reference}
+									product={app.product}
+									amountCents={app.amountCents}
+									termMonths={app.termMonths}
+									documentsEnabled={app.documentsEnabled ?? false}
+								/>
 							</div>
 							<div hidden={assistTab !== "policy"}>
 								<PolicyExceptionPanel applicationId={app.id} caseStatus={app.status} />
@@ -578,7 +657,46 @@ export function OfficerCaseView({
 				<div className="max-w-3xl">
 					{decided ? (
 						<Panel title="Officer decision" outline>
-							<p className="text-sm text-slate">Case is {app.status} — no decision needed.</p>
+							{data.decision ? (
+								<>
+									<div className="flex flex-wrap items-center gap-3">
+										<StatusBadge status={data.decision.outcome} />
+										<p className="text-sm text-ink">
+											Decided by {data.decision.decidedBy} ·{" "}
+											{formatDateTime(data.decision.decidedAt)}
+										</p>
+									</div>
+									<dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+										{data.decision.approvedAmountCents !== null && (
+											<div>
+												<dt className="inline font-medium">Amount: </dt>
+												<dd className="inline tabular-nums">
+													{formatMoney(data.decision.approvedAmountCents)}
+												</dd>
+											</div>
+										)}
+										{data.decision.termMonths !== null && (
+											<div>
+												<dt className="inline font-medium">Duration: </dt>
+												<dd className="inline tabular-nums">{data.decision.termMonths} months</dd>
+											</div>
+										)}
+										{data.decision.rateBps !== null && (
+											<div>
+												<dt className="inline font-medium">Rate: </dt>
+												<dd className="inline tabular-nums">
+													{(data.decision.rateBps / 100).toFixed(2)}%
+												</dd>
+											</div>
+										)}
+									</dl>
+									{data.decision.notes && (
+										<p className="mt-3 text-sm text-ink">{data.decision.notes}</p>
+									)}
+								</>
+							) : (
+								<p className="text-sm text-slate">Case is {app.status} — no decision needed.</p>
+							)}
 							{data.loan && (
 								<p className="mt-3">
 									<ButtonLink to="/officer/portfolio" variant="link">

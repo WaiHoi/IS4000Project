@@ -23,6 +23,7 @@ import {
 	officerAsksCaseAssistant,
 	officerAsksPolicyNavigator,
 	officerDecides,
+	officerDraftsCreditMemo,
 	officerRunsCrosscheck,
 	runResearch,
 } from "./demo-flow.js";
@@ -105,6 +106,12 @@ test("Envy Global Trading: referred → fraud flag + adverse media → officer d
 	);
 	expect(assistant.answer.length).toBeGreaterThan(0);
 	expect(assistant.toolCalls).toBeGreaterThan(0);
+
+	// Envy is the negative-case memo proof: draft after research/context so the
+	// memo can cite the related-party, cash and returned-payment signals.
+	const memo = await officerDraftsCreditMemo(page, officer, caseId);
+	expect(memo.writer).toBeTruthy();
+	expect(memo.citations).toBeGreaterThan(0);
 
 	await officerDecides(page, caseId, {
 		outcome: "decline",

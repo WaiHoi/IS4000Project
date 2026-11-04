@@ -9,7 +9,7 @@ import {
 	type UnavailableSource,
 } from "@credit/core";
 import type { applications } from "@credit/db/applications";
-import { buildCreditMemo } from "../../src/assist/memo.js";
+import { buildCreditMemo, composeCreditMemo } from "../../src/assist/memo.js";
 
 type ApplicationRow = typeof applications.$inferSelect;
 
@@ -167,20 +167,60 @@ describe("buildCreditMemo", () => {
 		expect(result.ok).toBe(true);
 	});
 
-	it("covers all six sections and the unavailable source", () => {
+	it("does not copy policy headings that trip the decision-language gate", () => {
+		const evidence = richBundle();
+		const policy = evidence.items.find((entry) => entry.sourceType === "policy_section");
+		expect(policy).toBeDefined();
+		policy!.label = "2.3 Stressed interest rate";
+		const content = buildCreditMemo({ application: smeApp(), evidence });
+		const section = content.sections.find((entry) => entry.key === "policy_compliance");
+		expect(section?.claims.some((claim) => claim.text.includes("Stressed"))).toBe(false);
+		expect(
+			section?.claims.some((claim) => claim.text === "A policy section is cited for this case."),
+		).toBe(true);
+		expect(validateGeneratedText({ artifactType: "credit_memo", content, evidence }).ok).toBe(true);
+	});
+
+	it("composes deterministic metric sections over agent prose", () => {
+		const evidence = richBundle();
+		const built = buildCreditMemo({ application: smeApp(), evidence });
+		const agent = structuredClone(built);
+		const financial = agent.sections.find((section) => section.key === "financial_analysis");
+		const revenue = evidence.items.find((item) => item.ref.endsWith("business.annualRevenueCents"));
+		expect(financial).toBeDefined();
+		expect(revenue).toBeDefined();
+		financial!.claims = [
+			{
+				text: "Annual revenue is USD 9.99.",
+				citations: [{ ref: revenue!.ref, quote: revenue!.content }],
+			},
+		];
+		financial!.notAvailable = false;
+		const composed = composeCreditMemo(agent, built);
+		const composedFinancial = composed.sections.find(
+			(section) => section.key === "financial_analysis",
+		);
+		const builtFinancial = built.sections.find((section) => section.key === "financial_analysis");
+		expect(composedFinancial).toEqual(builtFinancial);
+		expect(composedFinancial?.claims[0]?.text).not.toContain("9.99");
+	});
+
+	it("covers all eight sections and the unavailable source", () => {
 		const evidence = richBundle();
 		const content = buildCreditMemo({ application: smeApp(), evidence });
 		expect(content.sections.map((s) => s.key)).toEqual([
 			"request",
-			"entity",
-			"financial_summary",
-			"strengths",
+			"borrower",
+			"financial_analysis",
+			"debt_service",
+			"credit_history",
+			"collateral_security",
 			"risks",
 			"policy_compliance",
 		]);
-		const financials = content.sections.find((s) => s.key === "financial_summary");
+		const financials = content.sections.find((s) => s.key === "financial_analysis");
 		expect(financials?.notAvailable).toBe(false);
-		expect(financials?.claims).toHaveLength(3);
+		expect(financials?.claims).toHaveLength(2);
 		expect(content.openItems.some((o) => o.sourceRef === MISSING_DOC_REF)).toBe(true);
 		expect(content.officerQuestions.length).toBeGreaterThanOrEqual(3);
 		expect(content.officerQuestions.length).toBeLessThanOrEqual(5);
@@ -280,13 +320,15 @@ describe("buildCreditMemo", () => {
 		expect(result.ok).toBe(true);
 		expect(content.sections.map((s) => s.key)).toEqual([
 			"request",
-			"entity",
-			"financial_summary",
-			"strengths",
+			"borrower",
+			"financial_analysis",
+			"debt_service",
+			"credit_history",
+			"collateral_security",
 			"risks",
 			"policy_compliance",
 		]);
-		const financials = content.sections.find((s) => s.key === "financial_summary");
+		const financials = content.sections.find((s) => s.key === "financial_analysis");
 		expect(financials?.notAvailable).toBe(true);
 		expect(financials?.claims).toEqual([]);
 		expect(content.openItems.length).toBeGreaterThan(0);

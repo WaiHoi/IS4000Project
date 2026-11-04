@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"demoAsOf": "2026-06-30",
-	"sha256": "16d0d9687a4da9dbe434e062770b42867374e05bab4b6b995a1813c7335be353",
+	"sha256": "a6bdbc6fc9e7186b4ecdedfd74247336b165618def6f91e92084fa9bf2f1a443",
 	"notes": "T17 deterministic demo fixtures (SPEC-t17-t18 §2.5). DEMO_AS_OF is the fixed fixture clock: all freshness, requirements, reuse, submit, and T11 asOf evaluate against it for fixture-owned rows. BreadTalk is the stale-blocker demo: valid KYC with a bank statement at DEMO_AS_OF-120d and financial statements at DEMO_AS_OF-24mo. Fresh variants ship only via demo:refresh-evidence and never auto-attach. alex is the fresh standard persona (existing demo user). sparse is the insufficient-data persona (verified KYC, no accounts/transactions/evidence). Transaction amounts are integer cents; credits positive, debits negative. Page text lines double as the deterministic PDF body so reused copies produce the declared T02 findings (matching Company Name / Registration No / Account Holder labels; id/payslip/financial_statements are needs_chase until a dedicated T02 rule exists). Expected T18 candidate signal types are deterministic-stub (demo:context-stub) expectations: demo:verify pins exact types for stub runs whose context stage succeeded, and live succeeded runs must be non-empty and use only deterministic metric types; flags-off, absent-run, and T18-disabled (skipped/failed/not_applicable) cases are a passing seam, never a failure. BreadTalk and Envy carry real public company identities (name, UEN, city) so the live external-brief agent can find public sources; every person, account, transaction and financial figure is fictional. Envy is the adverse-media + fraud-review demo: fresh evidence, no stale blockers; its fictional transactions trip every deterministic context signal (related-party round trips and concentration, cash deposits, overdrafts, returned payments, declared-vs-observed cash flow) and its bank statement is held by a sister entity, so the officer cross-check finds a high-confidence account-holder mismatch that opens a fraud review.",
 	"personas": {
 		"breadtalk": {
@@ -32,7 +32,13 @@
 					"employees": 180,
 					"annualRevenueCents": 120000000,
 					"monthlyFcfCents": 8000000,
-					"existingDebtServiceCents": 1000000
+					"existingDebtServiceCents": 1000000,
+					"ownershipStructure": "Founder-led; two shareholders; no corporate parent.",
+					"managementSummary": "Founder and a finance director; 23 years of operating history.",
+					"existingFacilitiesSummary": "One existing bank facility; monthly service S$10,000.",
+					"leverageRatio": 1.8,
+					"currentRatio": 1.4,
+					"collateral": { "hasCollateral": false }
 				}
 			},
 			"accounts": [
@@ -452,7 +458,13 @@
 					"employees": 180,
 					"annualRevenueCents": 120000000,
 					"monthlyFcfCents": 8000000,
-					"existingDebtServiceCents": 1000000
+					"existingDebtServiceCents": 1000000,
+					"ownershipStructure": "Founder-led; two shareholders; no corporate parent.",
+					"managementSummary": "Founder and a finance director; 23 years of operating history.",
+					"existingFacilitiesSummary": "One existing bank facility; monthly service S$10,000.",
+					"leverageRatio": 1.8,
+					"currentRatio": 1.4,
+					"collateral": { "hasCollateral": false }
 				},
 				"attach": ["id", "business_registration"],
 				"staleCopies": ["bank_statement_stale", "financial_statements_stale"]
@@ -827,7 +839,13 @@
 					"employees": 15,
 					"annualRevenueCents": 480000000,
 					"monthlyFcfCents": 9000000,
-					"existingDebtServiceCents": 1500000
+					"existingDebtServiceCents": 1500000,
+					"ownershipStructure": "Founder-led; related-party links to Envy Asset Management Pte. Ltd.",
+					"managementSummary": "Founder and one director; related-party oversight noted.",
+					"existingFacilitiesSummary": "One existing bank facility; monthly service S$15,000.",
+					"leverageRatio": 3.2,
+					"currentRatio": 0.9,
+					"collateral": { "hasCollateral": false }
 				}
 			},
 			"accounts": [
@@ -1263,7 +1281,13 @@
 					"employees": 15,
 					"annualRevenueCents": 480000000,
 					"monthlyFcfCents": 9000000,
-					"existingDebtServiceCents": 1500000
+					"existingDebtServiceCents": 1500000,
+					"ownershipStructure": "Founder-led; related-party links to Envy Asset Management Pte. Ltd.",
+					"managementSummary": "Founder and one director; related-party oversight noted.",
+					"existingFacilitiesSummary": "One existing bank facility; monthly service S$15,000.",
+					"leverageRatio": 3.2,
+					"currentRatio": 0.9,
+					"collateral": { "hasCollateral": false }
 				},
 				"attach": ["id", "business_registration", "bank_statement", "financial_statements"],
 				"staleCopies": []

@@ -8,8 +8,9 @@ import {
 	caseAccessGrants,
 	generatedArtifacts,
 } from "@credit/db/applications";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { createLogger } from "@credit/service-kit";
 import { assembleCaseEvidence } from "../../src/assist/evidence.js";
 import { buildCreditMemo } from "../../src/assist/memo.js";
 import {
@@ -19,6 +20,10 @@ import {
 	runMemoEvidenceTool,
 } from "../../src/agents/memo-writer/index.js";
 import type { MemoAgentTrace } from "../../src/agents/shared/trace.js";
+import { startAutoMemoSweep } from "../../src/assist/auto-memo.js";
+import { createArtifact } from "../../src/assist/artifacts.js";
+import type { AssistRuntime } from "../../src/assist/types.js";
+import { loadEnv } from "../../src/env.js";
 import { createUser, setupApp, signed, type TestContext, type TestUser } from "../helper.js";
 
 process.env.LOG_LEVEL ??= "silent";
@@ -30,6 +35,8 @@ interface ScriptedRun {
 	tools?: Array<{ name: string; args?: unknown }>;
 	draft?: string;
 	error?: Error;
+	/** Side effect after the pre-checks but before the draft is persisted. */
+	onRun?: () => Promise<void>;
 }
 
 /** Programmable runner: each test loads a script; every listed tool executes
@@ -56,6 +63,7 @@ function programmableRunner(): {
 				index += 1;
 				if (!step) throw new MemoAgentError("MODEL_ERROR");
 				if (step.error) throw step.error;
+				await step.onRun?.();
 				const toolCalls: MemoAgentTrace["toolCalls"] = [];
 				const refs = new Set<string>();
 				for (const call of step.tools ?? []) {
@@ -93,6 +101,31 @@ function agentCtx(): TestContext {
 			now: () => NOW,
 		},
 	});
+}
+
+function autoRuntime(): AssistRuntime {
+	const env = loadEnv();
+	return {
+		config: {
+			...env.assist,
+			enabled: true,
+			memoWriter: "agent",
+			memoAutoEnabled: true,
+		},
+		documentsEnabled: false,
+		memoAgentRunner: fake.runner,
+		now: () => NOW,
+	};
+}
+
+async function waitFor<T>(read: () => Promise<T | null>, timeoutMs = 3_000): Promise<T> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const value = await read();
+		if (value !== null) return value;
+		if (Date.now() > deadline) throw new Error("timed out waiting for auto memo");
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
 }
 
 async function seedCase(sentinelCompany: string): Promise<string> {
@@ -469,6 +502,156 @@ describe("agent memo route", () => {
 			expect(body.artifact.agentTrace?.evidenceHash).toBe(body.artifact.evidenceHash);
 		} finally {
 			await det.sql.end();
+		}
+	});
+
+	it("auto sweep drafts a preliminary memo and skips a live approved one", async () => {
+		const applicationId = await seedCase(`${SENTINEL}-AUTO`);
+		fake.setScript([{ tools: [{ name: "list_evidence" }], draft: await memoJson(applicationId) }]);
+		const sweep = startAutoMemoSweep({
+			db: ctx.db,
+			logger: createLogger("applications-test"),
+			runtime: autoRuntime(),
+			intervalMs: 20,
+			applicationIds: [applicationId],
+		});
+		try {
+			const observed = await waitFor(async () => {
+				const rows = await artifactRows(applicationId);
+				const audits = await ctx.db
+					.select()
+					.from(auditLog)
+					.where(
+						and(
+							eq(auditLog.applicationId, applicationId),
+							eq(auditLog.action, "assist.memo.auto_drafted"),
+						),
+					);
+				return rows.length > 0 && audits.length > 0 ? { rows, audits } : null;
+			});
+			expect(observed.rows).toHaveLength(1);
+			expect(observed.rows[0]?.documentDerived).toBe(false);
+			expect(observed.rows[0]?.createdBy).toBe("00000000-0000-0000-0000-000000000000");
+			expect((observed.rows[0]?.agentTrace as { autoDrafted?: boolean } | null)?.autoDrafted).toBe(
+				true,
+			);
+			expect(observed.audits).toHaveLength(1);
+		} finally {
+			sweep.stop();
+		}
+	});
+
+	it("auto sweep backs off after a transient failure", async () => {
+		const applicationId = await seedCase(`${SENTINEL}-AUTO-BACKOFF`);
+		fake.setScript([{ error: new MemoAgentError("MODEL_ERROR") }]);
+		const callsBefore = fake.calls();
+		const sweep = startAutoMemoSweep({
+			db: ctx.db,
+			logger: createLogger("applications-test"),
+			runtime: autoRuntime(),
+			intervalMs: 20,
+			applicationIds: [applicationId],
+		});
+		try {
+			await waitFor(async () => (fake.calls() > callsBefore ? true : null));
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(fake.calls()).toBe(callsBefore + 1);
+			expect(await artifactRows(applicationId)).toHaveLength(0);
+		} finally {
+			sweep.stop();
+		}
+	});
+
+	it("auto sweep loses the write race to a memo created during the model call", async () => {
+		const applicationId = await seedCase(`${SENTINEL}-AUTO-RACE`);
+		const draft = JSON.parse(await memoJson(applicationId)) as Record<string, unknown>;
+		let liveId = "";
+		let raced = false;
+		fake.setScript([
+			{
+				tools: [{ name: "list_evidence" }],
+				draft: JSON.stringify(draft),
+				onRun: async () => {
+					if (raced) return;
+					raced = true;
+					const artifact = await createArtifact(ctx.db, {
+						applicationId,
+						type: "credit_memo",
+						content: draft,
+						citations: [],
+						documentDerived: false,
+						createdBy: officer.id,
+						model: "race-model",
+						promptVersion: "race-prompt",
+						retentionDays: 365,
+						now: NOW,
+					});
+					liveId = artifact.id;
+					await ctx.db
+						.update(generatedArtifacts)
+						.set({ status: "approved", approvedBy: officer.id, approvedAt: NOW })
+						.where(eq(generatedArtifacts.id, artifact.id));
+				},
+			},
+		]);
+		const sweep = startAutoMemoSweep({
+			db: ctx.db,
+			logger: createLogger("applications-test"),
+			runtime: autoRuntime(),
+			intervalMs: 20,
+			applicationIds: [applicationId],
+		});
+		try {
+			await waitFor(async () => {
+				const rows = await artifactRows(applicationId);
+				return rows.length > 0 ? rows : null;
+			});
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			const rows = await artifactRows(applicationId);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.id).toBe(liveId);
+			expect(rows[0]?.status).toBe("approved");
+			const autoAudits = await ctx.db
+				.select()
+				.from(auditLog)
+				.where(
+					and(
+						eq(auditLog.applicationId, applicationId),
+						inArray(auditLog.action, ["assist.memo.auto_drafted", "assist.memo.auto_failed"]),
+					),
+				);
+			expect(autoAudits).toHaveLength(0);
+		} finally {
+			sweep.stop();
+		}
+	});
+
+	it("auto sweep never replaces a live approved memo", async () => {
+		const applicationId = await seedCase(`${SENTINEL}-AUTO-LIVE`);
+		fake.setScript([{ tools: [{ name: "list_evidence" }], draft: await memoJson(applicationId) }]);
+		const res = await postMemo(officer, applicationId);
+		expect(res.status).toBe(201);
+		const drafted = (await res.json()) as { artifact: { id: string } };
+		await ctx.db
+			.update(generatedArtifacts)
+			.set({ status: "approved", approvedBy: officer.id, approvedAt: NOW })
+			.where(eq(generatedArtifacts.id, drafted.artifact.id));
+		const callsBefore = fake.calls();
+		const sweep = startAutoMemoSweep({
+			db: ctx.db,
+			logger: createLogger("applications-test"),
+			runtime: autoRuntime(),
+			intervalMs: 20,
+			applicationIds: [applicationId],
+		});
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(fake.calls()).toBe(callsBefore);
+			const rows = await artifactRows(applicationId);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.status).toBe("approved");
+		} finally {
+			sweep.stop();
 		}
 	});
 });

@@ -1,4 +1,12 @@
-# Live credit-memo eval — 2026-10-28
+# Live credit-memo eval — 2026-10-28 (historical)
+
+> **Not the shipped memo.** This run predates prompt v3 and the deterministic
+> composer: it scored raw `runMemoAgent` content, while production now replaces
+> `financial_analysis`, `debt_service`, `collateral_security`, and
+> `policy_compliance` with code-built claims before validation. Treat the
+> numbers below as historical model-quality evidence, not a current pass rate.
+> The live and scripted harnesses now compose before scoring; rerun with
+> `--live` before quoting a current number.
 
 The scripted `memo-agent-eval.ts` covers mechanics only (bounds, repair,
 validation, language). This is the missing model-quality eval: 22 evidence
@@ -70,8 +78,9 @@ not a safe trade. Treat this as a known quality gap, not a pass/fail gate.
 - Agent cost is token-project-based because the orchestrator drops the
   provider-billed cost; failed-trial usage is not recorded, so totals understate
   failures.
-- The memo prompt/agent version stays `memo-agent-v1`; only the tool schema and
-  default model changed.
+- The run used `memo-agent-v1` and scored raw agent prose. Prompt v3 and the
+  deterministic composer changed both, so the table is historical; see the
+  header note.
 - The scripted 8-case mechanics suite still runs separately and is not replaced
   by this eval.
 

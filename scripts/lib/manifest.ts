@@ -13,7 +13,7 @@ export const EXPECTED_MANIFEST_VERSION = 1;
 
 /** Canonical hash of the checked-in manifest (see `scripts/lib/manifest.ts`). */
 export const EXPECTED_MANIFEST_SHA256 =
-	"16d0d9687a4da9dbe434e062770b42867374e05bab4b6b995a1813c7335be353";
+	"a6bdbc6fc9e7186b4ecdedfd74247336b165618def6f91e92084fa9bf2f1a443";
 
 export interface ManifestEvidence {
 	fixtureKey: string;
@@ -150,9 +150,7 @@ export function assertManifest(manifest: DemoManifest): { version: number; hash:
 export function loadVerifiedManifest(expectedVersion?: string): DemoManifest {
 	const manifest = loadManifest();
 	if (expectedVersion !== undefined && expectedVersion !== String(manifest.version)) {
-		throw new Error(
-			`DEMO_SEED_VERSION ${expectedVersion} != manifest version ${manifest.version}`,
-		);
+		throw new Error(`DEMO_SEED_VERSION ${expectedVersion} != manifest version ${manifest.version}`);
 	}
 	assertFixtureClock(manifest.demoAsOf, process.env.DEMO_AS_OF);
 	assertManifest(manifest);

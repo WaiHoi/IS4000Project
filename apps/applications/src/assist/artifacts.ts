@@ -37,6 +37,8 @@ export interface CreateArtifactInput {
 	retentionDays: number;
 	/** Memo regeneration only: supersede the live draft before versioning. */
 	supersedeDraft?: boolean;
+	/** Auto sweep only: refuse creation when any live artifact already exists. */
+	onlyIfNoLive?: boolean;
 	/** Agentic provenance. Validated against the trace schema before writing. */
 	agentTrace?: MemoAgentTrace;
 	/** Replay key. Defaults to `agentTrace.evidenceHash` when not supplied. */
@@ -231,6 +233,24 @@ export async function createArtifactInTx(tx: Tx, input: CreateArtifactInput): Pr
 	const now = input.now ?? new Date();
 	const trace = resolveTraceColumns(input, { agentTrace: null, evidenceHash: null });
 	const version = await nextVersion(tx, input.applicationId, input.type);
+	if (input.onlyIfNoLive === true) {
+		// Re-check inside the write transaction: the auto sweep may have
+		// started before the officer's manual draft or approval landed.
+		const [live] = await tx
+			.select({ id: generatedArtifacts.id })
+			.from(generatedArtifacts)
+			.where(
+				and(
+					eq(generatedArtifacts.applicationId, input.applicationId),
+					eq(generatedArtifacts.type, input.type),
+					ne(generatedArtifacts.status, "superseded"),
+					ne(generatedArtifacts.status, "deleted"),
+				),
+			)
+			.limit(1)
+			.for("update");
+		if (live) throw new HttpError(409, "DRAFT_EXISTS", "a live artifact already exists");
+	}
 	if (input.supersedeDraft === true) {
 		// Memo regeneration after a replay miss: retire the live draft so
 		// the new version becomes the active one. Historical (approved,

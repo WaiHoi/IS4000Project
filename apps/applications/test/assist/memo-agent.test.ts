@@ -215,7 +215,7 @@ function validMemo(): Record<string, unknown> {
 					],
 				},
 			]),
-			section("entity", "Entity", [
+			section("borrower", "Borrower profile", [
 				{
 					text: "The applicant company operates in the sector stated in the case record.",
 					citations: [
@@ -224,18 +224,20 @@ function validMemo(): Record<string, unknown> {
 					],
 				},
 			]),
-			section("financial_summary", "Financial summary", [
+			section("financial_analysis", "Financial analysis", [
 				{
 					text: "Annual revenue is USD 1,200,000.00 for the stated period.",
 					citations: [{ ref: REVENUE_REF, quote: "120000000" }],
 				},
 			]),
-			section("strengths", "Strengths", [
+			section("debt_service", "Debt service and existing facilities", [
 				{
 					text: "A positive assessment factor is noted for the case.",
 					citations: [{ ref: FACTOR_REF, quote: FACTOR_CONTENT }],
 				},
 			]),
+			section("credit_history", "Credit history", []),
+			section("collateral_security", "Collateral and security", []),
 			section("risks", "Risks", [
 				{
 					text: "A policy section is cited for this case.",
@@ -348,9 +350,11 @@ describe("runMemoAgent", () => {
 		expect(validateGeneratedText({ artifactType: "credit_memo", content, evidence }).ok).toBe(true);
 		expect(content.sections.map((s) => s.key)).toEqual([
 			"request",
-			"entity",
-			"financial_summary",
-			"strengths",
+			"borrower",
+			"financial_analysis",
+			"debt_service",
+			"credit_history",
+			"collateral_security",
 			"risks",
 			"policy_compliance",
 		]);
@@ -630,9 +634,11 @@ describe("runMemoAgent", () => {
 		}));
 		const keys = [
 			"request",
-			"entity",
-			"financial_summary",
-			"strengths",
+			"borrower",
+			"financial_analysis",
+			"debt_service",
+			"credit_history",
+			"collateral_security",
 			"risks",
 			"policy_compliance",
 		];

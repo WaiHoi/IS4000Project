@@ -27,6 +27,8 @@ export interface MemoAgentTrace {
 	inputTokens: number;
 	outputTokens: number;
 	latencyMs: number;
+	/** True when the memo was produced by the auto-memo sweep on referral. */
+	autoDrafted?: boolean;
 	/** E3 policy-exception provenance; absent on credit-memo traces. */
 	registryVersion?: string;
 	registryHash?: string;

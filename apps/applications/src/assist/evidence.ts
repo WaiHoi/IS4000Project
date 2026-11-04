@@ -56,6 +56,9 @@ export async function assembleCaseEvidence(deps: EvidenceDeps): Promise<Evidence
 	const unavailable: UnavailableSource[] = [];
 
 	addCaseFacts(application, items);
+	addSecurityFact(application, items);
+	await addScoreFacts(db, application, items);
+	await addPolicyFacts(db, application, items);
 	await addBureauFacts(db, application, items);
 	await addScoreReasons(db, application, items, unavailable, deps.pinned);
 	await addDecisionReasons(db, application, items, deps.pinned);
@@ -130,6 +133,13 @@ const CASE_LABELS: Record<string, string> = {
 	"bureau.delinquencies": "Bureau delinquencies",
 	"bureau.utilizationPct": "Bureau credit utilization",
 	"bureau.bureauScore": "Bureau score",
+	"score.dscr": "Debt-service coverage",
+	"score.dti": "Debt-to-income",
+	"score.newPaymentCents": "Proposed monthly payment",
+	"policy.outcome": "Policy outcome",
+	"policy.maxAmountCents": "Policy maximum",
+	"policy.policyVersion": "Policy version",
+	"security.status": "Security status",
 };
 
 function humanize(key: string): string {
@@ -201,6 +211,76 @@ function addCaseFacts(application: typeof applications.$inferSelect, items: Evid
 			push(field, value);
 		}
 	}
+	const collateral = isRecord(business["collateral"]) ? business["collateral"] : null;
+	if (collateral !== null) {
+		push("business.collateral.hasCollateral", collateral["hasCollateral"]);
+		push("business.collateral.valueCents", collateral["valueCents"]);
+	}
+}
+
+/** Security is a product/case fact, not a document. Personal loans are
+ * unsecured by default; an SME facility is unsecured unless collateral is
+ * recorded. The memo cites this fact so "unsecured" is applicable, not a gap. */
+function addSecurityFact(
+	application: typeof applications.$inferSelect,
+	items: EvidenceItem[],
+): void {
+	const business = isRecord(application.business) ? application.business : {};
+	const collateral = isRecord(business["collateral"]) ? business["collateral"] : null;
+	const secured = collateral?.["hasCollateral"] === true;
+	const item = caseFact(application.id, "security.status", secured ? "secured" : "unsecured");
+	if (item) items.push(item);
+}
+
+/** Deterministic affordability facts cited by the memo's debt-service section. */
+async function addScoreFacts(
+	db: Db,
+	application: typeof applications.$inferSelect,
+	items: EvidenceItem[],
+): Promise<void> {
+	const rows = await db
+		.select()
+		.from(scores)
+		.where(eq(scores.applicationId, application.id))
+		.orderBy(desc(scores.createdAt))
+		.limit(1);
+	const row = rows[0];
+	if (!row) return;
+	const aff = isRecord(row.affordability) ? row.affordability : {};
+	const push = (field: string, value: unknown, label: string): void => {
+		const item = caseFact(application.id, field, value, label);
+		if (item) items.push(item);
+	};
+	if (typeof aff["dscr"] === "number") push("score.dscr", aff["dscr"], "Debt-service coverage");
+	if (typeof aff["dti"] === "number") push("score.dti", aff["dti"] * 100, "Debt-to-income");
+	if (typeof aff["newPaymentCents"] === "number")
+		push("score.newPaymentCents", aff["newPaymentCents"], "Proposed monthly payment");
+}
+
+/** Deterministic policy facts cited by the memo's policy section. */
+async function addPolicyFacts(
+	db: Db,
+	application: typeof applications.$inferSelect,
+	items: EvidenceItem[],
+): Promise<void> {
+	const rows = await db
+		.select()
+		.from(policyEvaluations)
+		.where(eq(policyEvaluations.applicationId, application.id))
+		.orderBy(
+			sql`${policyEvaluations.evaluatedAt} DESC NULLS LAST`,
+			desc(policyEvaluations.createdAt),
+		)
+		.limit(1);
+	const row = rows[0];
+	if (!row) return;
+	const push = (field: string, value: unknown, label: string): void => {
+		const item = caseFact(application.id, field, value, label);
+		if (item) items.push(item);
+	};
+	push("policy.outcome", row.outcome, "Policy outcome");
+	push("policy.maxAmountCents", row.maxAmountCents, "Policy maximum");
+	push("policy.policyVersion", row.policyVersion, "Policy version");
 }
 
 /** Structured bureau facts are case evidence, not document text. They let

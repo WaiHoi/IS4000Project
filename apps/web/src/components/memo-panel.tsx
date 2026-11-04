@@ -3,7 +3,7 @@
 // confirm, and show the agent trace as metadata only. Hides itself while the
 // assist flag is off (404); other errors surface via ErrorBox.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	ApiError,
 	apiErrorMessage,
@@ -11,7 +11,9 @@ import {
 	approveMemo,
 	draftMemo,
 	formatDateTime,
+	formatMoney,
 	listMemoArtifacts,
+	productLabel,
 	updateMemo,
 	type CreditMemoContent,
 	type MemoCitation,
@@ -22,35 +24,114 @@ import { ToolActivity } from "./tool-activity";
 import { Button } from "./ui/button";
 import { Card, EmptyState, ErrorBox, Skeleton, StatusBadge } from "./ui";
 
-/** `case_fact:…` → `case fact`; unknown refs render raw. */
+/** Human label for a source ref; document refs include their page when present. */
 function sourceLabel(ref: string): string {
-	const head = ref.split(":")[0] ?? ref;
-	return head.replace(/_/g, " ").trim() || ref;
+	const [type = ref, ...rest] = ref.split(":");
+	if (type === "document") return `Document${rest[1] ? ` · ${rest[1]}` : ""}`;
+	if (type === "policy_section") return `Policy ${rest[0] ?? ""}${rest[2] ? ` §${rest[2]}` : ""}`;
+	if (type === "case_fact")
+		return rest[1] ? `Case fact · ${rest[1].split(".").pop()}` : "Case fact";
+	if (type === "score_reason")
+		return rest[1] ? `Assessment factor · ${rest[1].replace(/_/g, " ")}` : "Assessment factor";
+	if (type === "context_signal") return "Cash-flow signal";
+	if (type === "external_evidence") return "External report";
+	return type.replace(/_/g, " ").trim() || ref;
 }
 
-function CitationChip({ citation }: { citation: MemoCitation }) {
+function CitationChip({
+	citation,
+	index,
+	onSelect,
+}: {
+	citation: MemoCitation;
+	index: number;
+	onSelect: (citation: MemoCitation, index: number) => void;
+}) {
 	return (
-		<li className="rounded border border-rule bg-raised px-2 py-1">
-			<p className="font-mono text-xs text-slate" title={citation.ref}>
-				<span className="mr-1 rounded bg-warm px-1 py-0.5 font-sans font-medium">
-					{sourceLabel(citation.ref)}
-				</span>
-				{citation.ref}
-			</p>
-			<blockquote className="mt-0.5 border-l-2 border-rule-strong pl-2 text-xs text-slate italic">
-				“{citation.quote}”
-			</blockquote>
-		</li>
+		<button
+			type="button"
+			onClick={() => onSelect(citation, index)}
+			aria-label={`Open memo source ${index}: ${sourceLabel(citation.ref)}`}
+			title={`${sourceLabel(citation.ref)} — ${citation.quote.slice(0, 160)}`}
+			className="mx-0.5 rounded border border-rule bg-card px-1 align-super text-sm font-medium text-red-link hover:underline"
+		>
+			[{index}]
+		</button>
+	);
+}
+
+function MemoCitationDialog({
+	selected,
+	onClose,
+}: {
+	selected: { citation: MemoCitation; index: number } | null;
+	onClose: () => void;
+}) {
+	const ref = useRef<HTMLDialogElement>(null);
+	useEffect(() => {
+		const dialog = ref.current;
+		if (!dialog) return;
+		if (selected && !dialog.open) dialog.showModal();
+		if (!selected && dialog.open) dialog.close();
+	}, [selected]);
+	return (
+		<dialog
+			ref={ref}
+			onClose={onClose}
+			aria-labelledby="memo-source-title"
+			className="m-auto w-full max-w-sm rounded-sm border border-rule bg-card p-6 shadow-float backdrop:bg-ink/20"
+		>
+			{selected && (
+				<>
+					<div className="flex items-start justify-between gap-3">
+						<div>
+							<p className="overline">Source {selected.index}</p>
+							<h3 id="memo-source-title" className="mt-1 text-lg leading-7 font-light text-ink">
+								{sourceLabel(selected.citation.ref)}
+							</h3>
+						</div>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={onClose}
+							aria-label="Close memo source"
+						>
+							✕
+						</Button>
+					</div>
+					<p className="mt-3 text-xs break-all text-slate">{selected.citation.ref}</p>
+					<blockquote className="mt-3 border-l-2 border-rule-strong pl-3 text-sm text-slate italic">
+						“{selected.citation.quote}”
+					</blockquote>
+				</>
+			)}
+		</dialog>
 	);
 }
 
 export function MemoPanel({
 	applicationId,
 	caseStatus,
+	borrowerName,
+	companyName,
+	reference,
+	product,
+	amountCents,
+	termMonths,
+	documentsEnabled,
 }: {
 	applicationId: string;
 	/** Draft/approve run only while the case awaits review. */
 	caseStatus: string;
+	borrowerName?: string;
+	companyName?: string;
+	reference: string;
+	product: string;
+	amountCents: number;
+	termMonths: number;
+	/** A re-draft is only offered when document evidence can be added. */
+	documentsEnabled?: boolean;
 }) {
 	const queryClient = useQueryClient();
 	const [drafting, setDrafting] = useState(false);
@@ -59,6 +140,7 @@ export function MemoPanel({
 	const [actionError, setActionError] = useState("");
 	const [confirming, setConfirming] = useState(false);
 	const [editing, setEditing] = useState<CreditMemoContent | null>(null);
+	const [selected, setSelected] = useState<{ citation: MemoCitation; index: number } | null>(null);
 
 	const memos = useQuery({
 		queryKey: ["memo", applicationId],
@@ -75,8 +157,19 @@ export function MemoPanel({
 	const artifact = memos.data?.items[0] ?? null;
 	const content = artifact ? asMemoContent<CreditMemoContent>(artifact.content) : null;
 	const canDraft = caseStatus === "pending_review";
-	const isDraft = artifact?.status === "draft";
+	const isDraft = canDraft && artifact?.status === "draft";
+	const preliminary = isDraft && artifact !== null && !artifact.documentDerived;
 	const shown = editing ?? content;
+	const citationNumbers = new Map<string, number>();
+	for (const section of shown?.sections ?? []) {
+		for (const claim of section.claims) {
+			for (const citation of claim.citations) {
+				if (!citationNumbers.has(citation.ref)) {
+					citationNumbers.set(citation.ref, citationNumbers.size + 1);
+				}
+			}
+		}
+	}
 
 	async function draft() {
 		setDrafting(true);
@@ -172,22 +265,70 @@ export function MemoPanel({
 				/>
 			) : (
 				<div>
-					<div className="flex flex-wrap items-baseline justify-between gap-2">
-						<h3 className="text-sm font-semibold">{content.title}</h3>
-						<p className="text-xs text-slate">
-							v{artifact.version} · r{artifact.revision}
-						</p>
-					</div>
-					<div className="mt-3 space-y-4">
+					{preliminary && (
+						<div className="mb-3 flex flex-wrap items-center gap-2 rounded-sm border border-rule bg-warm px-3 py-2 text-sm text-slate">
+							<span className="rounded bg-tag-blue px-1.5 py-0.5 font-medium text-ink">
+								Preliminary
+							</span>
+							<span>Document evidence is not included yet.</span>
+							{canDraft && documentsEnabled !== false && (
+								<button
+									type="button"
+									onClick={() => void draft()}
+									disabled={drafting}
+									className="ml-auto font-medium text-ink hover:text-red-link hover:underline"
+								>
+									{drafting ? "Re-drafting…" : "Re-draft with full evidence"}
+								</button>
+							)}
+						</div>
+					)}
+					<header className="border-b border-rule-strong pb-4">
+						<div className="flex flex-wrap items-baseline justify-between gap-2">
+							<p className="overline">Credit memorandum</p>
+							<p className="text-xs text-slate">
+								v{artifact.version} · r{artifact.revision}
+							</p>
+						</div>
+						<h3 className="mt-1 text-2xl leading-8 font-light text-ink">
+							{companyName || borrowerName || "Borrower"}
+						</h3>
+						<dl className="mt-3 grid gap-x-6 gap-y-1 text-sm text-slate sm:grid-cols-2">
+							<div>
+								<dt className="inline font-medium text-ink">Reference: </dt>
+								<dd className="inline">{reference}</dd>
+							</div>
+							<div>
+								<dt className="inline font-medium text-ink">Product: </dt>
+								<dd className="inline">{productLabel(product)}</dd>
+							</div>
+							<div>
+								<dt className="inline font-medium text-ink">Requested: </dt>
+								<dd className="inline tabular-nums">{formatMoney(amountCents)}</dd>
+							</div>
+							<div>
+								<dt className="inline font-medium text-ink">Tenure: </dt>
+								<dd className="inline tabular-nums">{termMonths} months</dd>
+							</div>
+							<div>
+								<dt className="inline font-medium text-ink">Prepared: </dt>
+								<dd className="inline">
+									{formatDateTime(artifact.createdAt)}
+									{artifact.agentTrace?.autoDrafted ? " · automatic draft" : ""}
+								</dd>
+							</div>
+						</dl>
+					</header>
+					<div className="mt-4 space-y-5">
 						{shown?.sections.map((section, si) => (
 							<section key={section.key} aria-label={section.title}>
-								<h4 className="text-sm font-semibold">{section.title}</h4>
+								<h4 className="text-lg leading-7 font-light text-ink">{section.title}</h4>
 								{section.notAvailable || section.claims.length === 0 ? (
-									<p className="mt-1 text-sm text-slate">Not available.</p>
+									<p className="mt-1 text-base leading-6 text-slate">Not available.</p>
 								) : (
 									<ul className="mt-1 space-y-2">
 										{section.claims.map((claim, ci) => (
-											<li key={`${section.key}-${ci}`} className="text-sm text-ink">
+											<li key={`${section.key}-${ci}`} className="text-base leading-6 text-ink">
 												{editing ? (
 													<textarea
 														aria-label={`Edit claim ${ci + 1} in ${section.title}`}
@@ -197,14 +338,17 @@ export function MemoPanel({
 														className="w-full rounded border border-rule-strong px-2 py-1 text-sm"
 													/>
 												) : (
-													<p>{claim.text}</p>
-												)}
-												{claim.citations.length > 0 && (
-													<ul className="mt-1 space-y-1">
+													<p>
+														{claim.text}{" "}
 														{claim.citations.map((citation, j) => (
-															<CitationChip key={`${citation.ref}-${j}`} citation={citation} />
+															<CitationChip
+																key={`${citation.ref}-${j}`}
+																citation={citation}
+																index={citationNumbers.get(citation.ref) ?? j + 1}
+																onSelect={(citation, index) => setSelected({ citation, index })}
+															/>
 														))}
-													</ul>
+													</p>
 												)}
 											</li>
 										))}
@@ -304,41 +448,41 @@ export function MemoPanel({
 									Edit memo
 								</Button>
 							)}
-							{confirming ? (
-								<>
+							{isDraft &&
+								(confirming ? (
+									<>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={() => void approve()}
+											disabled={acting}
+										>
+											{acting ? "Approving…" : "Confirm approval"}
+										</Button>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={() => {
+												setConfirming(false);
+												setActionError("");
+											}}
+											disabled={acting}
+										>
+											Cancel
+										</Button>
+									</>
+								) : (
 									<Button
 										type="button"
 										variant="outline"
 										size="sm"
-										onClick={() => void approve()}
-										disabled={acting || !isDraft}
+										onClick={() => setConfirming(true)}
 									>
-										{acting ? "Approving…" : "Confirm approval"}
+										Approve memo
 									</Button>
-									<Button
-										type="button"
-										variant="outline"
-										size="sm"
-										onClick={() => {
-											setConfirming(false);
-											setActionError("");
-										}}
-										disabled={acting}
-									>
-										Cancel
-									</Button>
-								</>
-							) : (
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={() => setConfirming(true)}
-									disabled={!isDraft}
-								>
-									Approve memo
-								</Button>
-							)}
+								))}
 						</div>
 					)}
 					{draftError && (
@@ -353,6 +497,7 @@ export function MemoPanel({
 					)}
 				</div>
 			)}
+			<MemoCitationDialog selected={selected} onClose={() => setSelected(null)} />
 		</Card>
 	);
 }
