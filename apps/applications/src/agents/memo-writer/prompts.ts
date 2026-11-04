@@ -1,5 +1,5 @@
 import { loadInstructions } from "@credit/agent-kit";
-import type { EvidenceBundle } from "@credit/core";
+import { deriveAnalysisFindings, type EvidenceBundle } from "@credit/core";
 import type { applications } from "@credit/db/applications";
 import { buildDraftRepairPrompt } from "../shared/repair.js";
 
@@ -9,11 +9,13 @@ type ApplicationRow = typeof applications.$inferSelect;
 export const SYSTEM_PROMPT = loadInstructions(import.meta.url);
 
 export function buildInitialPrompt(application: ApplicationRow, evidence: EvidenceBundle): string {
+	const findings = deriveAnalysisFindings(evidence);
 	return (
 		`Draft the credit memorandum for application ${application.reference} ` +
 		`(${application.type}, ${application.product}). The evidence bundle holds ` +
-		`${evidence.items.length} items and ${evidence.unavailable.length} unavailable ` +
-		`sources; it is visible only through the evidence tools. Start by calling them.`
+		`${evidence.items.length} items, ${findings.length} findings, and ` +
+		`${evidence.unavailable.length} unavailable sources; it is visible only through ` +
+		`the evidence tools. Start with list_findings and list_evidence.`
 	);
 }
 

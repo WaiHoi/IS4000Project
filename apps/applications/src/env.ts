@@ -103,8 +103,8 @@ const parsed = createEnv({
 		// Not model-compared: the memo eval is scripted
 		// (docs/eval/applications/MEMO-AGENT-RESULTS.md).
 		ASSIST_MEMO_MODEL: z.string().min(1).default("openai/gpt-6.1-sol"),
-		ASSIST_MEMO_PROMPT_VERSION: z.string().min(1).default("memo-agent-v3"),
-		ASSIST_MEMO_AGENT_VERSION: z.string().min(1).default("memo-agent-v3"),
+		ASSIST_MEMO_PROMPT_VERSION: z.string().min(1).default("memo-agent-v4"),
+		ASSIST_MEMO_AGENT_VERSION: z.string().min(1).default("memo-agent-v4"),
 		ASSIST_MEMO_MAX_STEPS: z.coerce.number().int().min(1).max(64).default(30),
 		ASSIST_MEMO_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(100).default(40),
 		ASSIST_MEMO_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(90_000),

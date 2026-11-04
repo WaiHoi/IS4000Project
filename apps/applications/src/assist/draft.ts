@@ -1,5 +1,5 @@
 // Shared credit-memo draft path for the manual route and the auto-memo sweep.
-// The model writes prose only; the three number-led sections are composed from
+// The model writes prose only; the number-led sections are composed from the
 // the deterministic builder after the agent returns. Both callers validate
 // before persistence and audit metadata only.
 import { randomUUID } from "node:crypto";
@@ -34,9 +34,13 @@ export function validationFailure(issues: ValidationIssue[]): {
  * existing artifact must have been produced by the current mode and versions.
  * A hash hit from the other writer (or a version drift) regenerates instead of
  * returning stale provenance. */
-export function memoReplayMatches(artifact: ArtifactDto, config: AssistConfig): boolean {
+export function memoReplayMatches(
+	artifact: ArtifactDto,
+	config: AssistConfig,
+	writer: "deterministic" | "agent" = config.memoWriter,
+): boolean {
 	const trace = artifact.agentTrace;
-	if (config.memoWriter === "agent") {
+	if (writer === "agent") {
 		return (
 			trace?.writer === "agent" &&
 			artifact.model === config.memoModel &&
@@ -66,6 +70,8 @@ export interface DraftMemoInput {
 	autoDrafted?: boolean;
 	/** Auto sweep: never create when any live credit memo already exists. */
 	skipIfLive?: boolean;
+	/** Preliminary auto drafts force the deterministic writer (no model call). */
+	writer?: "deterministic" | "agent";
 }
 
 export type DraftMemoResult =
@@ -93,6 +99,7 @@ async function persistMemo(
 export async function draftCreditMemo(input: DraftMemoInput): Promise<DraftMemoResult> {
 	const { db, runtime, logger, application, actor } = input;
 	const config = runtime.config;
+	const writer = input.writer ?? config.memoWriter;
 	if (application.status !== "pending_review") {
 		throw new HttpError(409, "CASE_NOT_PENDING", "case is not awaiting an officer decision");
 	}
@@ -135,12 +142,12 @@ export async function draftCreditMemo(input: DraftMemoInput): Promise<DraftMemoR
 		type: "credit_memo",
 		evidenceHash: hash,
 	});
-	if (replayed && memoReplayMatches(replayed, config)) {
+	if (replayed && memoReplayMatches(replayed, config, writer)) {
 		return { ok: true, artifact: replayed, replayed: true };
 	}
 	const documentDerived = evidence.items.some((item) => item.sourceType === "document");
 
-	if (config.memoWriter === "agent") {
+	if (writer === "agent") {
 		const memoAgentRunner = runtime.memoAgentRunner;
 		if (!memoAgentRunner) {
 			throw new HttpError(503, "MEMO_AGENT_UNAVAILABLE", "memo agent is not configured");

@@ -110,6 +110,35 @@ function MemoCitationDialog({
 	);
 }
 
+/** Unique sources actually cited by the memo, grouped for officer context. */
+function evidenceBasis(content: CreditMemoContent): string | null {
+	const refs = new Set(
+		content.sections.flatMap((section) =>
+			section.claims.flatMap((claim) => claim.citations.map((citation) => citation.ref)),
+		),
+	);
+	const groups: Array<[string, string, string]> = [
+		["case_fact", "case fact", "case facts"],
+		["context_signal", "context signal", "context signals"],
+		["policy_section", "policy section", "policy sections"],
+		["document", "document", "document findings"],
+		["external_evidence", "external report", "external reports"],
+		["score_reason", "assessment factor", "assessment factors"],
+	];
+	const counts = new Map<string, number>();
+	for (const ref of refs) {
+		const type = ref.split(":")[0] ?? ref;
+		counts.set(type, (counts.get(type) ?? 0) + 1);
+	}
+	const parts = groups
+		.map(([type, singular, plural]) => {
+			const count = counts.get(type) ?? 0;
+			return count > 0 ? `${count} ${count === 1 ? singular : plural}` : null;
+		})
+		.filter((part): part is string => part !== null);
+	return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function MemoPanel({
 	applicationId,
 	caseStatus,
@@ -270,7 +299,9 @@ export function MemoPanel({
 							<span className="rounded bg-tag-blue px-1.5 py-0.5 font-medium text-ink">
 								Preliminary
 							</span>
-							<span>Document evidence is not included yet.</span>
+							<span>
+								Generated from case facts, score and policy — document evidence is not included yet.
+							</span>
 							{canDraft && documentsEnabled !== false && (
 								<button
 									type="button"
@@ -318,6 +349,17 @@ export function MemoPanel({
 								</dd>
 							</div>
 						</dl>
+						{evidenceBasis(content) && (
+							<p className="mt-2 text-xs text-slate">
+								<span className="font-medium text-ink">Evidence basis: </span>
+								{evidenceBasis(content)}
+							</p>
+						)}
+						{artifact.agentTrace?.writer === "agent" && (
+							<p className="mt-1 text-xs text-slate">
+								Narrative sections are AI-drafted; amounts, security and policy are code-built.
+							</p>
+						)}
 					</header>
 					<div className="mt-4 space-y-5">
 						{shown?.sections.map((section, si) => (

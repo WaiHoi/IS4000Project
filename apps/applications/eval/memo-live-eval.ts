@@ -21,6 +21,7 @@ import { z } from "zod";
 import {
 	containsDecisionLanguage,
 	hashQuote,
+	parseSourceRef,
 	sourceRefKey,
 	type CreditMemoContent,
 	type EvidenceBundle,
@@ -63,8 +64,8 @@ function envStr(name: string, fallback: string): string {
 
 const API_KEY = process.env["OPENROUTER_API_KEY"] ?? "";
 const BASE_URL = envStr("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1");
-const PROMPT_VERSION = envStr("ASSIST_MEMO_PROMPT_VERSION", "memo-agent-v3");
-const AGENT_VERSION = envStr("ASSIST_MEMO_AGENT_VERSION", "memo-agent-v3");
+const PROMPT_VERSION = envStr("ASSIST_MEMO_PROMPT_VERSION", "memo-agent-v4");
+const AGENT_VERSION = envStr("ASSIST_MEMO_AGENT_VERSION", "memo-agent-v4");
 const JUDGE_MODEL = envStr("MEMO_LIVE_JUDGE_MODEL", "openai/gpt-6.1-terra");
 const REASONING_EFFORT = envStr("ASSIST_MEMO_REASONING_EFFORT", "low") as ReasoningEffort;
 
@@ -706,6 +707,9 @@ interface TrialRecord {
 	steps: number;
 	repairAttempted: boolean;
 	claims: number;
+	analysisClaims: number;
+	crossSourceClaims: number;
+	findingsUsed: boolean;
 	sourceTypeCoverage: number;
 	citationCoverage: number;
 	sectionCoverage: number;
@@ -771,6 +775,9 @@ async function runTrial(testCase: LiveCase, model: string, trial: number): Promi
 		steps: 0,
 		repairAttempted: false,
 		claims: 0,
+		analysisClaims: 0,
+		crossSourceClaims: 0,
+		findingsUsed: false,
 		sourceTypeCoverage: 0,
 		citationCoverage: 0,
 		sectionCoverage: 0,
@@ -816,6 +823,19 @@ async function runTrial(testCase: LiveCase, model: string, trial: number): Promi
 			present.size === 0 ? 1 : [...present].filter((t) => covered.has(t)).length / present.size;
 		const claims = content.sections.flatMap((s) => s.claims);
 		base.claims = claims.length;
+		const analysisClaims = content.sections
+			.filter((section) => section.key === "risks" || section.key === "credit_history")
+			.flatMap((section) => section.claims);
+		base.analysisClaims = analysisClaims.length;
+		base.crossSourceClaims = analysisClaims.filter((claim) => {
+			const types = new Set(
+				claim.citations
+					.map((citation) => parseSourceRef(citation.ref)?.type)
+					.filter((type): type is NonNullable<typeof type> => type !== undefined),
+			);
+			return types.size >= 2;
+		}).length;
+		base.findingsUsed = trace.toolCalls.some((call) => call.name === "list_findings");
 		base.citationCoverage =
 			claims.length === 0 ? 1 : claims.filter((c) => c.citations.length > 0).length / claims.length;
 		base.sectionCoverage =
@@ -862,6 +882,7 @@ const judgeSchema = z
 	.object({
 		grounding: z.number().int().min(1).max(5),
 		completeness: z.number().int().min(1).max(5),
+		analysis: z.number().int().min(1).max(5),
 		rationale: z.string().min(1).max(500),
 	})
 	.strict();
@@ -869,6 +890,7 @@ const judgeSchema = z
 interface JudgeResult {
 	grounding: number | null;
 	completeness: number | null;
+	analysis: number | null;
 	rationale: string | null;
 	error: string | null;
 	costUsd: number;
@@ -909,8 +931,18 @@ async function chatJudge(
 				};
 				const text = json.choices?.[0]?.message?.content;
 				if (typeof text !== "string") throw new Error("judge returned no content");
+				const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+				let parsed: unknown;
+				try {
+					parsed = JSON.parse(cleaned) as unknown;
+				} catch {
+					const start = cleaned.indexOf("{");
+					const end = cleaned.lastIndexOf("}");
+					if (start < 0 || end <= start) throw new Error("judge returned no JSON");
+					parsed = JSON.parse(cleaned.slice(start, end + 1)) as unknown;
+				}
 				return {
-					json: JSON.parse(text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")) as unknown,
+					json: parsed,
 					costUsd:
 						json.usage?.total_cost ??
 						((json.usage?.prompt_tokens ?? 0) + (json.usage?.completion_tokens ?? 0)) / 1_000_000,
@@ -929,7 +961,14 @@ async function chatJudge(
 async function judgeCase(testCase: LiveCase, model: string): Promise<JudgeResult> {
 	const content = memoByTrial.get(`${model}|${testCase.id}|1`);
 	if (!content || spentUsd >= BUDGET_USD) {
-		return { grounding: null, completeness: null, rationale: null, error: "skipped", costUsd: 0 };
+		return {
+			grounding: null,
+			completeness: null,
+			analysis: null,
+			rationale: null,
+			error: "skipped",
+			costUsd: 0,
+		};
 	}
 	// Judge input carries claim prose and evidence excerpts for scoring; none
 	// of it is stored in the results JSON.
@@ -944,24 +983,42 @@ async function judgeCase(testCase: LiveCase, model: string): Promise<JudgeResult
 		)
 		.join("\n")
 		.slice(0, 3000);
+	const openItems = content.openItems
+		.map((item) => `[${item.code}] ${item.text}`)
+		.join("\n")
+		.slice(0, 1000);
+	const questions = content.officerQuestions.join("\n").slice(0, 800);
 	const user =
 		`Case ${testCase.id} evidence:\n${evidence}\n\nMemo claims (text + cited refs):\n${claims}\n\n` +
+		`Open items:\n${openItems || "(none)"}\n\nOfficer questions:\n${questions || "(none)"}\n\n` +
 		`Unavailable: ${testCase.bundle.unavailable.map((u) => u.ref).join(", ") || "(none)"}`;
 	try {
 		const { json, costUsd } = await chatJudge(
-			'Return JSON only: {"grounding":1-5,"completeness":1-5,"rationale":"..."}. ' +
+			'Return JSON only: {"grounding":1-5,"completeness":1-5,"analysis":1-5,"rationale":"..."}. ' +
 				"grounding: every claim is supported by an exact cited excerpt. completeness: every " +
-				"evidence category is represented or correctly deferred to open items. rationale <= 200 " +
-				"chars and must not repeat memo text, evidence quotes, names, or identifiers.",
+				"evidence category is represented or correctly deferred to open items. analysis: the " +
+				"risks/credit-history narrative reconciles multiple sources (for example context signals, " +
+				"documents, policy, research), identifies conflicts or concentration, and asks useful " +
+				"follow-up questions instead of restating facts. Amounts and policy compliance are " +
+				"code-composed; do not require a model policy recommendation. rationale <= 200 chars " +
+				"and must not repeat memo text, evidence quotes, names, or identifiers.",
 			user,
 		);
 		spentUsd += costUsd;
 		const parsed = judgeSchema.safeParse(json);
 		if (!parsed.success)
-			return { grounding: null, completeness: null, rationale: null, error: "schema", costUsd };
+			return {
+				grounding: null,
+				completeness: null,
+				analysis: null,
+				rationale: null,
+				error: "schema",
+				costUsd,
+			};
 		return {
 			grounding: parsed.data.grounding,
 			completeness: parsed.data.completeness,
+			analysis: parsed.data.analysis,
 			rationale: parsed.data.rationale.slice(0, 200),
 			error: null,
 			costUsd,
@@ -970,6 +1027,7 @@ async function judgeCase(testCase: LiveCase, model: string): Promise<JudgeResult
 		return {
 			grounding: null,
 			completeness: null,
+			analysis: null,
 			rationale: null,
 			error: err instanceof Error ? err.message.slice(0, 80) : "judge-failed",
 			costUsd: 0,
@@ -1047,6 +1105,10 @@ interface ModelSummary {
 	passAll: number;
 	judgeGroundingMean: number | null;
 	judgeCompletenessMean: number | null;
+	judgeAnalysisMean: number | null;
+	analysisClaims: number;
+	crossSourceClaims: number;
+	findingsUsed: number;
 	judgedCases: number;
 	totalCostUsd: number;
 	meanLatencyMs: number;
@@ -1071,7 +1133,11 @@ const summaries: ModelSummary[] = MODELS.map((model) => {
 		if (list.every((r) => r.pass)) allPass += 1;
 	}
 	const judged = [...judges.entries()].filter(
-		([key, j]) => key.startsWith(`${model}|`) && j.grounding !== null && j.completeness !== null,
+		([key, j]) =>
+			key.startsWith(`${model}|`) &&
+			j.grounding !== null &&
+			j.completeness !== null &&
+			j.analysis !== null,
 	);
 	const latencies = rows.map((r) => r.latencyMs);
 	return {
@@ -1084,6 +1150,11 @@ const summaries: ModelSummary[] = MODELS.map((model) => {
 			judged.length === 0 ? null : mean(judged.map(([, j]) => j.grounding as number)),
 		judgeCompletenessMean:
 			judged.length === 0 ? null : mean(judged.map(([, j]) => j.completeness as number)),
+		judgeAnalysisMean:
+			judged.length === 0 ? null : mean(judged.map(([, j]) => j.analysis as number)),
+		analysisClaims: rows.reduce((n, r) => n + r.analysisClaims, 0),
+		crossSourceClaims: rows.reduce((n, r) => n + r.crossSourceClaims, 0),
+		findingsUsed: rows.filter((r) => r.findingsUsed).length,
 		judgedCases: judged.length,
 		totalCostUsd: trials.filter((r) => r.model === model).reduce((n, r) => n + r.costUsd, 0),
 		meanLatencyMs: mean(latencies),
@@ -1115,6 +1186,9 @@ console.table(
 		passAll: s.passAll.toFixed(3),
 		judgeG: s.judgeGroundingMean === null ? "-" : s.judgeGroundingMean.toFixed(2),
 		judgeC: s.judgeCompletenessMean === null ? "-" : s.judgeCompletenessMean.toFixed(2),
+		judgeA: s.judgeAnalysisMean === null ? "-" : s.judgeAnalysisMean.toFixed(2),
+		cross: s.crossSourceClaims,
+		findings: s.findingsUsed,
 		usd: s.totalCostUsd.toFixed(4),
 		ms: Math.round(s.meanLatencyMs),
 		fail: s.failures.length,

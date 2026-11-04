@@ -12,6 +12,7 @@ export {
 	MEMO_TOOL_NAMES,
 	getEvidenceParams,
 	listEvidenceParams,
+	listFindingsParams,
 	listUnavailableParams,
 	runMemoEvidenceTool,
 	searchEvidenceParams,

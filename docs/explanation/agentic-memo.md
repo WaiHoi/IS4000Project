@@ -12,17 +12,31 @@ contract and error codes), [configuration](../reference/configuration.md)
 ## Non-negotiables
 
 - The model never decides credit, invents reasons, or writes uncited claims.
+- Findings are producer-owned (context signals, document findings, policy
+  sections, research) and the model reconciles them; it does not create a new
+  context signal or policy conclusion.
 - Tools are an allowlist over the existing `EvidenceBundle` only. No web, no
   cross-case reads, no new data source.
 - Deterministic code owns access, citation/claim validation, persistence,
   approval, audit, and idempotent replay.
 - The model writes memo prose only. Every claim carries exact `sourceRef`
   citations; unsupported claims become open items.
+- Preliminary auto drafts are deterministic and never call a model. The agent
+  runs only when the officer re-drafts with documents/research available.
 - One validation/repair attempt on invalid output; if it still fails, no
   artifact persists and a typed error is returned.
 - The trace is structured metadata only: tool names, source refs, counts,
   usage, latency. Never prompts, chain-of-thought, or raw evidence text in
   logs.
+
+## Findings boundary
+
+The memo does not re-run context analysis or policy review. `list_findings`
+projects producer-owned evidence: context signals, document findings, policy
+sections/facts, research reports, and score factors. The model reconciles and
+prioritises those findings; deterministic code composes amounts, ratios,
+security, and policy compliance. Ad hoc Policy and Ask answers stay in their
+own tabs and are not folded into the memo unless persisted as evidence.
 
 ## Pipeline
 
@@ -57,11 +71,12 @@ The applications service is Bun, and the Agents SDK is Bun-compatible.
   same wall-clock timeout. A failed call returns no usage, so its tokens are
   not counted toward the cost budget or the trace.
 - Allowlisted evidence tools, all read-only over the passed bundle:
-  `list_evidence` (refs, labels, types, counts), `search_evidence`
-  (case-insensitive substring/token search, capped), `get_evidence` (exact
-  item, capped at 4,000 chars), `list_unavailable` (typed
-  missing/unavailable sources). Tool results cap total content; refs are
-  stable. No tool can read the DB, the network, or another case.
+  `list_findings` (typed context/document/policy/research findings with
+  severity and evidence refs), `list_evidence` (refs, labels, types, counts),
+  `search_evidence` (case-insensitive substring/token search, capped),
+  `get_evidence` (exact item, capped at 4,000 chars), `list_unavailable`
+  (typed missing/unavailable sources). Tool results cap total content; refs
+  are stable. No tool can read the DB, the network, or another case.
 
 ## Validation and repair
 
@@ -90,7 +105,7 @@ flag) — never memo or evidence text.
 
 - `deterministic` (default): the template builder writes the memo; the trace
   is agent-shaped provenance with zero tools/tokens, citation-derived source
-  refs, and wall-clock latency.
+  refs, and wall-clock latency. Preliminary auto drafts always use this path.
 - `agent`: the bounded tool loop writes the memo. Requires
   `OPENROUTER_API_KEY`; without a key the route fails closed at request time
   with 503 `MEMO_AGENT_UNAVAILABLE` (no config detail leaks).

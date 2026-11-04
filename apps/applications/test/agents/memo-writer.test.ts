@@ -19,11 +19,11 @@ import {
 	sha256,
 } from "./helpers.js";
 
-const SYSTEM = "5be8ddc638f91b5fcf282282dd9b45aabfaccfaa9caff735de2841767e0020ca";
-const INITIAL_USER = "fa5a45b42aa4c8cd11e1fc03b4858ce7c878c51fa546d36410319b4434f19fac";
+const SYSTEM = "dc8eb9337aff28a6824ab1ac36a3942464d6219a8f8e406350011088b596e227";
+const INITIAL_USER = "b47d22f6c2a009970848cdc6eefe044c6225af85553dd7f261f9335bd9cdd804";
 const REPAIR_TOOLS_USER = "5168bbfab4c404ca53015f5a6aa1ba2cd68a8388fb6a5018c129f227e4d1c5fe";
 const REPAIR_NO_TOOLS_USER = "d3f47d69f25b026f9b2d0440d59c5219deea706c7f580e0ac4f2f67b71be6e03";
-const TOOLS_HASH = "0c173f619a97d91e4fcdbd85c3e73b11e63e534b447a6d8d0fa8cd81f5cfd0cf";
+const TOOLS_HASH = "3a96406f653f89a82b61beb276f9ab8c3f1535cee049c1aa4617bab7cee9071d";
 
 const issues = [{ code: "X", path: "a.b" }];
 
@@ -33,7 +33,7 @@ describe("memo-writer manifest", () => {
 			name: "memo-writer",
 			owner: "applications",
 			model: { env: "ASSIST_MEMO_MODEL", default: "openai/gpt-6.1-sol" },
-			versions: { prompt: "memo-agent-v3", agent: "memo-agent-v3" },
+			versions: { prompt: "memo-agent-v4", agent: "memo-agent-v4" },
 			execution: "request",
 		});
 		expect(definition.flags).toEqual(["ASSIST_ENABLED", "ASSIST_MEMO_WRITER"]);

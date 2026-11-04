@@ -205,6 +205,17 @@ describe("buildCreditMemo", () => {
 		expect(composedFinancial?.claims[0]?.text).not.toContain("9.99");
 	});
 
+	it("keeps deterministic gaps and questions when the agent omits them", () => {
+		const evidence = richBundle();
+		const built = buildCreditMemo({ application: smeApp(), evidence });
+		const agent = structuredClone(built);
+		agent.openItems = [];
+		agent.officerQuestions = [];
+		const composed = composeCreditMemo(agent, built);
+		expect(composed.openItems.some((item) => item.sourceRef === MISSING_DOC_REF)).toBe(true);
+		expect(composed.officerQuestions.length).toBeGreaterThanOrEqual(2);
+	});
+
 	it("covers all eight sections and the unavailable source", () => {
 		const evidence = richBundle();
 		const content = buildCreditMemo({ application: smeApp(), evidence });

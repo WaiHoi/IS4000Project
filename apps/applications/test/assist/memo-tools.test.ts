@@ -44,13 +44,38 @@ function bundle(): EvidenceBundle {
 }
 
 describe("runMemoEvidenceTool", () => {
-	it("exposes exactly the four allowlisted tools", () => {
+	it("exposes exactly the five allowlisted tools", () => {
 		expect([...MEMO_TOOL_NAMES]).toEqual([
+			"list_findings",
 			"list_evidence",
 			"search_evidence",
 			"get_evidence",
 			"list_unavailable",
 		]);
+	});
+
+	it("lists findings with severity and evidence refs", () => {
+		const outcome = runMemoEvidenceTool("list_findings", { kind: "policy_section" }, bundle());
+		expect(outcome.resultCount).toBe(1);
+		expect(outcome.refs).toEqual(["policy:POL-CR-002:4.2"]);
+		expect(outcome.payload).toMatchObject({
+			total: 1,
+			items: [
+				{
+					id: "policy:POL-CR-002:4.2",
+					kind: "policy_section",
+					severity: "info",
+					evidenceRefs: ["policy:POL-CR-002:4.2"],
+				},
+			],
+		});
+	});
+
+	it("rejects an unknown finding filter", () => {
+		expect(runMemoEvidenceTool("list_findings", { kind: "bogus" }, bundle())).toMatchObject({
+			payload: { error: "unknown finding kind" },
+			resultCount: 0,
+		});
 	});
 
 	it("lists evidence refs with short excerpts", () => {

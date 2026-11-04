@@ -6,11 +6,13 @@
 import type { EvidenceBundle } from "@credit/core";
 import { runGetEvidence } from "./get-evidence.js";
 import { runListEvidence } from "./list-evidence.js";
+import { runListFindings } from "./list-findings.js";
 import { runListUnavailable } from "./list-unavailable.js";
 import { runSearchEvidence } from "./search-evidence.js";
 import { asRecord, toolError, type MemoToolOutcome } from "./shared.js";
 
 export const MEMO_TOOL_NAMES = [
+	"list_findings",
 	"list_evidence",
 	"search_evidence",
 	"get_evidence",
@@ -25,6 +27,11 @@ export {
 	listEvidenceJsonParams,
 	listEvidenceParams,
 } from "./list-evidence.js";
+export {
+	description as listFindingsDescription,
+	listFindingsJsonParams,
+	listFindingsParams,
+} from "./list-findings.js";
 export {
 	description as listUnavailableDescription,
 	listUnavailableParams,
@@ -45,6 +52,8 @@ export function runMemoEvidenceTool(
 ): MemoToolOutcome {
 	const params = asRecord(args);
 	switch (name) {
+		case "list_findings":
+			return runListFindings(params, evidence);
 		case "list_evidence":
 			return runListEvidence(params, evidence);
 		case "search_evidence":

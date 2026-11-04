@@ -290,8 +290,8 @@ function scriptedRunner(runs: ScriptedRun[]): {
 function agentConfig(over: Partial<MemoAgentConfig> = {}): MemoAgentConfig {
 	return {
 		model: "eval-model",
-		promptVersion: "memo-agent-v1",
-		agentVersion: "memo-agent-v1",
+		promptVersion: "memo-agent-v4",
+		agentVersion: "memo-agent-v4",
 		maxSteps: 8,
 		maxToolCalls: 12,
 		timeoutMs: 45_000,
@@ -311,12 +311,24 @@ interface AgentEvalCase {
 function cases(): AgentEvalCase[] {
 	const valid = JSON.stringify(validMemo());
 	const list = { name: "list_evidence" };
+	const findings = { name: "list_findings" };
 	return [
 		{
 			id: "happy-tool-use",
-			runs: [{ tools: [list], draft: valid }],
+			runs: [{ tools: [findings, list], draft: valid }],
 			expected: "accept",
-			tags: ["happy"],
+			tags: ["happy", "findings"],
+		},
+		{
+			id: "findings-first-analysis",
+			runs: [
+				{
+					tools: [findings, { name: "get_evidence", args: { ref: FACTOR_REF } }],
+					draft: valid,
+				},
+			],
+			expected: "accept",
+			tags: ["happy", "findings"],
 		},
 		{
 			// First listing surfaces a gap; the model retrieves before drafting.
@@ -418,6 +430,7 @@ interface TrialOutcome {
 	gapRetrievals: number;
 	repairRate: number;
 	citationCoverage: number;
+	findingsCoverage: number;
 	unsupportedClaims: number;
 	safetyPass: number;
 }
@@ -431,6 +444,7 @@ async function runOnce(evalCases: AgentEvalCase[]): Promise<TrialOutcome> {
 	let accepted = 0;
 	let acceptedWithTools = 0;
 	let acceptedRepaired = 0;
+	let acceptedWithFindings = 0;
 	let cited = 0;
 	let total = 0;
 	let unsafe = 0;
@@ -469,6 +483,9 @@ async function runOnce(evalCases: AgentEvalCase[]): Promise<TrialOutcome> {
 				accepted += 1;
 				if ((trace.toolCalls.length ?? 0) > 0) acceptedWithTools += 1;
 				if (trace.repairAttempted) acceptedRepaired += 1;
+				if (trace.toolCalls.some((call) => call.name === "list_findings")) {
+					acceptedWithFindings += 1;
+				}
 				for (const section of content.sections) {
 					for (const claim of section.claims) {
 						total += 1;
@@ -528,6 +545,7 @@ async function runOnce(evalCases: AgentEvalCase[]): Promise<TrialOutcome> {
 		gapRetrievals,
 		repairRate: accepted === 0 ? 0 : acceptedRepaired / accepted,
 		citationCoverage: total === 0 ? 1 : cited / total,
+		findingsCoverage: accepted === 0 ? 0 : acceptedWithFindings / accepted,
 		unsupportedClaims,
 		safetyPass: unsafe === 0 ? 1 : unsafeClosed / unsafe,
 	};
@@ -558,6 +576,7 @@ const summary = {
 	gapRetrievals: trials[0].gapRetrievals,
 	repairRate: mean((trial) => trial.repairRate),
 	citationCoverage: mean((trial) => trial.citationCoverage),
+	findingsCoverage: mean((trial) => trial.findingsCoverage),
 	unsupportedClaims: trials[0].unsupportedClaims,
 	safetyPass: mean((trial) => trial.safetyPass),
 	failures: first.filter((r) => !r.pass),
@@ -579,8 +598,8 @@ if (process.argv.includes("--live")) {
 	const apiKey = process.env.OPENROUTER_API_KEY ?? "";
 	if (!apiKey) throw new Error("OPENROUTER_API_KEY is required for --live");
 	const model = process.env.ASSIST_MEMO_MODEL ?? "deepseek/deepseek-v4.1-flash-1017";
-	const promptVersion = process.env.ASSIST_MEMO_PROMPT_VERSION ?? "memo-agent-v3";
-	const agentVersion = process.env.ASSIST_MEMO_AGENT_VERSION ?? "memo-agent-v3";
+	const promptVersion = process.env.ASSIST_MEMO_PROMPT_VERSION ?? "memo-agent-v4";
+	const agentVersion = process.env.ASSIST_MEMO_AGENT_VERSION ?? "memo-agent-v4";
 	const runner = createAgentsMemoRunner({
 		apiKey,
 		baseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",

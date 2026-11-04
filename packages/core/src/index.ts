@@ -3,6 +3,7 @@
 export * from "./adverse-action.js";
 export * from "./affordability.js";
 export * from "./amortization.js";
+export * from "./analysis.js";
 export * from "./canonical.js";
 export * from "./case-context.js";
 export * from "./case-token.js";

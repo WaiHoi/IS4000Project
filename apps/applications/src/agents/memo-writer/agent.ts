@@ -30,6 +30,8 @@ import {
 	getEvidenceParams,
 	listEvidenceDescription,
 	listEvidenceJsonParams,
+	listFindingsDescription,
+	listFindingsJsonParams,
 	listUnavailableDescription,
 	listUnavailableParams,
 	runMemoEvidenceTool,
@@ -45,7 +47,7 @@ export const definition = defineAgent({
 	model: { env: "ASSIST_MEMO_MODEL", default: "openai/gpt-6.1-sol" },
 	// ASSIST_MEMO_WRITER must be "agent" (default "deterministic").
 	flags: ["ASSIST_ENABLED", "ASSIST_MEMO_WRITER"],
-	versions: { prompt: "memo-agent-v3", agent: "memo-agent-v3" },
+	versions: { prompt: "memo-agent-v4", agent: "memo-agent-v4" },
 	tools: MEMO_TOOL_NAMES,
 	execution: "request",
 });
@@ -96,7 +98,7 @@ export function createAgentsMemoRunner(opts: AgentsMemoRunnerOptions): MemoAgent
 				const outcome = await observability.trackToolExecution(
 					{
 						agentName: AGENT_NAME,
-						agentVersion: opts.agentVersion ?? "memo-agent-v3",
+						agentVersion: opts.agentVersion ?? "memo-agent-v4",
 						feature: "memo",
 						conversationId,
 						toolName: name,
@@ -119,6 +121,13 @@ export function createAgentsMemoRunner(opts: AgentsMemoRunnerOptions): MemoAgent
 				instructions: SYSTEM_PROMPT,
 				model,
 				tools: [
+					tool({
+						name: "list_findings",
+						description: listFindingsDescription,
+						parameters: listFindingsJsonParams,
+						strict: false,
+						execute: async (args) => invoke("list_findings", args),
+					}),
 					tool({
 						name: "list_evidence",
 						description: listEvidenceDescription,
@@ -167,7 +176,7 @@ export function createAgentsMemoRunner(opts: AgentsMemoRunnerOptions): MemoAgent
 				const result = await observability.trackGeneration(
 					{
 						agentName: AGENT_NAME,
-						agentVersion: opts.agentVersion ?? "memo-agent-v3",
+						agentVersion: opts.agentVersion ?? "memo-agent-v4",
 						feature: "memo",
 						conversationId,
 						model: opts.model,

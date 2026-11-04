@@ -600,8 +600,9 @@ describe("runMemoAgent", () => {
 		expect(runCount()).toBe(0);
 	});
 
-	it("exposes exactly the four allowlisted tools", () => {
+	it("exposes exactly the five allowlisted tools", () => {
 		expect([...MEMO_TOOL_NAMES]).toEqual([
+			"list_findings",
 			"list_evidence",
 			"search_evidence",
 			"get_evidence",

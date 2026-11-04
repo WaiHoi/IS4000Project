@@ -52,6 +52,7 @@ const OFFICER_QUESTIONS = [
 
 /** The agent may draft these for context, but the code owns the numbers. */
 export const DETERMINISTIC_MEMO_SECTIONS = [
+	"request",
 	"financial_analysis",
 	"debt_service",
 	"collateral_security",
@@ -461,7 +462,7 @@ function buildPolicy(applicationId: string, items: Map<string, EvidenceItem>): S
 	return claims;
 }
 
-/** Replace the three number-led sections with code-built claims after the agent
+/** Replace the number-led sections with code-built claims after the agent
  * drafts. The agent is instructed to mark them notAvailable; this is the
  * second line of defence against a model inventing financial arithmetic. */
 export function composeCreditMemo(
@@ -470,11 +471,19 @@ export function composeCreditMemo(
 ): CreditMemoContent {
 	const deterministic = new Set<string>(DETERMINISTIC_MEMO_SECTIONS);
 	const byKey = new Map(built.sections.map((entry) => [entry.key, entry]));
+	const openItems = new Map<string, OpenItem>();
+	for (const item of [...agent.openItems, ...built.openItems]) {
+		const key = `${item.code}:${item.sourceRef ?? item.text}`;
+		if (!openItems.has(key)) openItems.set(key, item);
+	}
+	const questions = [...new Set([...agent.officerQuestions, ...built.officerQuestions])];
 	return {
 		...agent,
 		sections: agent.sections.map((entry) =>
 			deterministic.has(entry.key) ? (byKey.get(entry.key) ?? entry) : entry,
 		),
+		openItems: [...openItems.values()].slice(0, 20),
+		officerQuestions: questions.slice(0, 5),
 	};
 }
 

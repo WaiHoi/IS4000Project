@@ -1,8 +1,8 @@
 // Preliminary credit-memo auto-draft sweep. Runs in the applications service,
 // outside the referral workflow, so a slow model never delays the officer
-// decision. It uses case facts, score and policy only: no document text and no
-// research fetch, so the artifact is visible before assignment. A later manual
-// Draft memo can add documents/research and supersede it.
+// decision. It is deterministic: case facts, score and policy only, with no
+// document text, research fetch, or model call, so the artifact is visible
+// before assignment. A later manual Draft memo can add documents/research.
 import { applications, generatedArtifacts, withTx, type Db } from "@credit/db/applications";
 import { HttpError, writeAudit, type Logger } from "@credit/service-kit";
 import { and, asc, eq, gte, inArray, ne, notExists, notInArray } from "drizzle-orm";
@@ -39,10 +39,6 @@ export function startAutoMemoSweep(input: {
 	const { db, runtime, logger } = input;
 	const config = runtime.config;
 	if (!config.enabled || !config.memoAutoEnabled) return { stop: () => {} };
-	if (config.memoWriter === "agent" && !runtime.memoAgentRunner) {
-		logger.warn("auto memo disabled: agent writer configured without a runner");
-		return { stop: () => {} };
-	}
 
 	const inFlight = new Set<string>();
 	const backoffUntil = new Map<string, number>();
@@ -124,10 +120,13 @@ export function startAutoMemoSweep(input: {
 						research: false,
 						autoDrafted: true,
 						skipIfLive: true,
+						// Preliminary drafts are deterministic: no documents or
+						// research means the model would only paraphrase facts.
+						writer: "deterministic",
 					});
 					if (!result.ok) {
-						// Same evidence validates the same way; retrying burns model
-						// budget without changing the outcome.
+						// Same evidence builds the same invalid content; retrying
+						// cannot change the outcome.
 						givenUp.add(application.id);
 						await audit(application.id, "assist.memo.auto_failed", {
 							code: "GENERATED_TEXT_INVALID",

@@ -6,7 +6,7 @@ safety gate.
 
 Command: `pnpm --filter @credit/applications eval:memo-agent`
 
-Dataset: 8 code-defined cases in `apps/applications/eval/memo-agent-eval.ts`
+Dataset: 9 code-defined cases in `apps/applications/eval/memo-agent-eval.ts`
 (synthetic application/evidence fixtures, scripted `MemoAgentRunner`). The
 runner uses the production orchestrator (`runMemoAgent`) and the production
 shared validator (`validateGeneratedText`); production swaps in the
@@ -14,25 +14,26 @@ shared validator (`validateGeneratedText`); production swaps in the
 
 | Metric             | Result                      |
 | ------------------ | --------------------------- |
-| n                  | 8                           |
+| n                  | 9                           |
 | trials             | 3                           |
 | `pass@1`           | 1.00                        |
 | `pass^3`           | 1.00                        |
-| accepted (valid)   | 4                           |
+| accepted (valid)   | 5                           |
 | tool use rate      | 1.00                        |
 | source-type cover  | 1.00                        |
-| gap retrievals     | 2                           |
-| repair rate        | 0.50                        |
+| findings coverage  | 0.40                        |
+| gap retrievals     | 4                           |
+| repair rate        | 0.40                        |
 | citation coverage  | 1.00                        |
 | unsupported claims | 2 (caught, never persisted) |
 | safety pass        | 1.00                        |
 | cost / latency     | $0 / scripted               |
 
-Failure-mode coverage: `accept` (4: happy tool use, gap-driven second
-retrieval across 3 tool steps, one repair then valid, decision-language
-first draft repaired to valid), `NO_TOOL_USE` (1: valid draft with no tool
-calls, twice), `INVALID_OUTPUT` (2: still-invalid after the single repair;
-exact-quote mismatch persisting through repair), `TOOL_CALL_LIMIT` (1:
+Failure-mode coverage: `accept` (5: happy tool use with findings, findings-first
+analysis, gap-driven second retrieval across 3 tool steps, one repair then valid,
+decision-language first draft repaired to valid), `NO_TOOL_USE` (1: valid draft
+with no tool calls, twice), `INVALID_OUTPUT` (2: still-invalid after the single
+repair; exact-quote mismatch persisting through repair), `TOOL_CALL_LIMIT` (1:
 3-call batch against a cap of 2).
 
 Caveats:
@@ -40,8 +41,8 @@ Caveats:
 - This is a mechanics/harness eval, not a prose-quality eval. The model is
   scripted; wording quality, real retrieval judgment, and officer edit rate
   need the live model and human review.
-- A one-off live OpenRouter SDK smoke (not part of this eval/CI) passed with
-  6 sections, 14 steps, 12 tool calls, one repair, and ~22.5s latency.
+- A three-case prompt-v4 live subset (happy SME, individual, conflicting
+  facts) passed 3/3; see `MEMO-LIVE-RESULTS.md` for judge scores and caveats.
 - Cases are synthetic and code-defined. Grow the set from real failures.
 - The loop never persists (no DB in the harness); route-level fail-closed
   persistence is covered by `test/integration/assist-agent.test.ts`.

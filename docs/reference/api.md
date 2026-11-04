@@ -765,13 +765,14 @@ persistence) and `evidenceHash`:
 		"evidenceHash": "<sha256-hex>",
 		"agentTrace": {
 			"writer": "agent",
-			"agentVersion": "memo-agent-v3",
-			"model": "deepseek/deepseek-v4.1-flash-1017",
-			"promptVersion": "memo-agent-v3",
+			"agentVersion": "memo-agent-v4",
+			"model": "openai/gpt-6.1-sol",
+			"promptVersion": "memo-agent-v4",
 			"evidenceHash": "<sha256-hex>",
-			"steps": 3,
+			"steps": 4,
 			"toolCalls": [
-				{ "step": 1, "name": "search_evidence", "resultCount": 4, "sourceTypes": ["score_reason"] }
+				{ "step": 1, "name": "list_findings", "resultCount": 12, "sourceTypes": ["context_signal", "policy_section"] },
+				{ "step": 2, "name": "search_evidence", "resultCount": 4, "sourceTypes": ["score_reason"] }
 			],
 			"sourceRefs": ["score_reason:<id>:AMOUNT_ABOVE_AUTO_LIMIT"],
 			"repairAttempted": false,

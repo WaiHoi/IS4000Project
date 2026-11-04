@@ -1,8 +1,8 @@
 # Live credit-memo eval — 2026-10-28 (historical)
 
-> **Not the shipped memo.** This run predates prompt v3 and the deterministic
+> **Not the shipped memo.** This run predates prompt v3/v4 and the deterministic
 > composer: it scored raw `runMemoAgent` content, while production now replaces
-> `financial_analysis`, `debt_service`, `collateral_security`, and
+> `request`, `financial_analysis`, `debt_service`, `collateral_security`, and
 > `policy_compliance` with code-built claims before validation. Treat the
 > numbers below as historical model-quality evidence, not a current pass rate.
 > The live and scripted harnesses now compose before scoring; rerun with
@@ -78,11 +78,28 @@ not a safe trade. Treat this as a known quality gap, not a pass/fail gate.
 - Agent cost is token-project-based because the orchestrator drops the
   provider-billed cost; failed-trial usage is not recorded, so totals understate
   failures.
-- The run used `memo-agent-v1` and scored raw agent prose. Prompt v3 and the
-  deterministic composer changed both, so the table is historical; see the
+- The run used `memo-agent-v1` and scored raw agent prose. Prompt v3/v4 and
+  the deterministic composer changed both, so the table is historical; see the
   header note.
-- The scripted 8-case mechanics suite still runs separately and is not replaced
+- The scripted 9-case mechanics suite still runs separately and is not replaced
   by this eval.
+
+## Prompt v4 findings-driven subset (2026-11-04)
+
+Not comparable to the 22-case run above. Two representative cases, one trial,
+Sol low, Terra judge. Prompt v4 adds `list_findings`, deterministic `request`,
+and merged deterministic open items/questions; the judge now sees open items and
+questions and scores cross-source analysis separately.
+
+| Case | pass | Judge G / C / A | Cross-source claims | Findings tool |
+|---|---:|---:|---:|---|
+| `happy-sme` | 1.000 | 4 / 4 / 4 | 2 | used |
+| `individual-applicant` | 1.000 | 3 / 4 / 4 | 1 | used |
+| `conflicting-facts` | 1.000 | 3 / 5 / 3 | 1 | used |
+
+The 22-case rerun is still pending; do not quote this subset as a full pass
+rate. Raw: `memo-live-2026-11-04T14-57-44-497Z.json` (happy),
+`…T14-58-30-846Z.json` (individual), `…T15-02-34-013Z.json` (conflicting).
 
 ## Reasoning-effort sweep (2026-11-02)
 
