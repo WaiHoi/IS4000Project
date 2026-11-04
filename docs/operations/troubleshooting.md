@@ -71,7 +71,7 @@ curl http://127.0.0.1:3001/api/health
 
 | Symptom                                              | Check                                                                                   | Action                                                                                                                |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Port 3000, 3001, or 4001–4006 already in use         | `Get-NetTCPConnection -LocalPort 3000,3001,4001,4002,4003,4004,4005,4006 -State Listen` | Stop only that PID. Never `Stop-Process -Name node`; it kills unrelated tooling                                       |
+| Port 3000, 3001, or 4001–4006 already in use         | `Get-NetTCPConnection -LocalPort 3000,3001,4001,4002,4003,4004,4005,4006 -State Listen` | Stop only that PID. While the stack runs in containers, every listed port belongs to Docker — use `docker compose --profile microservices stop` or `pnpm cleanup`. Never `Stop-Process -Name node`; it kills unrelated tooling |
 | Stale demo state (piled-up cases, half-run demo)     | Non-terminal count per applicant                                                        | Full reset: `docker compose down -v`, `docker compose up -d --wait`, `pnpm run setup`                                     |
 | Postgres 17 volume fails on Postgres 18              | Old volume layout                                                                       | One-time reset: `docker compose down`, `docker volume rm project_pgdata`, `docker compose up -d --wait`, `pnpm run setup` |
 | `pnpm test` hits EPERM on Windows                    | Stale `node_modules/.vitest-cache` after a container install                            | Delete `node_modules/.vitest-cache` and re-run                                                                        |
@@ -89,7 +89,7 @@ docker compose --profile microservices up -d --build --wait
 docker compose --profile microservices down
 ```
 
-Notes: `down` stops the base infra too. The web app stays local (`pnpm --filter @credit/web dev`). A container install can leave a stale Windows `node_modules/.vitest-cache`; delete it if tests hit EPERM.
+Notes: `down` stops the base infra too. The web app also runs in compose (`apps/web/Dockerfile`), started after the gateway is healthy. A container install can leave a stale Windows `node_modules/.vitest-cache`; delete it if tests hit EPERM.
 
 ## What not to do
 

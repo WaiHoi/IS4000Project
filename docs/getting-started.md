@@ -16,8 +16,8 @@ secrets. It starts Docker Compose plus ClamAV, then runs `pnpm run setup`
 and `demo:seed`. Setup waits for Postgres, creates databases and Kafka
 topics, migrates, and seeds demo users. It then starts the gateway (`:3001`), six
 services (`:4001`-`:4006`), the worker and both agent workers as containers
-built from `apps/<service>/Dockerfile` (one `docker-compose.yml`). The web app (`:3000`) runs on the host. Use
-`pnpm start --local` to run the services as host processes with hot reload. It enables every feature your `.env`
+built from `apps/<service>/Dockerfile` (one `docker-compose.yml`). The web app (`:3000`) is a container too and starts last, after the backend services are up. Use
+`pnpm start --local` to run everything but the infra as host processes with hot reload. It enables every feature your `.env`
 can support (AI needs `OPENROUTER_API_KEY`) and prints a summary of what is
 on. Use `pnpm start --lite` for the deterministic pipeline only.
 

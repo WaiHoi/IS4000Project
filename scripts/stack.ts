@@ -2,20 +2,21 @@
 //
 //   pnpm start          everything your .env can support
 //   pnpm start --lite   deterministic pipeline only (no AI, no documents)
-//   pnpm start --local  backend services as host processes (hot reload)
+//   pnpm start --local  everything but the infra as host processes (hot reload)
 //
-// By default the backend services, the pipeline worker and both agent
-// workers run as containers built from apps/<service>/Dockerfile
-// (docker-compose.yml, profile microservices);
-// only the web app (Vite) runs on the host. --local keeps everything but the
-// infra on the host via `pnpm dev`.
+// By default the backend services, the pipeline worker, both agent workers
+// and the web app run as containers built from apps/<service>/Dockerfile
+// (docker-compose.yml, profile microservices); nothing else stays running on
+// the host. The web container depends on a healthy gateway and research
+// starting, so it starts last. --local keeps everything but the infra on the
+// host via `pnpm dev`.
 //
 // Steps: bootstrap .env (copy .env.example, generate any blank/placeholder
 // secrets) -> docker compose (postgres, kafka, temporal, temporal-ui, plus
 // ClamAV for documents) -> setup (db wait/init, kafka topics, migrate, seed
-// users) -> `pnpm dev` with the feature flags switched on for this run ->
-// once every service is healthy, seed reference data (demo customer
-// profiles + evidence, policy corpus) -> print what is on.
+// users) -> backend + web containers with the feature flags switched on for
+// this run (or `pnpm dev` with --local) -> once the gateway is healthy, seed
+// reference data (the web result is reported separately) -> print what is on.
 //
 // Feature flags are derived, not hand-set: AI features turn on only when
 // OPENROUTER_API_KEY is in .env (the case brief also needs TAVILY_API_KEY).
@@ -209,10 +210,31 @@ async function healthy(): Promise<boolean> {
 	}
 }
 
-async function waitForStack(timeoutMs: number): Promise<boolean> {
+async function webHealthy(): Promise<boolean> {
+	try {
+		// Through the web's /api proxy, so a wrong GATEWAY_URL is not "healthy".
+		const res = await fetch("http://127.0.0.1:3000/api/health", {
+			signal: AbortSignal.timeout(3000),
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+async function waitForBackend(timeoutMs: number): Promise<boolean> {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
 		if (await healthy()) return true;
+		await new Promise((r) => setTimeout(r, 3000));
+	}
+	return false;
+}
+
+async function waitForWeb(timeoutMs: number): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (await webHealthy()) return true;
 		await new Promise((r) => setTimeout(r, 3000));
 	}
 	return false;
@@ -280,19 +302,13 @@ if (local) {
 	if (hasHostCa) containerEnv.push("NODE_EXTRA_CA_CERTS=/app/.data/extra-ca.pem");
 	writeFileSync(join(ROOT, ".data", "stack.env"), `${containerEnv.join("\n")}\n`);
 	must(
-		"docker: build + start backend services and workers (first build: several minutes)",
+		"docker: build + start backend services, then web once the backend gate passes (first build: several minutes)",
 		"docker",
 		[...COMPOSE, "--profile", "microservices", "up", "-d", "--build", "--remove-orphans"],
 		env,
 	);
-	const web = spawn(pnpm, ["--filter", "@credit/web", "dev"], {
-		cwd: ROOT,
-		stdio: "inherit",
-		env,
-		shell: true,
-	});
 	const stopServices = (): void => {
-		// Ctrl+C stops the web app and the service containers; infra stays up
+		// Ctrl+C stops the web and service containers; infra stays up
 		// (`pnpm cleanup` removes everything).
 		const listed = spawnSync(
 			"docker",
@@ -319,18 +335,26 @@ if (local) {
 		process.on(sig, () => {
 			if (stopping) return;
 			stopping = true;
-			web.kill(sig);
 			stopServices();
 			process.exit(0);
 		});
 	}
-	web.on("exit", (code) => {
-		if (!stopping) process.exit(code ?? 0);
-	});
+	// No host child keeps the script alive now that web is a container; hold
+	// the event loop open so Ctrl+C reaches stopServices.
+	setInterval(() => undefined, 2 ** 30);
 }
 
 console.log("\n▶ waiting for the gateway and every service to report healthy");
 // First container run installs the workspace in the deps container.
-const stackUp = await waitForStack((local ? 5 : 15) * 60_000);
-const { policySeeded } = stackUp ? seedReferenceData() : { policySeeded: false };
-console.log(summary(stackUp, policySeeded));
+const backendUp = await waitForBackend((local ? 5 : 15) * 60_000);
+// Web is gated on backend health in compose and starts concurrently under
+// --local; wait for it separately so a web-only failure still seeds reference
+// data and reports the difference.
+const webUp = backendUp && (await waitForWeb((local ? 2 : 5) * 60_000));
+if (backendUp && !webUp) {
+	console.log(
+		"✖ the web app did not answer on :3000/api/health — check `docker compose ps` and the web logs",
+	);
+}
+const { policySeeded } = backendUp ? seedReferenceData() : { policySeeded: false };
+console.log(summary(backendUp && webUp, policySeeded));

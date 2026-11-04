@@ -27,7 +27,8 @@ The runtime split is deliberate. Gateway, the pipeline services, and the web bui
 
 ```text
 Browser
-  -> Web :3000 (Nitro route rule proxies /api/** to 127.0.0.1:3001/api/**)
+  -> Web :3000 (Nitro route rule proxies /api/** to $GATEWAY_URL:
+     127.0.0.1:3001 on the host, http://gateway:3001 in compose)
   -> Gateway :3001 (reads the session cookie, loads the user)
   -> signed internal call (HMAC headers, no cookies)
   -> service :4001-:4006 (checks the signature and the role)

@@ -22,21 +22,23 @@ officer-triggered or auto-triggered on referral, never decisive) behind `AGENTS_
 ```powershell
 pnpm install
 pnpm start          # everything your .env supports; `pnpm start --lite` = pipeline only
-                    # `pnpm start --local` = services as host processes (hot reload)
+                    # `pnpm start --local` = everything but infra as host processes (hot reload)
 ```
 
-By default the backend services, the pipeline worker and both agent workers
-run as containers built from `apps/<service>/Dockerfile`, all in one
-`docker-compose.yml`. Only the web app runs on your machine. The first
-start builds the images, which takes a few minutes; later starts reuse the
-build cache.
+By default the backend services, the pipeline worker, both agent workers and
+the web app run as containers built from `apps/<service>/Dockerfile`, all in
+one `docker-compose.yml`. The web container starts last, once the gateway
+(which waits on the services it fronts) is healthy and research has started.
+Nothing else stays running on your machine. The first start builds the images,
+which takes a few minutes; later starts reuse the build cache.
 On TLS-inspecting networks, the host's `NODE_EXTRA_CA_CERTS` bundle is
 passed to the containers.
 
 `pnpm start` creates `.env` from `.env.example` if it is missing and
 generates any blank secrets. It then starts Docker (Postgres, Kafka,
-Temporal, Temporal UI, and ClamAV for documents), runs `pnpm run setup` and
-`demo:seed`, and launches `pnpm dev`. It prints which features are on and
+Temporal, Temporal UI, and ClamAV for documents), runs `pnpm run setup`, starts
+the containers (or `pnpm dev` with `--local`), and seeds the demo reference
+data once they are healthy. It prints which features are on and
 why any are off. There are no feature flags to set by hand:
 
 - **No API keys:** the deterministic pipeline, documents, the
@@ -294,7 +296,7 @@ reports those seams instead of failing on them.
 
 | Service        | Port | Notes                                                                                                                                                                                                                                                      |
 | -------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| web (Vite)     | 3000 | proxies `/api` → `127.0.0.1:3001`                                                                                                                                                                                                                          |
+| web (Vite)     | 3000 | proxies `/api` → `gateway:3001` (container) or `127.0.0.1:3001` (host)                                                                                                                                                                                                                          |
 | gateway (Hono) | 3001 | binds `API_HOST` (default 127.0.0.1); `GET /api/health` → `{status:"ok"}` + `services` map                                                                                                                                                                 |
 | postgres 18    | 5432 | one cluster, six databases: `credit_auth` (gateway) · `credit_applications` · `credit_loans` · `credit_portfolio` · `credit_research` · `credit_policy`; init SQL creates all eight (+ `temporal` pair); volume mounts `/var/lib/postgresql` (PG18 layout) |
 | kafka (KRaft)  | 9092 | host listener; internal `kafka:29092` for future in-compose clients                                                                                                                                                                                        |
@@ -323,6 +325,9 @@ container networking (`http://applications:4001`, ?).
 a crashed run can leave a stale server behind. Find it with
 `Get-NetTCPConnection -LocalPort 3000,3001,4001,4002,4003,4004,4005,4006 -State Listen` and stop that
 PID only — never `Stop-Process -Name node` (that kills unrelated tooling).
+While the stack runs in containers, every listed port belongs to Docker — use
+`docker compose --profile microservices stop` or `pnpm cleanup` instead of a
+PID.
 
 - **Full reset.** `docker compose down -v` wipes DB + Kafka, then re-run the
   quickstart (`up -d --wait` → `setup`). Needed when non-terminal
@@ -443,7 +448,7 @@ One compose file. Infra runs by default; the backend runs under the
 
 ```powershell
 docker compose up -d --wait                                 # infra only
-docker compose --profile microservices up -d --build        # + backend services
+docker compose --profile microservices up -d --build        # + backend services and web
 docker compose --profile microservices down
 ```
 
@@ -458,9 +463,12 @@ Images never contain `.env`: services read it through `env_file`, then
 `.data/stack.env` (written by `pnpm start`). The explicit `environment:`
 entries wire container networking (`@postgres`, `temporal:7233`,
 `kafka:29092`, `http://<service>:<port>`) and win over both. `.data/` is
-bind-mounted for document blobs. Ports 3001 and 4001–4006 are published, and
-each service has a fetch healthcheck. The web app stays local
-(`pnpm --filter @credit/web dev`). Note that `down` also stops the infra.
+bind-mounted for document blobs. Ports 3000, 3001 and 4001–4006 are
+published, and each service has a fetch healthcheck. The web app is also a
+container (`apps/web/Dockerfile`): it depends on a healthy gateway (and on
+research having started), so it starts after the backend services it needs.
+Use `pnpm start --local` or `pnpm --filter @credit/web dev` for host hot
+reload. Note that `down` also stops the infra.
 
 ## Versions (pinned exact, via the `catalog:` section in `pnpm-workspace.yaml`)
 

@@ -4,6 +4,9 @@
 !.env.example
 **/node_modules
 .data
+.scratch
+artifacts
+agent-transcripts
 .git
 .claude
 e2e/test-results

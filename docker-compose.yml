@@ -1,8 +1,9 @@
 # Local stack (one file). Infra runs by default:
 #   docker compose up -d --wait            # postgres, kafka, temporal, temporal-ui
-# Backend services (built from apps/<service>/Dockerfile) run under the
-# `microservices` profile; `pnpm start` runs both and keeps the web app on
-# the host. Manual:
+# Backend services and the web app (built from apps/<service>/Dockerfile) run
+# under the `microservices` profile; `pnpm start` runs both. The web container
+# waits on the gateway (which waits on the services it fronts) and on research
+# starting, so it starts last. Manual:
 #   docker compose --profile microservices up -d --build
 # Services take config from env_file (.env, then .data/stack.env written by
 # pnpm start with the derived feature flags); each `environment:` entry
@@ -364,6 +365,39 @@ services:
       timeout: 5s
       retries: 12
       start_period: 90s
+
+  web:
+    <<: *svc-base
+    build:
+      <<: *svc-build
+      dockerfile: apps/web/Dockerfile
+    image: credit-pipeline/web:dev
+    ports: ["3000:3000"]
+    environment:
+      # Vite's Nitro /api proxy (apps/web/vite.config.ts): 127.0.0.1 would be
+      # this container, so target the gateway by service name.
+      GATEWAY_URL: http://gateway:3001
+    # Waits on the gateway (which waits on the services it fronts) and on
+    # research starting. Research is advisory and reports degraded without
+    # both AI keys, so ordering intentionally uses service_started, not
+    # service_healthy. `pnpm start` runs `pnpm run setup` before containers.
+    depends_on:
+      gateway:
+        condition: service_healthy
+      research:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:3000/api/health'); if (!r.ok) throw new Error(String(r.status));",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
   worker:
     <<: *svc-base

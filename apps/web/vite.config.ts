@@ -5,6 +5,10 @@ import { nitro } from "nitro/vite";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
+// Compose sets GATEWAY_URL=http://gateway:3001; on the host the gateway is
+// reached at its published port.
+const gateway = process.env.GATEWAY_URL ?? "http://127.0.0.1:3001";
+
 export default defineConfig({
 	server: {
 		host: "127.0.0.1",
@@ -28,7 +32,7 @@ export default defineConfig({
 				// Agent memo drafts can exceed a minute; keep the dev/prod proxy
 				// bound above the applications-side memo timeout.
 				"/api/**": {
-					proxy: { to: "http://127.0.0.1:3001/api/**", timeout: 120_000 },
+					proxy: { to: `${gateway}/api/**`, timeout: 120_000 },
 				},
 			},
 		}),
