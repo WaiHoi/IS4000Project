@@ -365,6 +365,23 @@ describe("assembleCaseEvidence", () => {
 		).toBe(true);
 	});
 
+	it("cites extracted page text when no crosscheck has run", async () => {
+		await db
+			.delete(documentFindings)
+			.where(eq(documentFindings.applicationId, seeded.application.id));
+		await db
+			.delete(documentCrosschecks)
+			.where(eq(documentCrosschecks.applicationId, seeded.application.id));
+		const bundle = await assembleCaseEvidence(depsFor(seeded.application, seeded));
+		const document = bundle.items.find((item) => item.sourceType === "document");
+		expect(document?.content).toContain(QUOTE);
+		expect(
+			bundle.unavailable.some(
+				(item) => item.sourceType === "document" && item.ref.includes(seeded.fileId),
+			),
+		).toBe(false);
+	});
+
 	it("does not cite older findings when the latest crosscheck failed", async () => {
 		await db.insert(documentCrosschecks).values({
 			applicationId: seeded.application.id,

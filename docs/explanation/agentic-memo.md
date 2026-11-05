@@ -35,8 +35,10 @@ The memo does not re-run context analysis or policy review. `list_findings`
 projects producer-owned evidence: context signals, document findings, policy
 sections/facts, research reports, and score factors. The model reconciles and
 prioritises those findings; deterministic code composes amounts, ratios,
-security, and policy compliance. Ad hoc Policy and Ask answers stay in their
-own tabs and are not folded into the memo unless persisted as evidence.
+security, and policy compliance. Ready document page text is citable when no
+crosscheck quote exists; identity documents are excluded. Ad hoc Policy and Ask
+answers stay in their own tabs and are not folded into the memo unless persisted
+as evidence.
 
 ## Tone rewrite
 

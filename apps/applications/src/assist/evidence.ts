@@ -18,13 +18,14 @@ import {
 	documentFiles,
 	documentFindings,
 	documentLegalHolds,
+	documentPages,
 	externalReports,
 	policyEvaluations,
 	scores,
 	type Db,
 } from "@credit/db/applications";
 import { internalFetch } from "@credit/service-kit";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { isUuid } from "../ids.js";
 import type { AssistActor } from "./access.js";
 
@@ -678,7 +679,7 @@ async function addDocuments(
 				continue;
 			}
 			const file = live.get(finding.documentFileId);
-			if (!file || file.status !== "ready") continue;
+			if (!file || file.status !== "ready" || file.kind === "id") continue;
 			cited.add(file.id);
 			items.push({
 				ref: sourceRefKey({
@@ -705,8 +706,52 @@ async function addDocuments(
 			});
 		}
 	}
+	// Fallback for ready documents the crosscheck could not quote: extracted
+	// page text is still a citable source span. Skip identity documents, which
+	// are intentionally not used as memo evidence. A failed/latest crosscheck
+	// still suppresses document citations, matching the crosscheck contract.
+	if (live.size > 0 && (crosscheck === undefined || crosscheck.status === "succeeded")) {
+		const pageFileIds = [...live.keys()].filter((fileId) => live.get(fileId)?.kind !== "id");
+		const pages =
+			pageFileIds.length === 0
+				? []
+				: await db
+						.select()
+						.from(documentPages)
+						.where(inArray(documentPages.documentFileId, pageFileIds))
+						.orderBy(asc(documentPages.documentFileId), asc(documentPages.pageNumber));
+		for (const page of pages) {
+			const file = live.get(page.documentFileId);
+			if (!file || file.kind === "id" || cited.has(file.id)) continue;
+			const content = page.text.slice(0, 4_000);
+			if (content.trim().length === 0) continue;
+			items.push({
+				ref: sourceRefKey({
+					type: "document",
+					documentFileId: file.id,
+					pageNumber: page.pageNumber,
+					offsetStart: 0,
+					offsetEnd: content.length,
+				}),
+				sourceType: "document",
+				label: `${file.kind} page ${page.pageNumber}`.slice(0, 200),
+				content,
+				access: {
+					retentionUntil: file.retentionUntil.toISOString(),
+					legalHold: held(file.id),
+				},
+				metadata: {
+					field: "document_page",
+					status: "ready",
+					textSource: page.textSource,
+					confidence: page.confidence,
+				},
+			});
+			cited.add(file.id);
+		}
+	}
 	for (const file of live.values()) {
-		if (file.status !== "ready" || cited.has(file.id)) continue;
+		if (file.status !== "ready" || file.kind === "id" || cited.has(file.id)) continue;
 		unavailable.push({
 			ref: documentRef(file.id),
 			sourceType: "document",
