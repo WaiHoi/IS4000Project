@@ -336,7 +336,7 @@ export function MemoPanel({
 						)}
 						{artifact.agentTrace?.writer === "agent" && (
 							<p className="mt-1 text-xs text-slate">
-								Narrative sections are AI-drafted; amounts, security and policy are code-built.
+								Wording may be AI-polished; figures, security and policy are code-owned.
 							</p>
 						)}
 					</header>

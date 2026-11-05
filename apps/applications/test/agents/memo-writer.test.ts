@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	MEMO_TOOL_NAMES,
+	buildInitialPrompt,
 	createAgentsMemoRunner,
 	definition,
 } from "../../src/agents/memo-writer/index.js";
@@ -19,7 +20,7 @@ import {
 	sha256,
 } from "./helpers.js";
 
-const SYSTEM = "dc8eb9337aff28a6824ab1ac36a3942464d6219a8f8e406350011088b596e227";
+const SYSTEM = "d87dabbe485bcd30793ae0fe6fba755270b404f7d6bd9f59fbbfbba369b4d6bd";
 const INITIAL_USER = "b47d22f6c2a009970848cdc6eefe044c6225af85553dd7f261f9335bd9cdd804";
 const REPAIR_TOOLS_USER = "5168bbfab4c404ca53015f5a6aa1ba2cd68a8388fb6a5018c129f227e4d1c5fe";
 const REPAIR_NO_TOOLS_USER = "d3f47d69f25b026f9b2d0440d59c5219deea706c7f580e0ac4f2f67b71be6e03";
@@ -33,7 +34,7 @@ describe("memo-writer manifest", () => {
 			name: "memo-writer",
 			owner: "applications",
 			model: { env: "ASSIST_MEMO_MODEL", default: "openai/gpt-6.1-sol" },
-			versions: { prompt: "memo-agent-v4", agent: "memo-agent-v4" },
+			versions: { prompt: "memo-agent-v5", agent: "memo-agent-v5" },
 			execution: "request",
 		});
 		expect(definition.flags).toEqual(["ASSIST_ENABLED", "ASSIST_MEMO_WRITER"]);
@@ -42,6 +43,36 @@ describe("memo-writer manifest", () => {
 });
 
 describe("memo-writer prompts", () => {
+	it("passes only style-rewrite sections to the model", () => {
+		const prompt = buildInitialPrompt(application, evidence, {
+			title: "Credit memo",
+			sections: [
+				{
+					key: "request",
+					title: "Request",
+					claims: [
+						{
+							text: "The request is for USD 1.00.",
+							citations: [{ ref: "case_fact:x", quote: "1" }],
+						},
+					],
+					notAvailable: false,
+				},
+				{
+					key: "policy_compliance",
+					title: "Policy compliance",
+					claims: [],
+					notAvailable: true,
+				},
+			],
+			openItems: [],
+			officerQuestions: [],
+		});
+		expect(prompt).toContain("Rewrite these deterministic sections");
+		expect(prompt).toContain('"key":"request"');
+		expect(prompt).not.toContain('"key":"policy_compliance"');
+	});
+
 	it("keeps the assembled prompts byte-identical to the pre-move values", async () => {
 		const { fetchImpl, bodies } = scriptedFetch([() => completion()]);
 		const runner = createAgentsMemoRunner({ ...runnerBase, fetchImpl });

@@ -37,9 +37,9 @@ harness switched from a flat $1/M estimate to list prices in this sweep.
 Known residuals: one long-document integrity miss, one dual-prohibited
 exception case, ~2.6/5 memo completeness, and case-review coverage ~0.70. See
 each report's caveats. The credit-memo 22-case row predates prompt v3/v4 and
-the deterministic composer; it is historical. A three-case v4 subset passed
-3/3 with judge grounding/completeness/analysis of 4/4/4, 3/4/4, and 3/5/3;
-the full rerun is pending.
+the deterministic composer; it is historical. A two-case v5 style-rewrite
+subset passed 2/2 with judge grounding/completeness/analysis of 3/3/4 and
+3/4/4 (a third passed but the judge was unavailable); the full rerun is pending.
 
 ## Applications
 

@@ -152,11 +152,13 @@ export async function draftCreditMemo(input: DraftMemoInput): Promise<DraftMemoR
 		if (!memoAgentRunner) {
 			throw new HttpError(503, "MEMO_AGENT_UNAVAILABLE", "memo agent is not configured");
 		}
+		const built = buildCreditMemo({ application, evidence });
 		let result: Awaited<ReturnType<typeof runMemoAgent>>;
 		try {
 			result = await runMemoAgent({
 				application,
 				evidence,
+				base: built,
 				runner: memoAgentRunner,
 				runId: randomUUID(),
 				config: {
@@ -196,7 +198,6 @@ export async function draftCreditMemo(input: DraftMemoInput): Promise<DraftMemoR
 			}
 			throw err;
 		}
-		const built = buildCreditMemo({ application, evidence });
 		const content = composeCreditMemo(result.content, built);
 		const validation = validateGeneratedText({
 			artifactType: "credit_memo",

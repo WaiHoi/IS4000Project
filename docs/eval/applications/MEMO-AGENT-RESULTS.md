@@ -41,8 +41,8 @@ Caveats:
 - This is a mechanics/harness eval, not a prose-quality eval. The model is
   scripted; wording quality, real retrieval judgment, and officer edit rate
   need the live model and human review.
-- A three-case prompt-v4 live subset (happy SME, individual, conflicting
-  facts) passed 3/3; see `MEMO-LIVE-RESULTS.md` for judge scores and caveats.
+- A two-case prompt-v5 style-rewrite live subset (happy SME, individual) passed
+  2/2; see `MEMO-LIVE-RESULTS.md` for judge scores and caveats.
 - Cases are synthetic and code-defined. Grow the set from real failures.
 - The loop never persists (no DB in the harness); route-level fail-closed
   persistence is covered by `test/integration/assist-agent.test.ts`.

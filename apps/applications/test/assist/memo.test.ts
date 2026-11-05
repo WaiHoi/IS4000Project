@@ -205,6 +205,53 @@ describe("buildCreditMemo", () => {
 		expect(composedFinancial?.claims[0]?.text).not.toContain("9.99");
 	});
 
+	it("accepts a tone rewrite that keeps every figure and citation", () => {
+		const evidence = richBundle();
+		const built = buildCreditMemo({ application: smeApp(), evidence });
+		const agent = structuredClone(built);
+		const request = agent.sections.find((section) => section.key === "request");
+		expect(request?.claims[0]).toBeDefined();
+		request!.claims[0]!.text =
+			"The applicant seeks USD 60,000.00 over 60 months under the product recorded in the case file.";
+		const composed = composeCreditMemo(agent, built);
+		expect(composed.sections.find((section) => section.key === "request")?.claims[0]?.text).toBe(
+			"The applicant seeks USD 60,000.00 over 60 months under the product recorded in the case file.",
+		);
+	});
+
+	it("falls back when a tone rewrite changes a figure or drops a citation", () => {
+		const evidence = richBundle();
+		const built = buildCreditMemo({ application: smeApp(), evidence });
+		const agent = structuredClone(built);
+		const financial = agent.sections.find((section) => section.key === "financial_analysis");
+		expect(financial?.claims[0]).toBeDefined();
+		financial!.claims[0]!.text = "Annual revenue is USD 9,999,999.00.";
+		const composed = composeCreditMemo(agent, built);
+		const builtFinancial = built.sections.find((section) => section.key === "financial_analysis");
+		expect(composed.sections.find((section) => section.key === "financial_analysis")).toEqual(
+			builtFinancial,
+		);
+		agent.sections.find((section) => section.key === "financial_analysis")!.claims[0]!.citations =
+			[];
+		const dropped = composeCreditMemo(agent, built);
+		expect(dropped.sections.find((section) => section.key === "financial_analysis")).toEqual(
+			builtFinancial,
+		);
+	});
+
+	it("always keeps policy compliance code-built", () => {
+		const evidence = richBundle();
+		const built = buildCreditMemo({ application: smeApp(), evidence });
+		const agent = structuredClone(built);
+		const policy = agent.sections.find((section) => section.key === "policy_compliance");
+		expect(policy?.claims[0]).toBeDefined();
+		policy!.claims[0]!.text = "Rewritten policy prose.";
+		const composed = composeCreditMemo(agent, built);
+		expect(composed.sections.find((section) => section.key === "policy_compliance")).toEqual(
+			built.sections.find((section) => section.key === "policy_compliance"),
+		);
+	});
+
 	it("keeps deterministic gaps and questions when the agent omits them", () => {
 		const evidence = richBundle();
 		const built = buildCreditMemo({ application: smeApp(), evidence });

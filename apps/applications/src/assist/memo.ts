@@ -50,12 +50,17 @@ const OFFICER_QUESTIONS = [
 	"Are there any outstanding open items that need follow-up?",
 ];
 
-/** The agent may draft these for context, but the code owns the numbers. */
-export const DETERMINISTIC_MEMO_SECTIONS = [
+/** Sections the agent may rewrite for tone; the code keeps the facts. */
+export const STYLE_REWRITE_MEMO_SECTIONS = [
 	"request",
 	"financial_analysis",
 	"debt_service",
 	"collateral_security",
+] as const;
+
+/** Sections code owns outright; `policy_compliance` is never model-written. */
+export const DETERMINISTIC_MEMO_SECTIONS = [
+	...STYLE_REWRITE_MEMO_SECTIONS,
 	"policy_compliance",
 ] as const;
 
@@ -452,24 +457,66 @@ function buildPolicy(applicationId: string, items: Map<string, EvidenceItem>): S
 		if (item.sourceType !== "policy_section") continue;
 		const label = item.label.trim();
 		const safeLabel = label.length > 0 && !containsDecisionLanguage(label);
-		claims.push(
-			claimFor(
-				item,
-				safeLabel ? `${label} is cited for this case.` : "A policy section is cited for this case.",
-			),
-		);
+		const text = safeLabel
+			? `${label} is cited for this case.`
+			: "A policy section is cited for this case.";
+		if (claims.some((claim) => claim.text === text)) continue;
+		claims.push(claimFor(item, text));
 	}
 	return claims;
 }
 
-/** Replace the number-led sections with code-built claims after the agent
- * drafts. The agent is instructed to mark them notAvailable; this is the
- * second line of defence against a model inventing financial arithmetic. */
+function numericTokens(text: string): Set<string> {
+	const tokens = text.match(/-?\d[\d,]*(?:\.\d+)?/g) ?? [];
+	return new Set(
+		tokens
+			.map((token) => Number(token.replaceAll(",", "")))
+			.filter((value) => Number.isFinite(value))
+			.map((value) => String(value)),
+	);
+}
+
+function citationRefsOf(section: MemoSection): Set<string> {
+	return new Set(
+		section.claims.flatMap((claim) => claim.citations.map((citation) => citation.ref)),
+	);
+}
+
+function securityMode(text: string): "secured" | "unsecured" | null {
+	if (/\bunsecured\b/i.test(text)) return "unsecured";
+	if (/\bsecured\b/i.test(text)) return "secured";
+	return null;
+}
+
+/** A style rewrite is accepted only when it keeps every figure, citation and
+ * security meaning from the deterministic base. Anything else falls back to
+ * the code-built text; style must never change a fact. */
+export function styleRewriteIsSafe(agent: MemoSection, base: MemoSection): boolean {
+	if (agent.notAvailable !== base.notAvailable) return false;
+	if (base.claims.length === 0) return agent.claims.length === 0;
+	if (agent.claims.length === 0) return false;
+	const baseText = base.claims.map((claim) => claim.text).join(" ");
+	const agentText = agent.claims.map((claim) => claim.text).join(" ");
+	const baseNumbers = numericTokens(baseText);
+	const agentNumbers = numericTokens(agentText);
+	if (baseNumbers.size !== agentNumbers.size) return false;
+	for (const value of baseNumbers) if (!agentNumbers.has(value)) return false;
+	const baseRefs = citationRefsOf(base);
+	const agentRefs = citationRefsOf(agent);
+	if (baseRefs.size !== agentRefs.size) return false;
+	for (const ref of baseRefs) if (!agentRefs.has(ref)) return false;
+	const baseSecurity = securityMode(baseText);
+	if (baseSecurity !== null && securityMode(agentText) !== baseSecurity) return false;
+	return true;
+}
+
+/** Rewrite the prose sections only when the agent preserved every fact;
+ * policy compliance always stays code-built. */
 export function composeCreditMemo(
 	agent: CreditMemoContent,
 	built: CreditMemoContent,
 ): CreditMemoContent {
-	const deterministic = new Set<string>(DETERMINISTIC_MEMO_SECTIONS);
+	const rewrite = new Set<string>(STYLE_REWRITE_MEMO_SECTIONS);
 	const byKey = new Map(built.sections.map((entry) => [entry.key, entry]));
 	const openItems = new Map<string, OpenItem>();
 	for (const item of [...agent.openItems, ...built.openItems]) {
@@ -479,9 +526,12 @@ export function composeCreditMemo(
 	const questions = [...new Set([...agent.officerQuestions, ...built.officerQuestions])];
 	return {
 		...agent,
-		sections: agent.sections.map((entry) =>
-			deterministic.has(entry.key) ? (byKey.get(entry.key) ?? entry) : entry,
-		),
+		sections: agent.sections.map((entry) => {
+			if (entry.key === "policy_compliance") return byKey.get(entry.key) ?? entry;
+			if (!rewrite.has(entry.key)) return entry;
+			const base = byKey.get(entry.key);
+			return base && styleRewriteIsSafe(entry, base) ? entry : (base ?? entry);
+		}),
 		openItems: [...openItems.values()].slice(0, 20),
 		officerQuestions: questions.slice(0, 5),
 	};

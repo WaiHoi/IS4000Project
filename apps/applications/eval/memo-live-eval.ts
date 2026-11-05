@@ -64,8 +64,8 @@ function envStr(name: string, fallback: string): string {
 
 const API_KEY = process.env["OPENROUTER_API_KEY"] ?? "";
 const BASE_URL = envStr("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1");
-const PROMPT_VERSION = envStr("ASSIST_MEMO_PROMPT_VERSION", "memo-agent-v4");
-const AGENT_VERSION = envStr("ASSIST_MEMO_AGENT_VERSION", "memo-agent-v4");
+const PROMPT_VERSION = envStr("ASSIST_MEMO_PROMPT_VERSION", "memo-agent-v5");
+const AGENT_VERSION = envStr("ASSIST_MEMO_AGENT_VERSION", "memo-agent-v5");
 const JUDGE_MODEL = envStr("MEMO_LIVE_JUDGE_MODEL", "openai/gpt-6.1-terra");
 const REASONING_EFFORT = envStr("ASSIST_MEMO_REASONING_EFFORT", "low") as ReasoningEffort;
 
@@ -800,17 +800,19 @@ async function runTrial(testCase: LiveCase, model: string, trial: number): Promi
 			reasoningEffort: REASONING_EFFORT,
 			timeoutMs: 120_000,
 		});
+		const baseMemo = buildCreditMemo({
+			application: testCase.application,
+			evidence: testCase.bundle,
+		});
 		const { content: rawContent, trace } = await runMemoAgent({
 			application: testCase.application,
 			evidence: testCase.bundle,
+			base: baseMemo,
 			runner,
 			runId: `memo-live:${model}:${testCase.id}:${trial}:${Date.now()}`,
 			config: AGENT_CONFIG(model),
 		});
-		const content = composeCreditMemo(
-			rawContent,
-			buildCreditMemo({ application: testCase.application, evidence: testCase.bundle }),
-		);
+		const content = composeCreditMemo(rawContent, baseMemo);
 		base.latencyMs = trace.latencyMs;
 		base.costUsd = estimateCostUsd(model, trace.inputTokens, trace.outputTokens);
 		spentUsd += base.costUsd;

@@ -765,9 +765,9 @@ persistence) and `evidenceHash`:
 		"evidenceHash": "<sha256-hex>",
 		"agentTrace": {
 			"writer": "agent",
-			"agentVersion": "memo-agent-v4",
+			"agentVersion": "memo-agent-v5",
 			"model": "openai/gpt-6.1-sol",
-			"promptVersion": "memo-agent-v4",
+			"promptVersion": "memo-agent-v5",
 			"evidenceHash": "<sha256-hex>",
 			"steps": 4,
 			"toolCalls": [

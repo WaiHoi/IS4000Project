@@ -290,8 +290,8 @@ function scriptedRunner(runs: ScriptedRun[]): {
 function agentConfig(over: Partial<MemoAgentConfig> = {}): MemoAgentConfig {
 	return {
 		model: "eval-model",
-		promptVersion: "memo-agent-v4",
-		agentVersion: "memo-agent-v4",
+		promptVersion: "memo-agent-v5",
+		agentVersion: "memo-agent-v5",
 		maxSteps: 8,
 		maxToolCalls: 12,
 		timeoutMs: 45_000,
@@ -598,8 +598,8 @@ if (process.argv.includes("--live")) {
 	const apiKey = process.env.OPENROUTER_API_KEY ?? "";
 	if (!apiKey) throw new Error("OPENROUTER_API_KEY is required for --live");
 	const model = process.env.ASSIST_MEMO_MODEL ?? "deepseek/deepseek-v4.1-flash-1017";
-	const promptVersion = process.env.ASSIST_MEMO_PROMPT_VERSION ?? "memo-agent-v4";
-	const agentVersion = process.env.ASSIST_MEMO_AGENT_VERSION ?? "memo-agent-v4";
+	const promptVersion = process.env.ASSIST_MEMO_PROMPT_VERSION ?? "memo-agent-v5";
+	const agentVersion = process.env.ASSIST_MEMO_AGENT_VERSION ?? "memo-agent-v5";
 	const runner = createAgentsMemoRunner({
 		apiKey,
 		baseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",

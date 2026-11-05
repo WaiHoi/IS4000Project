@@ -64,6 +64,8 @@ export interface MemoAgentRunner {
 	run(input: {
 		application: ApplicationRow;
 		evidence: EvidenceBundle;
+		/** Deterministic sections the agent may rewrite for tone. */
+		base?: CreditMemoContent;
 		signal: AbortSignal;
 		/** Grafana Agent Observability conversation id (metadata only). */
 		conversationId?: string;
@@ -85,6 +87,7 @@ export async function runMemoAgent(input: {
 	application: ApplicationRow;
 	evidence: EvidenceBundle;
 	runner: MemoAgentRunner;
+	base?: CreditMemoContent;
 	config: MemoAgentConfig;
 	/** Grafana Agent Observability conversation id (metadata only). */
 	runId?: string;
@@ -106,6 +109,7 @@ export async function runMemoAgent(input: {
 			return await runner.run({
 				application,
 				evidence,
+				...(input.base ? { base: input.base } : {}),
 				signal: signal ?? AbortSignal.timeout(Math.max(0, deadline - Date.now())),
 				maxTurns: config.maxSteps,
 				...(input.runId ? { conversationId: input.runId } : {}),

@@ -47,7 +47,7 @@ export const definition = defineAgent({
 	model: { env: "ASSIST_MEMO_MODEL", default: "openai/gpt-6.1-sol" },
 	// ASSIST_MEMO_WRITER must be "agent" (default "deterministic").
 	flags: ["ASSIST_ENABLED", "ASSIST_MEMO_WRITER"],
-	versions: { prompt: "memo-agent-v4", agent: "memo-agent-v4" },
+	versions: { prompt: "memo-agent-v5", agent: "memo-agent-v5" },
 	tools: MEMO_TOOL_NAMES,
 	execution: "request",
 });
@@ -98,7 +98,7 @@ export function createAgentsMemoRunner(opts: AgentsMemoRunnerOptions): MemoAgent
 				const outcome = await observability.trackToolExecution(
 					{
 						agentName: AGENT_NAME,
-						agentVersion: opts.agentVersion ?? "memo-agent-v4",
+						agentVersion: opts.agentVersion ?? "memo-agent-v5",
 						feature: "memo",
 						conversationId,
 						toolName: name,
@@ -167,7 +167,7 @@ export function createAgentsMemoRunner(opts: AgentsMemoRunnerOptions): MemoAgent
 						input.repair.issues,
 						input.repair.requireTools,
 					)
-				: buildInitialPrompt(input.application, input.evidence);
+				: buildInitialPrompt(input.application, input.evidence, input.base);
 			const signal = withDeadline(input.signal, opts.timeoutMs);
 			const runner = new Runner();
 			try {
@@ -176,7 +176,7 @@ export function createAgentsMemoRunner(opts: AgentsMemoRunnerOptions): MemoAgent
 				const result = await observability.trackGeneration(
 					{
 						agentName: AGENT_NAME,
-						agentVersion: opts.agentVersion ?? "memo-agent-v4",
+						agentVersion: opts.agentVersion ?? "memo-agent-v5",
 						feature: "memo",
 						conversationId,
 						model: opts.model,
