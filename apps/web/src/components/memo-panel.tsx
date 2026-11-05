@@ -365,14 +365,11 @@ export function MemoPanel({
 							<section key={section.key} aria-label={section.title}>
 								<h4 className="text-lg leading-7 font-light text-ink">{section.title}</h4>
 								{section.notAvailable || section.claims.length === 0 ? (
-									<p className="mt-2 text-base leading-relaxed text-slate">Not available.</p>
+									<p className="memo-prose mt-2 text-slate">Not available.</p>
 								) : (
 									<ul className="mt-2 space-y-3">
 										{section.claims.map((claim, ci) => (
-											<li
-												key={`${section.key}-${ci}`}
-												className="text-base leading-relaxed text-ink"
-											>
+											<li key={`${section.key}-${ci}`} className="memo-prose text-ink">
 												{editing ? (
 													<textarea
 														aria-label={`Edit claim ${ci + 1} in ${section.title}`}
@@ -404,7 +401,7 @@ export function MemoPanel({
 					{content.openItems.length > 0 && (
 						<div className="mt-6">
 							<h4 className="text-lg leading-7 font-light text-ink">Open items</h4>
-							<ul className="mt-2 list-disc space-y-2 pl-5 text-base leading-relaxed text-slate">
+							<ul className="memo-prose mt-2 list-disc space-y-2 pl-5 text-slate">
 								{content.openItems.map((item, i) => (
 									<li key={i}>
 										{item.text} <span className="font-mono text-xs text-slate">[{item.code}]</span>
@@ -416,7 +413,7 @@ export function MemoPanel({
 					{content.officerQuestions.length > 0 && (
 						<div className="mt-6">
 							<h4 className="text-lg leading-7 font-light text-ink">Officer questions</h4>
-							<ul className="mt-2 list-disc space-y-2 pl-5 text-base leading-relaxed text-slate">
+							<ul className="memo-prose mt-2 list-disc space-y-2 pl-5 text-slate">
 								{content.officerQuestions.map((q) => (
 									<li key={q}>{q}</li>
 								))}

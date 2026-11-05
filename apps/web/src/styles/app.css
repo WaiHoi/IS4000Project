@@ -211,6 +211,11 @@
 		font-variant-numeric: tabular-nums;
 	}
 
+	.memo-prose {
+		font-size: 17px;
+		line-height: 27px;
+	}
+
 	.shadow-soft {
 		box-shadow: 0 2px 12px rgba(28, 28, 28, 0.06);
 	}
