@@ -237,6 +237,14 @@ describe("buildCreditMemo", () => {
 		expect(dropped.sections.find((section) => section.key === "financial_analysis")).toEqual(
 			builtFinancial,
 		);
+		agent.sections.find((section) => section.key === "financial_analysis")!.claims[0]!.citations =
+			builtFinancial?.claims[0]?.citations ?? [];
+		agent.sections.find((section) => section.key === "financial_analysis")!.claims[0]!.text =
+			"Annual revenue is recorded at SGD 1,200,000.00.";
+		const currency = composeCreditMemo(agent, built);
+		expect(currency.sections.find((section) => section.key === "financial_analysis")).toEqual(
+			builtFinancial,
+		);
 	});
 
 	it("always keeps policy compliance code-built", () => {

@@ -488,9 +488,15 @@ function securityMode(text: string): "secured" | "unsecured" | null {
 	return null;
 }
 
-/** A style rewrite is accepted only when it keeps every figure, citation and
- * security meaning from the deterministic base. Anything else falls back to
- * the code-built text; style must never change a fact. */
+function currencyTokens(text: string): Set<string> {
+	return new Set(
+		(text.match(/\b(?:USD|SGD|EUR|GBP|JPY|CNY|HKD|AUD)\b/gi) ?? []).map((v) => v.toUpperCase()),
+	);
+}
+
+/** A style rewrite is accepted only when it keeps every figure, currency,
+ * citation and security meaning from the deterministic base. Anything else
+ * falls back to the code-built text; style must never change a fact. */
 export function styleRewriteIsSafe(agent: MemoSection, base: MemoSection): boolean {
 	if (agent.notAvailable !== base.notAvailable) return false;
 	if (base.claims.length === 0) return agent.claims.length === 0;
@@ -501,6 +507,10 @@ export function styleRewriteIsSafe(agent: MemoSection, base: MemoSection): boole
 	const agentNumbers = numericTokens(agentText);
 	if (baseNumbers.size !== agentNumbers.size) return false;
 	for (const value of baseNumbers) if (!agentNumbers.has(value)) return false;
+	const baseCurrencies = currencyTokens(baseText);
+	const agentCurrencies = currencyTokens(agentText);
+	if (baseCurrencies.size !== agentCurrencies.size) return false;
+	for (const value of baseCurrencies) if (!agentCurrencies.has(value)) return false;
 	const baseRefs = citationRefsOf(base);
 	const agentRefs = citationRefsOf(agent);
 	if (baseRefs.size !== agentRefs.size) return false;

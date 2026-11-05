@@ -20,7 +20,7 @@ import {
 	sha256,
 } from "./helpers.js";
 
-const SYSTEM = "d87dabbe485bcd30793ae0fe6fba755270b404f7d6bd9f59fbbfbba369b4d6bd";
+const SYSTEM = "ee74527b3c1973edd09484df4a9fd57c6e8f04d3fcb4a50af67a6d6237bf7a67";
 const INITIAL_USER = "b47d22f6c2a009970848cdc6eefe044c6225af85553dd7f261f9335bd9cdd804";
 const REPAIR_TOOLS_USER = "5168bbfab4c404ca53015f5a6aa1ba2cd68a8388fb6a5018c129f227e4d1c5fe";
 const REPAIR_NO_TOOLS_USER = "d3f47d69f25b026f9b2d0440d59c5219deea706c7f580e0ac4f2f67b71be6e03";

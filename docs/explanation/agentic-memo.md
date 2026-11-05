@@ -43,8 +43,8 @@ own tabs and are not folded into the memo unless persisted as evidence.
 The agent also receives a deterministic `BASE SECTIONS` payload for `request`,
 `financial_analysis`, `debt_service`, and `collateral_security`. It may rewrite
 those sentences for natural bank-memo prose, but code accepts the rewrite only
-when every numeric token, citation ref, and `secured`/`unsecured` meaning
-matches the base. Any mismatch falls back to the code-built text. The
+when every numeric token, currency token, citation ref, and `secured`/`unsecured`
+meaning matches the base. Any mismatch falls back to the code-built text. The
 `policy_compliance` section is never model-rewritten.
 
 ## Pipeline
