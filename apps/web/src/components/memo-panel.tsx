@@ -360,14 +360,14 @@ export function MemoPanel({
 							)}
 						</div>
 					)}
-					<div className="mt-5 space-y-6">
+					<div className="mt-4 space-y-5">
 						{shown?.sections.map((section, si) => (
 							<section key={section.key} aria-label={section.title}>
 								<h4 className="text-lg leading-7 font-light text-ink">{section.title}</h4>
 								{section.notAvailable || section.claims.length === 0 ? (
 									<p className="memo-prose mt-2 text-slate">Not available.</p>
 								) : (
-									<ul className="mt-2 space-y-3">
+									<ul className="mt-2 space-y-2">
 										{section.claims.map((claim, ci) => (
 											<li key={`${section.key}-${ci}`} className="memo-prose text-ink">
 												{editing ? (
