@@ -201,7 +201,9 @@ export async function officerRunsCrosscheck(
 	await uiLogout(page);
 	await uiLogin(page, "officer@example.com");
 	await gotoHydrated(page, `/officer/review/${caseId}`);
-	await expect(page.getByRole("heading", { name: "Documents", exact: true })).toBeVisible({
+	await expect(
+		page.getByRole("heading", { name: /Documents|Evidence & integrity/ }).first(),
+	).toBeVisible({
 		timeout: 60_000,
 	});
 	const assign = page.getByRole("button", { name: "Assign to me" });
@@ -212,7 +214,10 @@ export async function officerRunsCrosscheck(
 		await expect(runCrosscheck).toBeVisible({ timeout: 60_000 });
 	}
 	await runCrosscheck.click();
-	await expect(page.getByText("account_holder_name").first()).toBeVisible({ timeout: 120_000 });
+	await page.getByText(/Cross-check findings \(\d+\)/).click();
+	await expect(page.getByText(/account_holder_name|Account holder name/i).first()).toBeVisible({
+		timeout: 120_000,
+	});
 	await expect(page.getByText("mismatch").first()).toBeVisible();
 
 	const opened = await poll(

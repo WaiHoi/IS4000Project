@@ -158,7 +158,6 @@ export function ApplicantCaseView({ data }: { data: CaseDetail }) {
 
 					<DocumentPanel
 						applicationId={app.id}
-						mode="applicant"
 						documentsEnabled={app.documentsEnabled ?? false}
 						documentProcessingConsent={app.documentProcessingConsent}
 					/>

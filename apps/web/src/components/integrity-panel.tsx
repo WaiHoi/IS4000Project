@@ -1,24 +1,21 @@
-// E2 document integrity panel (officer-only): per-document fingerprint and
-// deterministic signals, officer-confirmed field candidates, consistency
-// findings with fraud-review escalation, and the agent analysis trace.
-// Hides itself while the feature flag is off (404); other errors surface
-// via ErrorBox. Stored quotes and page text render as React text nodes
+// E2 document integrity detail components (officer-only): signals,
+// officer-confirmed field candidates, consistency findings with fraud-review
+// escalation, the fingerprint, and the fraud flag controls. Composed by the
+// evidence panel; stored quotes and page text render as React text nodes
 // (never dangerouslySetInnerHTML); bidi/zero-width controls are stripped
 // in display; nothing document-derived reaches console, logs, or URLs.
 import { codePointSlice } from "@credit/core/browser";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
 	actOnIntegrityCandidate,
 	escalateIntegrityConsistency,
 	evaluateIntegrity,
 	fetchDocumentPages,
-	fetchIntegrityPanel,
-	fetchIntegrityRun,
 	flagIntegrity,
+	fieldLabel,
 	formatDateTime,
-	requestIntegrityAnalysis,
 	type IntegrityCandidate,
 	type IntegrityConsistency,
 	type IntegrityDocumentPanel,
@@ -27,21 +24,20 @@ import {
 	type IntegritySignal,
 } from "../lib/api";
 import { Button } from "./ui/button";
-import { clean, friendlyMessage, shortId } from "../lib/format";
-import { TraceDetails } from "./trace-details";
-import { Card, ErrorBox, StatusBadge } from "./ui";
+import { clean, friendlyMessage } from "../lib/format";
+import { ErrorBox, StatusBadge } from "./ui";
 
 function unknown(value: string | null | undefined): string {
 	return value && value.length > 0 ? value : "unknown";
 }
 
-function SignalChips({ signals }: { signals: IntegritySignal[] }) {
+export function SignalChips({ signals }: { signals: IntegritySignal[] }) {
 	if (signals.length === 0) return <p className="text-xs text-slate">No signals.</p>;
 	return (
 		<ul className="flex flex-wrap gap-1.5">
-			{signals.map((s, i) => (
+			{signals.map((s) => (
 				<li
-					key={`${s.code}-${s.documentFileId ?? "case"}-${i}`}
+					key={`${s.code}-${s.documentFileId ?? "case"}-${s.sourceRef}`}
 					title={clean(s.summary)}
 					className="flex items-center gap-1.5 rounded border border-rule bg-raised px-2 py-1 text-xs"
 				>
@@ -107,7 +103,7 @@ function SourceView({
 	);
 }
 
-function CandidateRow({
+export function CandidateRow({
 	applicationId,
 	candidate,
 	onChanged,
@@ -138,7 +134,7 @@ function CandidateRow({
 		<li className="rounded border border-rule p-2">
 			<div className="flex flex-wrap items-center gap-2 text-sm">
 				<StatusBadge status={candidate.status} />
-				<span className="font-mono">{clean(candidate.field)}</span>
+				<span>{fieldLabel(candidate.field)}</span>
 				{candidate.stale && (
 					<span className="rounded bg-tag-amber px-1.5 py-0.5 text-xs text-warning-ink">
 						stale — refresh
@@ -205,7 +201,7 @@ function CandidateRow({
 	);
 }
 
-function ConsistencyItem({
+export function ConsistencyItem({
 	applicationId,
 	item,
 	onChanged,
@@ -242,7 +238,7 @@ function ConsistencyItem({
 		<li className="rounded border border-rule p-2">
 			<div className="flex flex-wrap items-center gap-2 text-sm">
 				<StatusBadge status={item.findingState} />
-				<span className="font-mono">{clean(item.field)}</span>
+				<span>{fieldLabel(item.field)}</span>
 				<StatusBadge status={item.severity} />
 				<span className="text-xs text-slate">proposed: {item.proposedKind}</span>
 			</div>
@@ -265,7 +261,7 @@ function ConsistencyItem({
 				</blockquote>
 			</div>
 			{item.explanation && <p className="mt-1 text-xs text-slate">{clean(item.explanation)}</p>}
-			<p className="mt-0.5 font-mono text-xs text-slate">{clean(item.reason)}</p>
+			<p className="mt-0.5 text-xs text-slate">{clean(item.reason).replaceAll("_", " ")}</p>
 			{error && (
 				<div className="mt-1">
 					<ErrorBox message={error} />
@@ -308,148 +304,75 @@ function ConsistencyItem({
 	);
 }
 
-function DocumentCard({
-	applicationId,
-	doc,
-	onChanged,
-}: {
-	applicationId: string;
-	doc: IntegrityDocumentPanel;
-	onChanged: () => void;
-}) {
+export function FingerprintDetails({ doc }: { doc: IntegrityDocumentPanel }) {
 	const fp = doc.fingerprint;
 	return (
-		<li className="rounded border border-rule p-3">
-			<div className="flex flex-wrap items-center gap-2 text-sm">
-				<StatusBadge status={doc.status} />
-				<span className="font-medium">{clean(doc.kind)}</span>
-				<span className="text-xs text-slate">OCR: {clean(doc.ocrStatus.replaceAll("_", " "))}</span>
-				{doc.originalFilename && (
-					<span className="text-xs text-slate">{clean(doc.originalFilename)}</span>
-				)}
-			</div>
-
-			<div className="mt-2">
-				<h4 className="text-xs font-semibold text-slate">
-					Fingerprint <span className="font-normal text-slate">(signal, not proof)</span>
-				</h4>
-				{fp === null ? (
-					<p className="mt-0.5 text-xs text-slate">No fingerprint yet.</p>
-				) : (
-					<dl className="mt-1 grid gap-x-4 gap-y-0.5 text-xs text-slate sm:grid-cols-2">
-						<div>
-							<dt className="inline font-medium">SHA-256: </dt>
-							<dd className="inline font-mono" title={fp.sha256}>
-								{fp.sha256.slice(0, 12)}…
-							</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Size: </dt>
-							<dd className="inline tabular-nums">{(fp.sizeBytes / 1024).toFixed(1)} KB</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Type: </dt>
-							<dd className="inline font-mono">{clean(fp.mimeType)}</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Pages: </dt>
-							<dd className="inline tabular-nums">{fp.pageCount}</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">OCR confidence: </dt>
-							<dd className="inline tabular-nums">
-								{fp.ocrConfidence === null ? "—" : Number(fp.ocrConfidence).toFixed(2)}
-							</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Metadata source: </dt>
-							<dd className="inline font-mono">{clean(fp.metadataSource)}</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Producer: </dt>
-							<dd className="inline">{clean(unknown(fp.producer))}</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Creator: </dt>
-							<dd className="inline">{clean(unknown(fp.creator))}</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Created: </dt>
-							<dd className="inline">{unknown(fp.metadataCreatedAt)}</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Modified: </dt>
-							<dd className="inline">{unknown(fp.metadataModifiedAt)}</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Edit signal: </dt>
-							<dd className="inline font-mono">
-								{clean(fp.editSignal)}
-								{fp.editCodes.length > 0 && ` (${fp.editCodes.map(clean).join(", ")})`}
-							</dd>
-						</div>
-						<div>
-							<dt className="inline font-medium">Version: </dt>
-							<dd className="inline font-mono">{clean(fp.fingerprintVersion)}</dd>
-						</div>
-					</dl>
-				)}
-			</div>
-
-			<div className="mt-2">
-				<h4 className="text-xs font-semibold text-slate">Signals</h4>
-				<div className="mt-1">
-					<SignalChips signals={doc.signals} />
-				</div>
-				<div className="mt-1 flex flex-wrap gap-2 text-xs text-slate">
-					{doc.duplicateCount > 0 && (
-						<span className="rounded bg-tag-amber px-1.5 py-0.5 text-warning-ink">
-							{doc.duplicateCount} same-case duplicate{doc.duplicateCount === 1 ? "" : "s"}
-						</span>
-					)}
-					{doc.crossApplicationRestricted && (
-						<span
-							className="rounded bg-warm px-1.5 py-0.5 text-slate"
-							title="A cross-application match exists but is shown only to the assigned officer"
-						>
-							restricted cross-application match
-						</span>
-					)}
-				</div>
-			</div>
-
-			{doc.candidates.length > 0 && (
-				<div className="mt-2">
-					<h4 className="text-xs font-semibold text-slate">Field candidates</h4>
-					<ul className="mt-1 space-y-1.5">
-						{doc.candidates.map((c) => (
-							<CandidateRow
-								key={c.id}
-								applicationId={applicationId}
-								candidate={c}
-								onChanged={onChanged}
-							/>
-						))}
-					</ul>
-				</div>
+		<div>
+			<h4 className="text-xs font-semibold text-slate">
+				Fingerprint <span className="font-normal text-slate">(signal, not proof)</span>
+			</h4>
+			{fp === null ? (
+				<p className="mt-0.5 text-xs text-slate">No fingerprint yet.</p>
+			) : (
+				<dl className="mt-1 grid gap-x-4 gap-y-0.5 text-xs text-slate sm:grid-cols-2">
+					<div>
+						<dt className="inline font-medium">SHA-256: </dt>
+						<dd className="inline font-mono" title={fp.sha256}>
+							{fp.sha256.slice(0, 12)}…
+						</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Size: </dt>
+						<dd className="inline tabular-nums">{(fp.sizeBytes / 1024).toFixed(1)} KB</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Type: </dt>
+						<dd className="inline font-mono">{clean(fp.mimeType)}</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Pages: </dt>
+						<dd className="inline tabular-nums">{fp.pageCount}</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">OCR confidence: </dt>
+						<dd className="inline tabular-nums">
+							{fp.ocrConfidence === null ? "—" : Number(fp.ocrConfidence).toFixed(2)}
+						</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Metadata source: </dt>
+						<dd className="inline font-mono">{clean(fp.metadataSource)}</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Producer: </dt>
+						<dd className="inline">{clean(unknown(fp.producer))}</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Creator: </dt>
+						<dd className="inline">{clean(unknown(fp.creator))}</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Created: </dt>
+						<dd className="inline">{unknown(fp.metadataCreatedAt)}</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Modified: </dt>
+						<dd className="inline">{unknown(fp.metadataModifiedAt)}</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Edit signal: </dt>
+						<dd className="inline font-mono">
+							{clean(fp.editSignal)}
+							{fp.editCodes.length > 0 && ` (${fp.editCodes.map(clean).join(", ")})`}
+						</dd>
+					</div>
+					<div>
+						<dt className="inline font-medium">Version: </dt>
+						<dd className="inline font-mono">{clean(fp.fingerprintVersion)}</dd>
+					</div>
+				</dl>
 			)}
-
-			{doc.consistency.length > 0 && (
-				<div className="mt-2">
-					<h4 className="text-xs font-semibold text-slate">Consistency</h4>
-					<ul className="mt-1 space-y-1.5">
-						{doc.consistency.map((item) => (
-							<ConsistencyItem
-								key={item.id}
-								applicationId={applicationId}
-								item={item}
-								onChanged={onChanged}
-							/>
-						))}
-					</ul>
-				</div>
-			)}
-		</li>
+		</div>
 	);
 }
 
@@ -460,12 +383,14 @@ const FLAG_REASONS: IntegrityFlagReason[] = [
 	"other",
 ];
 
-function FlagControls({
+export function FlagControls({
 	applicationId,
 	onChanged,
+	hideHeading = false,
 }: {
 	applicationId: string;
 	onChanged: () => void;
+	hideHeading?: boolean;
 }) {
 	const [reason, setReason] = useState<IntegrityFlagReason>("document_integrity");
 	const [severity, setSeverity] = useState<IntegritySeverity>("medium");
@@ -521,7 +446,7 @@ function FlagControls({
 
 	return (
 		<div className="mt-3 rounded border border-rule p-3">
-			<h4 className="text-sm font-semibold">Flag for fraud review</h4>
+			{!hideHeading && <h4 className="text-sm font-semibold">Flag for fraud review</h4>}
 			<div className="mt-2 grid gap-2 sm:grid-cols-2">
 				<div>
 					<label
@@ -615,172 +540,5 @@ function FlagControls({
 				</Button>
 			</div>
 		</div>
-	);
-}
-
-export function IntegrityPanel({ applicationId }: { applicationId: string }) {
-	const queryClient = useQueryClient();
-	const [runId, setRunId] = useState<string | null>(null);
-	const [analyseBusy, setAnalyseBusy] = useState(false);
-	const [analyseError, setAnalyseError] = useState("");
-
-	const panel = useQuery({
-		queryKey: ["integrity", applicationId],
-		queryFn: () => fetchIntegrityPanel(applicationId),
-		retry: false,
-		refetchInterval: (query) => {
-			const data = query.state.data;
-			if (!data?.openReview) return false;
-			const status = data.latestAnalysis?.status;
-			return status === "queued" || status === "running" ? 3000 : false;
-		},
-	});
-	const liveRun = useQuery({
-		queryKey: ["integrity-run", applicationId, runId],
-		queryFn: () => fetchIntegrityRun(applicationId, runId ?? ""),
-		enabled: runId !== null,
-		retry: false,
-		refetchInterval: (query) => {
-			const status = query.state.data?.run.status;
-			return status === "queued" || status === "running" ? 3000 : false;
-		},
-	});
-	const invalidate = (): void => {
-		void queryClient.invalidateQueries({ queryKey: ["integrity", applicationId] });
-	};
-
-	// A finished background run changes candidates/consistency — reload once.
-	useEffect(() => {
-		const status = liveRun.data?.run.status;
-		if (runId !== null && status !== undefined && status !== "queued" && status !== "running") {
-			invalidate();
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [liveRun.data, runId]);
-
-	// Feature off (or caller not assigned) → invisible. A 404 never reaches
-	// panel.isError: fetchIntegrityPanel maps it to null data.
-	if (panel.data === null) return null;
-
-	async function analyse() {
-		setAnalyseBusy(true);
-		setAnalyseError("");
-		try {
-			const res = await requestIntegrityAnalysis(applicationId);
-			setRunId(res.run.id);
-			invalidate();
-		} catch (err) {
-			setAnalyseError(friendlyMessage(err));
-		} finally {
-			setAnalyseBusy(false);
-		}
-	}
-
-	const data = panel.data;
-	const live = liveRun.data?.run;
-	const liveActive = live !== undefined && (live.status === "queued" || live.status === "running");
-
-	return (
-		<Card title="Document integrity">
-			{panel.isPending ? (
-				<p className="text-sm text-slate">Loading integrity…</p>
-			) : panel.isError ? (
-				<ErrorBox message={friendlyMessage(panel.error)} onRetry={() => void panel.refetch()} />
-			) : data === null || data === undefined ? null : (
-				<div>
-					{data.openReview !== null && (
-						<p className="mb-3 rounded-sm border border-warning bg-tag-amber px-3 py-2 text-sm text-warning-ink">
-							Open fraud review ({clean(data.openReview.reasonCode)} ·{" "}
-							{clean(data.openReview.status)}):{" "}
-							<Link
-								to="/officer/fraud-review/$id"
-								params={{ id: data.openReview.id }}
-								className="font-medium text-red-link hover:underline"
-							>
-								open review
-							</Link>
-							{data.latestAnalysis?.status === "queued" ||
-							data.latestAnalysis?.status === "running" ? (
-								<span aria-live="polite"> · Integrity brief in progress</span>
-							) : data.latestAnalysis?.status === "failed" ? (
-								<span> · Brief unavailable - retry from the review</span>
-							) : null}
-						</p>
-					)}
-
-					{data.caseSignals.length > 0 && (
-						<div className="mb-3">
-							<h3 className="text-sm font-semibold">Case signals</h3>
-							<div className="mt-1">
-								<SignalChips signals={data.caseSignals} />
-							</div>
-						</div>
-					)}
-
-					{data.documents.length === 0 ? (
-						<p className="text-sm text-slate">No documents analysed yet.</p>
-					) : (
-						<ul className="space-y-2">
-							{data.documents.map((doc) => (
-								<DocumentCard
-									key={doc.documentFileId}
-									applicationId={applicationId}
-									doc={doc}
-									onChanged={invalidate}
-								/>
-							))}
-						</ul>
-					)}
-
-					{data.latestAnalysis !== null && (
-						<TraceDetails
-							trace={{
-								runId: data.latestAnalysis.id,
-								runStatus: data.latestAnalysis.status,
-								model: data.latestAnalysis.model,
-								promptVersion: data.latestAnalysis.promptVersion,
-								agentVersion: data.latestAnalysis.agentVersion,
-								steps: data.latestAnalysis.steps,
-								toolCalls: data.latestAnalysis.toolCalls,
-								sourceRefs: data.latestAnalysis.sourceRefs,
-								repairAttempted: data.latestAnalysis.repairAttempted,
-								repairSucceeded: data.latestAnalysis.repairSucceeded,
-								inputTokens: data.latestAnalysis.usage?.inputTokens,
-								outputTokens: data.latestAnalysis.usage?.outputTokens,
-								costUsd: data.latestAnalysis.usage?.costUsd,
-								errorCode: data.latestAnalysis.errorCode,
-							}}
-						/>
-					)}
-
-					{analyseError && (
-						<div className="mt-3">
-							<ErrorBox message={analyseError} />
-						</div>
-					)}
-					<div className="mt-3 flex flex-wrap items-center gap-2">
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							onClick={() => void analyse()}
-							disabled={analyseBusy || liveActive}
-						>
-							{analyseBusy ? "Requesting…" : liveActive ? "Analysis running…" : "Analyse documents"}
-						</Button>
-						{live !== undefined && (
-							<span className="flex items-center gap-1.5 text-sm text-slate">
-								Run {shortId(live.id)} <StatusBadge status={live.status} />
-								{live.errorCode && (
-									<span className="font-mono text-xs">({clean(live.errorCode)})</span>
-								)}
-							</span>
-						)}
-					</div>
-
-					<FlagControls applicationId={applicationId} onChanged={invalidate} />
-				</div>
-			)}
-		</Card>
 	);
 }

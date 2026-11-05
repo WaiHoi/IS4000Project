@@ -1,6 +1,6 @@
 // Officer case detail: PageHead, fact strip, decision banner, fraud warning,
-// 6/6 grid with application/credit/policy/verification/documents/integrity in
-// the case column and a tabbed assist workspace in the secondary column.
+// 6/6 grid with application/credit/policy/verification/evidence in the case
+// column and a tabbed assist workspace in the secondary column.
 // The timeline lives in a right-hand sheet; the officer decision sits below
 // both columns. Reuses the shared panels unchanged.
 import { reasonText } from "@credit/core/browser";
@@ -9,8 +9,7 @@ import { Clock } from "lucide-react";
 import { useState } from "react";
 import { CaseAssistantPanel } from "../case-assistant-panel";
 import { DecisionPanel } from "../decision-panel";
-import { DocumentPanel } from "../document-panel";
-import { IntegrityPanel } from "../integrity-panel";
+import { EvidencePanel } from "../evidence-panel";
 import { MemoPanel } from "../memo-panel";
 import { PolicyExceptionPanel } from "../policy-exception-panel";
 import { ResearchPanel } from "../research-panel";
@@ -398,9 +397,23 @@ function PolicyPanel({ data }: { data: CaseDetail }) {
 	);
 }
 
-function VerificationDocuments({ data }: { data: CaseDetail }) {
+function VerificationDocuments({
+	data,
+	documentsEnabled,
+}: {
+	data: CaseDetail;
+	documentsEnabled: boolean;
+}) {
+	const requirements = documentsEnabled
+		? data.documents.filter((document) => document.status !== "verified")
+		: data.documents;
+	const showRequirements = !documentsEnabled || requirements.length > 0;
 	return (
-		<div className="grid gap-8 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+		<div
+			className={
+				showRequirements ? "grid gap-8 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2" : "max-w-xl"
+			}
+		>
 			<Panel title="Verification" outline>
 				{data.checks.length === 0 ? (
 					<p className="text-sm text-slate">No checks yet.</p>
@@ -415,25 +428,30 @@ function VerificationDocuments({ data }: { data: CaseDetail }) {
 					</ul>
 				)}
 			</Panel>
-			<Panel
-				title="Evidence files"
-				action={<span className="text-xs text-slate">{data.documents.length} files</span>}
-				outline
-			>
-				{data.documents.length === 0 ? (
-					<p className="text-sm text-slate">No documents.</p>
-				) : (
-					<ul className="space-y-1.5 text-sm">
-						{data.documents.map((d) => (
-							<li key={d.kind} className="flex items-center gap-2">
-								<StatusBadge status={d.status} />
-								<span className="text-ink">{fieldLabel(d.kind)}</span>
-								{d.note && <span className="text-slate">— {d.note}</span>}
-							</li>
-						))}
-					</ul>
-				)}
-			</Panel>
+			{showRequirements && (
+				<Panel
+					title={documentsEnabled ? "Missing documents" : "Document checklist"}
+					action={<span className="text-xs text-slate">{requirements.length} required</span>}
+					outline
+				>
+					{requirements.length === 0 ? (
+						<p className="text-sm text-slate">No required documents.</p>
+					) : (
+						<ul className="space-y-1.5 text-sm">
+							{requirements.map((d) => (
+								<li
+									key={`${d.kind}-${d.status}-${d.note ?? ""}`}
+									className="flex items-center gap-2"
+								>
+									<StatusBadge status={d.status} />
+									<span className="text-ink">{fieldLabel(d.kind)}</span>
+									{d.note && <span className="text-slate">— {d.note}</span>}
+								</li>
+							))}
+						</ul>
+					)}
+				</Panel>
+			)}
 		</div>
 	);
 }
@@ -572,14 +590,8 @@ export function OfficerCaseView({
 					<ApplicationPanel data={data} />
 					<CreditPanel data={data} />
 					<PolicyPanel data={data} />
-					<VerificationDocuments data={data} />
-					<DocumentPanel
-						applicationId={app.id}
-						mode="officer"
-						documentsEnabled={app.documentsEnabled ?? false}
-						documentProcessingConsent={app.documentProcessingConsent}
-					/>
-					<IntegrityPanel applicationId={app.id} />
+					<VerificationDocuments data={data} documentsEnabled={app.documentsEnabled ?? false} />
+					<EvidencePanel applicationId={app.id} documentsEnabled={app.documentsEnabled ?? false} />
 				</div>
 				<aside className="min-w-0">
 					<section

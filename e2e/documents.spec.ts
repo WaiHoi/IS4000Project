@@ -20,7 +20,16 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Api, ApiError, type CaseDetail, gotoHydrated, smeApplication, uiLogin, uiLogout, waitStatus } from "./helpers.js";
+import {
+	Api,
+	ApiError,
+	type CaseDetail,
+	gotoHydrated,
+	smeApplication,
+	uiLogin,
+	uiLogout,
+	waitStatus,
+} from "./helpers.js";
 
 const FIXTURE = resolve(dirname(fileURLToPath(import.meta.url)), "fixtures/mismatch.pdf");
 
@@ -184,7 +193,9 @@ test("documents: consent → upload → claim → crosscheck → draft chase (no
 	await expect(page.getByText(submitted.reference).first()).toBeVisible({ timeout: 60_000 });
 
 	// Wait for the panel and either the claim action or the assigned state.
-	await expect(page.getByRole("heading", { name: "Documents", exact: true })).toBeVisible({
+	await expect(
+		page.getByRole("heading", { name: /Documents|Evidence & integrity/ }).first(),
+	).toBeVisible({
 		timeout: 60_000,
 	});
 	const assign = page.getByRole("button", { name: "Assign to me" });
@@ -198,7 +209,10 @@ test("documents: consent → upload → claim → crosscheck → draft chase (no
 	await expect(page.getByText(/OCR:/).first()).toBeVisible({ timeout: 60_000 });
 
 	await runCrosscheck.click();
-	await expect(page.getByText("company_name").first()).toBeVisible({ timeout: 120_000 });
+	await page.getByText(/Cross-check findings \(\d+\)/).click();
+	await expect(page.getByText(/company_name|Company name/i).first()).toBeVisible({
+		timeout: 120_000,
+	});
 	// Cited mismatch from the fixture (not a suffix/initials softening).
 	await expect(page.getByText("Harbour Foods Ltd").first()).toBeVisible();
 	await expect(page.getByText("mismatch").first()).toBeVisible();
