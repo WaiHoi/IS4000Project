@@ -261,7 +261,7 @@ export function MemoPanel({
 
 	return (
 		<Card
-			title={<span className="text-lg leading-7 font-light">Credit memo</span>}
+			title="Credit memo"
 			actions={artifact ? <StatusBadge status={artifact.status} /> : undefined}
 			className="border-0 bg-transparent p-0"
 		>
@@ -294,37 +294,16 @@ export function MemoPanel({
 				/>
 			) : (
 				<div>
-					{preliminary && (
-						<div className="mb-3 flex flex-wrap items-center gap-2 rounded-sm border border-rule bg-warm px-3 py-2 text-sm text-slate">
-							<span className="rounded bg-tag-blue px-1.5 py-0.5 font-medium text-ink">
-								Preliminary
-							</span>
-							<span>
-								Generated from case facts, score and policy — document evidence is not included yet.
-							</span>
-							{canDraft && documentsEnabled !== false && (
-								<button
-									type="button"
-									onClick={() => void draft()}
-									disabled={drafting}
-									className="ml-auto font-medium text-ink hover:text-red-link hover:underline"
-								>
-									{drafting ? "Re-drafting…" : "Re-draft with full evidence"}
-								</button>
-							)}
-						</div>
-					)}
 					<header className="border-b border-rule-strong pb-4">
 						<div className="flex flex-wrap items-baseline justify-between gap-2">
-							<p className="overline">Credit memorandum</p>
+							<h3 className="text-xl leading-7 font-light text-ink">
+								{companyName || borrowerName || "Borrower"}
+							</h3>
 							<p className="text-xs text-slate">
 								v{artifact.version} · r{artifact.revision}
 							</p>
 						</div>
-						<h3 className="mt-1 text-2xl leading-8 font-light text-ink">
-							{companyName || borrowerName || "Borrower"}
-						</h3>
-						<dl className="mt-3 grid gap-x-6 gap-y-1 text-sm text-slate sm:grid-cols-2">
+						<dl className="mt-3 grid gap-x-6 gap-y-2 text-sm text-slate sm:grid-cols-2">
 							<div>
 								<dt className="inline font-medium text-ink">Reference: </dt>
 								<dd className="inline">{reference}</dd>
@@ -361,16 +340,39 @@ export function MemoPanel({
 							</p>
 						)}
 					</header>
-					<div className="mt-4 space-y-5">
+					{preliminary && (
+						<div className="mt-4 flex flex-wrap items-center gap-2 rounded-sm border border-rule bg-warm px-3 py-2 text-sm text-slate">
+							<span className="rounded bg-tag-blue px-1.5 py-0.5 font-medium text-ink">
+								Preliminary
+							</span>
+							<span>
+								Generated from case facts, score and policy — document evidence is not included yet.
+							</span>
+							{canDraft && documentsEnabled !== false && (
+								<button
+									type="button"
+									onClick={() => void draft()}
+									disabled={drafting}
+									className="ml-auto font-medium text-ink hover:text-red-link hover:underline"
+								>
+									{drafting ? "Re-drafting…" : "Re-draft with full evidence"}
+								</button>
+							)}
+						</div>
+					)}
+					<div className="mt-5 space-y-6">
 						{shown?.sections.map((section, si) => (
 							<section key={section.key} aria-label={section.title}>
 								<h4 className="text-lg leading-7 font-light text-ink">{section.title}</h4>
 								{section.notAvailable || section.claims.length === 0 ? (
-									<p className="mt-1 text-base leading-6 text-slate">Not available.</p>
+									<p className="mt-2 text-base leading-relaxed text-slate">Not available.</p>
 								) : (
-									<ul className="mt-1 space-y-2">
+									<ul className="mt-2 space-y-3">
 										{section.claims.map((claim, ci) => (
-											<li key={`${section.key}-${ci}`} className="text-base leading-6 text-ink">
+											<li
+												key={`${section.key}-${ci}`}
+												className="text-base leading-relaxed text-ink"
+											>
 												{editing ? (
 													<textarea
 														aria-label={`Edit claim ${ci + 1} in ${section.title}`}
@@ -400,9 +402,9 @@ export function MemoPanel({
 						))}
 					</div>
 					{content.openItems.length > 0 && (
-						<div className="mt-4">
-							<h4 className="text-sm font-semibold">Open items</h4>
-							<ul className="mt-1 list-disc pl-5 text-sm text-slate">
+						<div className="mt-6">
+							<h4 className="text-lg leading-7 font-light text-ink">Open items</h4>
+							<ul className="mt-2 list-disc space-y-2 pl-5 text-base leading-relaxed text-slate">
 								{content.openItems.map((item, i) => (
 									<li key={i}>
 										{item.text} <span className="font-mono text-xs text-slate">[{item.code}]</span>
@@ -412,9 +414,9 @@ export function MemoPanel({
 						</div>
 					)}
 					{content.officerQuestions.length > 0 && (
-						<div className="mt-4">
-							<h4 className="text-sm font-semibold">Officer questions</h4>
-							<ul className="mt-1 list-disc pl-5 text-sm text-slate">
+						<div className="mt-6">
+							<h4 className="text-lg leading-7 font-light text-ink">Officer questions</h4>
+							<ul className="mt-2 list-disc space-y-2 pl-5 text-base leading-relaxed text-slate">
 								{content.officerQuestions.map((q) => (
 									<li key={q}>{q}</li>
 								))}

@@ -38,6 +38,7 @@ const statusMeta: Record<string, { tone: TagTone; label: string }> = {
 	submitted: { tone: "info", label: "Submitted" },
 	processing: { tone: "info", label: "Processing" },
 	pending_review: { tone: "warning", label: "In review" },
+	draft: { tone: "neutral", label: "Draft" },
 	approved: { tone: "success", label: "Approved" },
 	booked: { tone: "success", label: "Booked" },
 	declined: { tone: "danger", label: "Declined" },
