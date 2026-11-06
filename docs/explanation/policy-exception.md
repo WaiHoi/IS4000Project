@@ -30,6 +30,10 @@ results), the implementation plan
   `allowed`, committee on multi-rule), dual sign-off, mitigants, and the
   12-month regularisation ceiling. Prohibited and mapping-unavailable states
   carry no approver and no mitigants.
+- The officer UI assumes the officer holds the needed authority (demo scope):
+  it shows the exception route, mitigants, and plan, but not the approver,
+  committee check, or dual sign-off that `resolveExceptionPath` still computes
+  and the agent's prose may cite.
 - `composePolicyMemoContent` — the memo `rules` block and plan months are
   server-composed; the model writes prose only.
 

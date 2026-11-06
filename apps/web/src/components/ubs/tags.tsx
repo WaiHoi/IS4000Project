@@ -36,6 +36,8 @@ export function Tag({
 
 const statusMeta: Record<string, { tone: TagTone; label: string }> = {
 	submitted: { tone: "info", label: "Submitted" },
+	refer: { tone: "warning", label: "Refer" },
+	informational: { tone: "neutral", label: "Informational" },
 	processing: { tone: "info", label: "Processing" },
 	pending_review: { tone: "warning", label: "In review" },
 	draft: { tone: "neutral", label: "Draft" },

@@ -1,14 +1,16 @@
 // Demo 2 — referred, researched, officer APPROVES. BreadTalk Group Pte. Ltd.
 // (UEN 200302045G, a real Singapore bakery group) applies for $60,000 / 36m
-// through the prefilled draft flow; the amount is above the SME auto limit,
-// so the pipeline refers it. The officer runs the live research agent, which
+// through the prefilled draft flow; the amount is above the SME auto limit and
+// the score (698) is in the manual-review band, so the pipeline refers it. The officer runs the live research agent, which
 // searches public sources for the real company, reads the brief, and
 // approves: an established, registry-verifiable business with no adverse
-// media. Before deciding the officer also uses the policy navigator (what is
-// the approval path and exception terms for this case?), the case assistant
-// (strengths/weaknesses), the policy-exception drafter (explain the failed
-// rules and draft an exception memo), and the credit memo writer (agent
-// memo, approved). Every AI output is advisory; the officer decides.
+// media. Before deciding the officer also uses the policy navigator (is this
+// referral a policy exception?), the case assistant (strengths/weaknesses),
+// the policy-exception navigator (explains the failed rules; both are refer
+// triggers, not exceptions, so no exception memo is drafted), and the
+// credit memo writer (agent memo, approved). The officer approves under the
+// standard approval authority (the demo assumes the officer holds it). Every AI
+// output is advisory; the officer decides.
 // Live: needs OPENROUTER_API_KEY + TAVILY_API_KEY (see demo-flow.ts).
 import { expect, test } from "@playwright/test";
 import { Api, waitTerminal } from "./helpers.js";
@@ -52,22 +54,26 @@ test("BreadTalk: referred → live research brief → officer approves", async (
 	expect(research.findings.filter((f) => f.category === "adverse_media")).toEqual([]);
 
 	await asOfficer(page);
-	// Policy navigator, multi-hop: approval authority (9.3) + exception
-	// eligibility (5.1) + mitigants (5.3) for this exact case shape.
+	// Policy navigator: refer triggers are not exceptions (9.4). A general policy
+	// question (the amount trigger alone); the Policy tab shows the case's rules.
 	const policy = await officerAsksPolicyNavigator(
 		page,
 		officer,
-		"For an SME term loan of S$60,000, which approval authority applies, how many policy rules may an exception breach before it must go to credit committee, and what pricing and limit mitigants must an approved exception carry?",
+		"An SME term loan of S$60,000 is referred only because it is above the automatic-processing amount. Is that referral a policy exception that needs an exception memo?",
 		"sme_term_loan",
 	);
+	// One cited section (9.4) answers it; eval nav-demo-breadtalk-01 shows a
+	// ~1-in-8 needs_policy_owner flake (docs/eval/policy/ANSWER-MODELS-RESULTS.md).
 	expect(policy.status).toBe("succeeded");
-	expect(policy.citations.length).toBeGreaterThanOrEqual(2);
+	expect(policy.citations.length).toBeGreaterThanOrEqual(1);
 
-	// Policy-exception drafter: explain the failed rules and draft the memo.
+	// Policy-exception navigator: explain the referral; no exception memo.
 	const exception = await officerDraftsPolicyException(page, officer, caseId);
+	// The score (698) also sits in the refer band; memoStatus "not_required"
+	// proves every failed rule is a refer trigger.
 	expect(exception.failedRuleIds).toContain("SME-AMOUNT-AUTO");
 	expect(exception.explainedRules).toBeGreaterThan(0);
-	expect(exception.memoStatus).toBe("draft");
+	expect(exception.memoStatus).toBe("not_required");
 
 	// Case assistant: strengths and weaknesses from the case file.
 	const assistant = await officerAsksCaseAssistant(

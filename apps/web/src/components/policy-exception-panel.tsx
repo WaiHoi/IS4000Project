@@ -35,19 +35,6 @@ import { PolicyCitationButton, PolicySectionDrawer } from "./policy-citations";
 import { TraceDetails } from "./trace-details";
 import { Card, EmptyState, ErrorBox, Skeleton, StatusBadge } from "./ui";
 
-function approverLabel(approver: string | null): string {
-	switch (approver) {
-		case "single_officer":
-			return "single officer";
-		case "team_manager":
-			return "team manager";
-		case "credit_committee":
-			return "credit committee";
-		default:
-			return "—";
-	}
-}
-
 /** Rule/exception refs as buttons opening the shared section drawer when the
  * catalog carries a drawer token; otherwise plain text + "source unavailable". */
 function RefButtons({
@@ -204,7 +191,7 @@ function FailureCard({
 			<div className="flex flex-wrap items-center gap-2">
 				<span className="font-mono text-sm font-semibold">{failure.ruleId}</span>
 				<StatusBadge status={failure.effect} />
-				<StatusBadge status={ex.state} />
+				{ex.state !== "not_applicable" && <StatusBadge status={ex.state} />}
 				{failure.persisted && failure.decisionRelevant && (
 					<span className="rounded bg-tag-amber px-1.5 py-0.5 text-xs font-medium text-warning-ink">
 						decision driver
@@ -241,22 +228,19 @@ function FailureCard({
 			<div className="mt-2 rounded bg-raised p-2 text-xs text-slate">
 				{ex.state === "mapping_unavailable" ? (
 					<p className="font-medium">
-						No exception route recorded — policy owner required. No approver or mitigant is stated.
+						No exception route recorded — policy owner required. No mitigant is stated.
+					</p>
+				) : ex.state === "not_applicable" ? (
+					<p>
+						<span className="font-medium">Refer trigger</span> — no exception route; standard
+						approval authority applies.
 					</p>
 				) : (
 					<>
 						<p>
 							<span className="font-medium">Exception route: </span>
-							{ex.state.replaceAll("_", " ")} · approver {approverLabel(ex.approver)}
-							{ex.committeeCheckRequired ? " · committee check required" : ""}
-							{ex.dualSignoff ? " · dual sign-off" : ""}
+							{ex.state.replaceAll("_", " ")}
 						</p>
-						{ex.approver !== null && ex.approverVerification === "minimum" && (
-							<p className="mt-0.5 text-warning-ink">
-								Minimum approver only — verify committee routing (staff/PEP/connected status is
-								unavailable).
-							</p>
-						)}
 						{ex.mitigants.length > 0 && (
 							<ul className="mt-1 list-disc pl-5">
 								{ex.mitigants.map((m) => (
@@ -331,7 +315,7 @@ function FollowUpSection({ applicationId }: { applicationId: string }) {
 					value={question}
 					maxLength={1000}
 					onChange={(e) => setQuestion(e.target.value)}
-					placeholder="e.g. What mitigants apply to the score rule?"
+					placeholder="e.g. Why is this rule a refer trigger and not an exception?"
 					className="h-8 min-w-0 flex-1 rounded-sm border border-rule-strong bg-card px-2 text-sm text-ink"
 				/>
 				<Button
@@ -358,7 +342,7 @@ function FollowUpSection({ applicationId }: { applicationId: string }) {
 										/>
 									) : entry.answer.status === "needs_policy_owner" ? (
 										<p className="text-sm text-slate">
-											Needs a policy owner to answer — escalate through the usual review route.
+											Policy owner input is needed to answer this.
 										</p>
 									) : (
 										<p className="text-sm text-slate">
@@ -554,8 +538,7 @@ function MemoSection({
 									>
 										<span className="font-mono font-semibold">{rule.ruleId}</span> · observed{" "}
 										{rule.observed || "—"} · threshold {rule.threshold || "—"} ·{" "}
-										{rule.exceptionState.replaceAll("_", " ")} · approver{" "}
-										{approverLabel(rule.approver)}
+										{rule.exceptionState.replaceAll("_", " ")}
 										{rule.mitigantCodes.length > 0 && (
 											<> · mitigants {rule.mitigantCodes.join(", ")}</>
 										)}
@@ -805,9 +788,7 @@ function ExplainSection({
 							</ul>
 						)
 					) : explanation.status === "needs_policy_owner" ? (
-						<p className="text-sm text-slate">
-							The explanation needs a policy owner — escalate through the usual review route.
-						</p>
+						<p className="text-sm text-slate">Policy owner input is needed for this explanation.</p>
 					) : (
 						<p className="text-sm text-slate">No matching policy section found for these rules.</p>
 					)}
@@ -851,6 +832,10 @@ export function PolicyExceptionPanel({
 
 	const context = view.data?.context;
 	const sections = view.data?.sections ?? [];
+	// Mirrors exceptionMemoRequired (@credit/core): refer triggers are not exceptions.
+	const referralOnly =
+		(context?.failedRules.length ?? 0) > 0 &&
+		(context?.failedRules ?? []).every((rule) => rule.exception.state === "not_applicable");
 
 	return (
 		<Card
@@ -870,7 +855,23 @@ export function PolicyExceptionPanel({
 				<EmptyState title="Policy details unavailable" />
 			) : (
 				<div>
-					<dl className="grid gap-x-4 gap-y-1 text-xs text-slate sm:grid-cols-2">
+					{referralOnly && (
+						<section
+							aria-labelledby="policy-referral-only"
+							className="mt-3 rounded border border-rule bg-tag-blue p-3 text-sm text-ink"
+						>
+							<h3 id="policy-referral-only" className="font-semibold">
+								Referred, not an exception
+							</h3>
+							<p className="mt-0.5">
+								Every failed rule is a refer trigger. Refer triggers are not policy exceptions
+								(POL-CR-009 §9.4), so standard approval authority applies and no exception memo is
+								needed. This covers policy rules only; check Brief and Documents for fraud and
+								adverse-media findings before deciding.
+							</p>
+						</section>
+					)}
+					<dl className="mt-3 grid gap-x-4 gap-y-1 text-xs text-slate sm:grid-cols-2">
 						<div>
 							<dt className="inline font-medium">Outcome: </dt>
 							<dd className="inline font-mono">{context.outcome}</dd>
@@ -923,11 +924,13 @@ export function PolicyExceptionPanel({
 						}
 					/>
 					<FollowUpSection applicationId={applicationId} />
-					<MemoSection
-						applicationId={applicationId}
-						caseStatus={caseStatus}
-						latestArtifact={view.data?.latestArtifact ?? null}
-					/>
+					{!referralOnly && (
+						<MemoSection
+							applicationId={applicationId}
+							caseStatus={caseStatus}
+							latestArtifact={view.data?.latestArtifact ?? null}
+						/>
+					)}
 				</div>
 			)}
 		</Card>

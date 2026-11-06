@@ -143,7 +143,7 @@ function asOfDay(value: Date): string {
 const ENGINE_ONLY_LIMITATION =
 	"Engine rules only; policy eligibility (for example POL-CR-003 3.1) may be stricter than the engine bands.";
 const UNVERIFIED_APPROVER_LIMITATION =
-	"Staff, PEP, connected-party, and own-application flags are not in the case model and were not evaluated; any approver shown is a minimum and committee routing must be verified.";
+	"Staff, PEP, connected-party, and own-application flags are not in the case model and were not evaluated.";
 const UNSECURED_BRANCH_LIMITATION =
 	"Collateral value or loan-to-value is unknown or above the cap; the unsecured branch applies.";
 const NO_TAXONOMY_LIMITATION =

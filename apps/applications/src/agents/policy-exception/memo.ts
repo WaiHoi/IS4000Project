@@ -221,7 +221,7 @@ export function composePolicyMemoContent(
 	const limitations = context.limitations.join("\n");
 	if (/staff|PEP|connected/i.test(limitations)) {
 		addItem(
-			"Verify committee routing: staff, PEP, and connected-party status is unavailable, so the stated route is a minimum only.",
+			"Staff, PEP, and connected-party status is unavailable; confirm it before sign-off.",
 			"other",
 		);
 	}

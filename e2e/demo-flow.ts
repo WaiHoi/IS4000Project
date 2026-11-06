@@ -289,9 +289,10 @@ export async function officerAsksPolicyNavigator(
 }
 
 /**
- * AI: policy-exception drafter — explains which policy rules the case fails
- * (with citations) and drafts an exception memo for an approver. Advisory:
- * approvers come from the policy registry, never from the model.
+ * AI: policy-exception navigator — explains which policy rules the case fails
+ * (with citations) and drafts an exception memo when a rule needs one. A
+ * referral-only case (every rule a refer trigger, POL-CR-009 9.4) gets no
+ * memo: the draft route answers NO_EXCEPTION_REQUIRED and the tab says so.
  */
 export async function officerDraftsPolicyException(
 	page: Page,
@@ -306,18 +307,28 @@ export async function officerDraftsPolicyException(
 	const explained = await aiCall("policy-exception explain", () =>
 		officer.post<{ rules: unknown[] }>(`/api/assist/cases/${caseId}/policy-exception/explain`, {}),
 	);
-	const memo = await aiCall("policy-exception memo", () =>
-		officer.post<{ artifact: { status: string } }>(
-			`/api/assist/cases/${caseId}/policy-exception/memo`,
-			{},
-		),
-	);
+	let memoStatus: string;
+	try {
+		const memo = await aiCall("policy-exception memo", () =>
+			officer.post<{ artifact: { status: string } }>(
+				`/api/assist/cases/${caseId}/policy-exception/memo`,
+				{},
+			),
+		);
+		memoStatus = memo.artifact.status;
+	} catch (err) {
+		if (!(err instanceof ApiError && err.code === "NO_EXCEPTION_REQUIRED")) throw err;
+		memoStatus = "not_required";
+	}
 	await openCaseTab(page, caseId, "Policy");
 	await expect(page.getByText("Policy & exception navigator")).toBeVisible({ timeout: 60_000 });
+	if (memoStatus === "not_required") {
+		await expect(page.getByRole("heading", { name: "Referred, not an exception" })).toBeVisible();
+	}
 	return {
 		failedRuleIds: view.context.failedRules.map((r) => r.ruleId),
 		explainedRules: explained.rules.length,
-		memoStatus: memo.artifact.status,
+		memoStatus,
 	};
 }
 
