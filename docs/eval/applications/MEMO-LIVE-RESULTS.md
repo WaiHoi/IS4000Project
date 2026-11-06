@@ -5,7 +5,8 @@
 > `request`, `financial_analysis`, `debt_service`, `collateral_security`, and
 > `policy_compliance` deterministically, with an optional tone rewrite for the
 > first four. Treat the numbers below as historical model-quality evidence, not
-> a current pass rate. Rerun with `--live` before quoting a current number.
+> a current pass rate. Rerun with `--live` before quoting a current number. The current number is the
+> [full v5 rerun (2026-11-05)](#full-v5-rerun-2026-11-05) below.
 
 The scripted `memo-agent-eval.ts` covers mechanics only (bounds, repair,
 validation, language). This is the missing model-quality eval: 22 evidence
@@ -121,3 +122,30 @@ harness now prices tokens at list price (Terra $1/$5, Sol $2/$10 per 1M); the
 costs in the table above this section used a flat $1/M estimate and are not
 comparable. Raw: `memo-live-2026-11-01T20-50-05-532Z.json` (Sol low),
 `…T20-39-53-090Z.json` (Terra high), `…T20-42-22-973Z.json` (Terra xhigh).
+
+## Full v5 rerun (2026-11-05)
+
+All 22 bundles through the shipped path: `buildCreditMemo` + `runMemoAgent` +
+`composeCreditMemo`, then `validateGeneratedText`. Generator GPT-6.1 Sol at
+the pinned `low` effort (prompt/agent `memo-agent-v5`), judge GPT-6.1 Terra,
+2 trials. Pass is the code gate (valid composed memo, no decision or echo
+hits); the judge is advisory. This run also includes the new deterministic
+fraud-review risk claim (none of the 22 bundles carries a fraud review).
+
+| Model | pass@1 | pass^2 | Grounding | Completeness | Analysis | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| GPT-6.1 Sol (low) | 42/44 (0.955) | 21/22 | 4.17 | 4.33 | 3.44 | 30.5s / 43.2s | $2.310 |
+
+Both failures are `no-evidence` (2/2): with an empty bundle the model writes
+open items whose `sourceRef` is not a bundle ref, schema validation rejects it,
+and the run fails closed (`INVALID_OUTPUT`). No demo flow has an empty bundle.
+Judge completeness is up from about 2.6/5 on the historical run, mostly because
+code now composes the metric sections; judge grounding is down from 5.00 to
+4.17 over the same comparison (advisory; the code gate still passes).
+
+Raw: `apps/applications/eval/results/memo-live-2026-11-05T14-05-18-269Z.json`
+(local, gitignored). Cost basis: agent cost projected from tokens at
+OpenRouter list prices (Sol $2/$10 per M in/out, `PRICE_PER_M`), judge from
+OpenRouter usage; failed trials record no usage, so the total understates
+them. Judge and generator are the same model family; 18 of 22 cases were
+judged.

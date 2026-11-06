@@ -1219,7 +1219,7 @@ writeFileSync(
 				maxRunCostUsd: MAX_RUN_COST_USD,
 				timestamp: stamp,
 				costBasis:
-					"agent cost estimated as (input+output tokens)/1M (orchestrator drops provider-billed cost); judge via OpenRouter usage",
+					"agent cost projected from tokens at OpenRouter list prices (PRICE_PER_M; unknown models $1/$1) because the orchestrator drops provider-billed cost; judge via OpenRouter usage",
 				caveats: [
 					"Usage on failed trials is not recorded (the orchestrator discards the runner result on error), so cost totals understate failing runs.",
 					"Judge and generator may share a model family; judge scores are advisory.",
