@@ -120,3 +120,53 @@ At medium, Terra's weak entity matching (0.20) was the reason Sol won; at high
 it resolves all three original entities at 1.00. Overall entity mean is 0.75
 because the no-hit fixtures correctly report 0. Repair and the support judge
 stay pinned at `medium`. Raw: `brief-2026-11-01T21-21-44-171Z.json`.
+
+## UBS demo cases and two-page adverse preflight (2026-11-05)
+
+Change: the server preflight now extracts up to two `adverse_media` pages on
+distinct registrable domains (registry keeps one; total preflight extracts
+`min(3, AGENT_MAX_FETCHES)`), and the prompt (v8, agent 1.1.0) tells the model
+to cite every page that states the same adverse fact. Before, one extracted
+page meant a news-only adverse finding was always single-source and capped at
+`low` by the unchanged validator rule (one official or two independent
+sources).
+
+Dataset: the 20-case suite plus two frozen demo cases with real company
+identities and synthetic paraphrased page text: `demo-envy-two-source-adverse`
+(two independent news pages, no official adverse page; expects a
+high-confidence adverse finding) and `demo-breadtalk-clean` (one benign
+business article; expects no adverse finding). Model GPT-6.1 Terra (high),
+support judge GPT-6.1 Terra. Pass definition unchanged (code-only).
+
+| Run (in order) | Cases | pass@1 | pass^3 | Mean / p95 | Cost |
+|---|---:|---:|---:|---:|---:|
+| Envy v8, first fixture (second page reports a different fact) | 1 | 0/3 | 0/1 | — | $0.195 |
+| Envy v8, edited fixture | 1 | 3/3 | 1/1 | 47.6s / 62.5s | $0.188 |
+| Envy v7 preflight + prompt, edited fixture (A/B, run after) | 1 | 0/2 | — | — | $0.092 |
+| Full suite, v8 draft | 22 | 66/66 (1.000) | 22/22 | 21.5s / 38.9s | $2.004 |
+| Envy, v8 draft, rerun after review | 1 | 2/3 | 0/1 | — | $0.205 |
+| Full suite, final v8 (claim-wording rule) | 22 | 66/66 (1.000) | 22/22 | 22.6s / 44.5s | $2.070 |
+| Envy, final v8, extra trials | 1 | 5/5 | — | — | $0.274 |
+
+The draft v8 rerun failed once because the model wrote “Two news reports
+said…”, which the support judge rejected; the final v8 adds one rule (write
+the claim as the fact itself, with a BAD/GOOD example). Envy on final v8:
+8/8 across two runs.
+
+Raw results: `apps/research/eval/results/brief-2026-11-05T15-03-30-028Z.json`
+(final full suite), `brief-2026-11-05T15-08-46-970Z.json` (Envy extra
+trials), `brief-2026-11-05T14-34-24-722Z.json` (draft rerun),
+`brief-2026-11-05T13-22-25-173Z.json` (v7 A/B), and the earlier
+`brief-2026-11-05T13-20-25-465Z.json` / `13-47-25-091Z.json`; local,
+gitignored.
+
+Caveats: the Envy fixture's second page was edited once after the first run so
+that it reports the same charge as the first page, as real coverage did; with
+two different adverse facts the model correctly cites each page separately and
+neither finding reaches `high`. The live demo still depends on what Tavily
+returns for the real company; this fixture proves the mechanism, not the live
+search. Preflight now spends three of the four default extracts, leaving one
+for model drill-down. The two demo cases were authored alongside v8 (in-sample,
+dev); there is no held-out split for this harness. Cost basis for these rows:
+the harness's projected ceiling ($5/$10 per M tokens, `projectCostUsd`), not
+billed cost. Raw first-fixture run: `brief-2026-11-05T13-14-11-436Z.json`.

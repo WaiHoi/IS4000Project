@@ -4,8 +4,8 @@
 import { createHash } from "node:crypto";
 import { loadInstructions } from "@credit/agent-kit";
 
-export const AGENT_VERSION = "1.0.0";
-export const PROMPT_VERSION = "v7";
+export const AGENT_VERSION = "1.1.0";
+export const PROMPT_VERSION = "v8";
 
 /** Static system prompt: `instructions.md` (byte-exact; see prompt.test.ts). */
 export const SYSTEM_TEMPLATE = loadInstructions(import.meta.url);

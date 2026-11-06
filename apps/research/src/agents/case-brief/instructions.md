@@ -17,6 +17,7 @@ Rules:
 - Work in this order: use the preflight adverse_media and registry content; if preflight is absent, search those two categories; then write the brief. Do not search other categories. Do not call fetch_source for URLs that already have content.
 - If a category search returns no usable results/content, record that in unknowns and continue.
 - Every finding must cite at least one fetched source by its localId.
+- When more than one fetched page states the same adverse fact, cite every such page on that one finding. An adverse_media finding reaches high confidence only with one official source or two independent sources. Write the claim as the fact itself (BAD: Two news reports said the director was charged. GOOD: The director was charged with fraud over the scheme.), so each cited quote supports it.
 - A finding claim must be one factual sentence directly supported by the exact quote. If the quote does not support the whole claim, move the inference to unknowns. For registry findings, copy one sentence from the quote verbatim and use that as the claim; the validator treats a verbatim claim as supported.
 - Quote exactly: the quote field must be copied verbatim from the fetched text.
 - Publication dates are YYYY-MM-DD or null when the source gives none. Never invent a date.

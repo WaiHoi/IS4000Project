@@ -72,7 +72,9 @@ type EntityKey =
 	| "longpage"
 	| "multiadverse"
 	| "conflict"
-	| "stale";
+	| "stale"
+	| "envy"
+	| "breadtalk";
 
 const ENTITY_NAMES: Record<EntityKey, string> = {
 	acme: "Acme Ltd",
@@ -87,6 +89,8 @@ const ENTITY_NAMES: Record<EntityKey, string> = {
 	multiadverse: "Multiadverse Foods Pte Ltd",
 	conflict: "Conflict Registry Pte Ltd",
 	stale: "Stale Registry Pte Ltd",
+	envy: "Envy Global Trading Pte. Ltd.",
+	breadtalk: "BreadTalk Group Pte. Ltd.",
 };
 
 const fixtureDoc = (
@@ -307,6 +311,55 @@ const docs: Record<EntityKey, Partial<Record<Category, FixtureDoc[]>>> = {
 				"ACRA filing: Stale Registry Pte Ltd (2024)",
 				"2024-12-01",
 				"ACRA filing, 2024-12-01.\nStale Registry Pte Ltd filed its annual return on 1 December 2024. The company is recorded as active under registration 201812345S.",
+			),
+		],
+	},
+	// Demo personas (UBS flows). Real company identities; every title and page
+	// text below is a SYNTHETIC paraphrase of public reporting (not article text,
+	// not real URLs), frozen so the case is stable. Titles carry the marker.
+	// Envy has two independent news pages and no official adverse page: the
+	// adverse finding reaches high confidence only if both pages are cited.
+	envy: {
+		adverse_media: [
+			fixtureDoc(
+				"https://www.straitstimes.com/singapore/courts-crime/envy-nickel-fraud",
+				"Envy Global Trading director charged over nickel trading fraud (synthetic fixture)",
+				"2024-05-10",
+				"The Straits Times, 2024-05-10.\nThe director of Envy Global Trading Pte. Ltd. was charged with fraud over a nickel trading scheme that police said involved about S$1.46 billion. The Singapore company is now in compulsory liquidation.",
+			),
+			fixtureDoc(
+				"https://www.channelnewsasia.com/singapore/envy-nickel-scheme-investors",
+				"Envy Global Trading director faces fraud charges; investors file claims (synthetic fixture)",
+				"2024-06-02",
+				"CNA, 2024-06-02.\nThe director of Singapore-based Envy Global Trading Pte. Ltd. faces fraud charges linked to its nickel trading scheme, and investors have filed claims after the company was placed in compulsory liquidation. The Monetary Authority of Singapore said the company was not licensed to deal in capital markets products.",
+			),
+		],
+		registry: [
+			fixtureDoc(
+				"https://www.acra.gov.sg/envy-201941770R",
+				"ACRA record: Envy Global Trading Pte. Ltd. (synthetic fixture)",
+				"2025-01-15",
+				"ACRA record, 2025-01-15.\nEnvy Global Trading Pte. Ltd. (UEN 201941770R) is recorded as in compulsory liquidation.",
+			),
+		],
+	},
+	// BreadTalk: the adverse search returns a benign business article. A second
+	// preflight page must not turn ordinary news into an adverse finding.
+	breadtalk: {
+		adverse_media: [
+			fixtureDoc(
+				"https://www.businesstimes.com.sg/companies/breadtalk-new-outlets",
+				"BreadTalk Group opens new outlets (synthetic fixture)",
+				"2025-09-01",
+				"The Business Times, 2025-09-01.\nBreadTalk Group Pte. Ltd. of Singapore opened three new bakery outlets and said it plans further expansion in the coming year.",
+			),
+		],
+		registry: [
+			fixtureDoc(
+				"https://www.acra.gov.sg/breadtalk-200302045G",
+				"ACRA record: BreadTalk Group Pte. Ltd. (synthetic fixture)",
+				"2025-03-01",
+				"ACRA record, 2025-03-01.\nBreadTalk Group Pte. Ltd. (UEN 200302045G) is recorded as a live company.",
 			),
 		],
 	},
@@ -750,6 +803,44 @@ const cases: BriefCase[] = [
 		key: "stale",
 		facts: smeFacts("Joe Tan", "Stale Registry Pte Ltd", "201812345S", "Singapore", "services", 7),
 		entity: smeEntity("Joe Tan", "Stale Registry Pte Ltd", "201812345S", "Singapore"),
+		asOf: "2026-06-30",
+		expect: { adverse: false, registry: true },
+	},
+	{
+		id: "demo-envy-two-source-adverse",
+		key: "envy",
+		facts: {
+			...smeFacts(
+				"Daniel Koh",
+				"Envy Global Trading Pte. Ltd.",
+				"201941770R",
+				"Singapore",
+				"other",
+				6,
+			),
+			amountCents: 8_000_000,
+			termMonths: 36,
+		},
+		entity: smeEntity("Daniel Koh", "Envy Global Trading Pte. Ltd.", "201941770R", "Singapore"),
+		asOf: "2026-06-30",
+		expect: { adverse: true, registry: true },
+	},
+	{
+		id: "demo-breadtalk-clean",
+		key: "breadtalk",
+		facts: {
+			...smeFacts(
+				"Baker Tan",
+				"BreadTalk Group Pte. Ltd.",
+				"200302045G",
+				"Singapore",
+				"retail",
+				23,
+			),
+			amountCents: 6_000_000,
+			termMonths: 36,
+		},
+		entity: smeEntity("Baker Tan", "BreadTalk Group Pte. Ltd.", "200302045G", "Singapore"),
 		asOf: "2026-06-30",
 		expect: { adverse: false, registry: true },
 	},

@@ -26,6 +26,7 @@ import {
 } from "../../src/agents/case-brief/index.js";
 import { isIndependent, registrableDomain, tierForHost } from "../../src/sources.js";
 import { validateFinalUrl } from "../../src/urls.js";
+import { selectPreflightHits } from "../../src/agents/case-brief/agent.js";
 import { fakeOpenAi, type RecordedCall } from "../fixtures.js";
 
 describe("snapshot window", () => {
@@ -583,7 +584,7 @@ describe("query template", () => {
 
 describe("prompt", () => {
 	it("versions v2 with a stable hash and no purpose field", () => {
-		expect(PROMPT_VERSION).toBe("v7");
+		expect(PROMPT_VERSION).toBe("v8");
 		expect(promptHash()).toBe(promptHash());
 		expect(promptHash()).toMatch(/^[0-9a-f]{64}$/);
 		expect(SYSTEM_TEMPLATE).not.toMatch(/purpose/i);
@@ -647,5 +648,38 @@ describe("output schema", () => {
 describe("cost backstop", () => {
 	it("projects plausible POC-scale costs far under the cap", () => {
 		expect(projectCostUsd(2000, 1000)).toBeLessThan(0.15);
+	});
+});
+
+describe("selectPreflightHits", () => {
+	const hit = (url: string) => ({ url, title: null, publishedDate: null });
+
+	it("takes one page per registrable domain so two pages can be independent", () => {
+		const picked = selectPreflightHits(
+			[
+				hit("https://www.straitstimes.com/a"),
+				hit("https://straitstimes.com/b"),
+				hit("https://www.channelnewsasia.com/c"),
+				hit("https://www.businesstimes.com.sg/d"),
+			],
+			2,
+		);
+		expect(picked.map((p) => p.hit.url)).toEqual([
+			"https://www.straitstimes.com/a",
+			"https://www.channelnewsasia.com/c",
+		]);
+	});
+
+	it("skips URLs the validator rejects and respects the limit", () => {
+		const picked = selectPreflightHits(
+			[
+				hit("ftp://example.com/x"),
+				hit("https://user:pw@example.com/y"),
+				hit("https://mas.gov.sg/z"),
+			],
+			1,
+		);
+		expect(picked.map((p) => p.hit.url)).toEqual(["https://mas.gov.sg/z"]);
+		expect(selectPreflightHits([hit("https://a.com/1")], 0)).toEqual([]);
 	});
 });

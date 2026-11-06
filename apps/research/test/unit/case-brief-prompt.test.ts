@@ -27,9 +27,9 @@ function systemOf(call: RecordedCall | undefined): string {
 }
 
 describe("case-brief prompts", () => {
-	it("system prompt (instructions.md) is byte-identical to the pre-move string", () => {
+	it("system prompt (instructions.md) matches the pinned v8 hash", () => {
 		expect(sha(SYSTEM_TEMPLATE)).toBe(
-			"0afae7c0380e5ca5fd27853d2a3acc239045d392fba2b959f61750aac5480f04",
+			"489fc394257faef0e59955d7f2b5a9d6e1d68269b7ae4c13381a62ab159f0fdb",
 		);
 	});
 
@@ -84,7 +84,7 @@ describe("case-brief manifest", () => {
 			agent: AGENT_VERSION,
 			validator: VALIDATOR_VERSION,
 		});
-		expect([PROMPT_VERSION, AGENT_VERSION, VALIDATOR_VERSION]).toEqual(["v7", "1.0.0", "v1"]);
+		expect([PROMPT_VERSION, AGENT_VERSION, VALIDATOR_VERSION]).toEqual(["v8", "1.1.0", "v1"]);
 		expect(definition.tools).toEqual(["search_sources", "fetch_source"]);
 		expect(Object.keys(researchServerSchema)).toContain(definition.model.env);
 		for (const flag of definition.flags) expect(Object.keys(researchServerSchema)).toContain(flag);

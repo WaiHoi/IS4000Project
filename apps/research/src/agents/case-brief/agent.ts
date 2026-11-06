@@ -24,6 +24,7 @@ import { createFetchSourceTool } from "./tools/fetch-source.js";
 import { createSearchSourcesTool } from "./tools/search-sources.js";
 import type { BriefToolRuntime, FetchedEvidence, TavilySearchHitLite } from "./tool-runtime.js";
 import { validateFinalUrl } from "../../urls.js";
+import { registrableDomain } from "../../sources.js";
 
 export type { FetchedEvidence } from "./tool-runtime.js";
 export { AgentTimeoutError, ModelUnavailableError } from "./errors.js";
@@ -73,6 +74,26 @@ export interface AgentRunner {
 // ponytail: ceiling rates ~1000x above the POC's ~$0.00016/run; a generous
 // backstop only. Replace with billed usage if OpenRouter exposes it.
 const COST_CEILING_PER_MTOK = { input: 5, output: 10 };
+
+/** Preflight candidates: the first `limit` allowlisted hits, at most one per
+ * registrable domain, so two pages can count as independent sources. */
+export function selectPreflightHits<T extends { url: string }>(
+	hits: readonly T[],
+	limit: number,
+): Array<{ hit: T; finalUrl: string }> {
+	const picked: Array<{ hit: T; finalUrl: string }> = [];
+	const domains = new Set<string>();
+	for (const hit of hits) {
+		if (picked.length >= limit) break;
+		const verdict = validateFinalUrl(hit.url);
+		if (!verdict.ok) continue;
+		const domain = registrableDomain(new URL(verdict.finalUrl).hostname);
+		if (domains.has(domain)) continue;
+		domains.add(domain);
+		picked.push({ hit, finalUrl: verdict.finalUrl });
+	}
+	return picked;
+}
 
 export function projectCostUsd(inputTokens: number, outputTokens: number): number {
 	return (
@@ -157,7 +178,10 @@ export function createRealRunner(opts: {
 				publishedDate: string | null;
 				content: string;
 			}> = [];
-			const maxPreflightExtracts = Math.min(2, env.maxFetches);
+			// adverse_media takes up to two pages on distinct domains: a high-impact
+			// adverse finding needs one official or two independent sources, which a
+			// single page can rarely give. Registry keeps one page.
+			const maxPreflightExtracts = Math.min(3, env.maxFetches);
 			for (const category of ["adverse_media", "registry"] as const) {
 				if (input.signal.aborted) break;
 				try {
@@ -176,30 +200,36 @@ export function createRealRunner(opts: {
 						),
 					);
 					for (const hit of hits) seen.set(hit.url, hit);
-					if (input.signal.aborted || counters.extracts >= maxPreflightExtracts) continue;
-					const candidate = hits[0];
-					if (!candidate) continue;
-					const verdict = validateFinalUrl(candidate.url);
-					if (!verdict.ok) continue;
-					const extracted = await trackTool("fetch_source", () =>
-						tavily.extract([verdict.finalUrl]),
-					);
-					const page = extracted[0];
-					if (!page?.rawContent) continue;
-					counters.extracts += 1;
-					fetched.push({
-						requestedUrl: candidate.url,
-						returnedUrl: page.url,
-						title: candidate.title,
-						searchPublishedDate: candidate.publishedDate,
-						rawContent: page.rawContent,
-					});
-					preflight.push({
-						url: candidate.url,
-						title: candidate.title,
-						publishedDate: candidate.publishedDate,
-						content: page.rawContent.slice(0, 4_000),
-					});
+					const perCategory =
+						category === "adverse_media" ? Math.max(1, maxPreflightExtracts - 1) : 1;
+					for (const { hit: candidate, finalUrl } of selectPreflightHits(
+						hits.filter((hit) => !fetched.some((f) => f.requestedUrl === hit.url)),
+						perCategory,
+					)) {
+						if (input.signal.aborted || counters.extracts >= maxPreflightExtracts) break;
+						try {
+							const extracted = await trackTool("fetch_source", () => tavily.extract([finalUrl]));
+							const page = extracted[0];
+							if (!page?.rawContent) continue;
+							counters.extracts += 1;
+							fetched.push({
+								requestedUrl: candidate.url,
+								returnedUrl: page.url,
+								title: candidate.title,
+								searchPublishedDate: candidate.publishedDate,
+								rawContent: page.rawContent,
+							});
+							preflight.push({
+								url: candidate.url,
+								title: candidate.title,
+								publishedDate: candidate.publishedDate,
+								content: page.rawContent.slice(0, 4_000),
+							});
+						} catch {
+							// One failed extract must not cost the category its other page.
+							if (input.signal.aborted) break;
+						}
+					}
 				} catch {
 					// Preflight is best-effort; the model's tools can retry.
 					if (input.signal.aborted) break;
