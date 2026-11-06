@@ -14,6 +14,7 @@ import {
 	validateGeneratedText,
 } from "@credit/core";
 import { withTx, type Db } from "@credit/db/applications";
+import { isDocumentDerived } from "../evidence.js";
 import {
 	HttpError,
 	readJson,
@@ -735,7 +736,7 @@ export function policyExceptionRoutes(deps: PolicyExceptionRouteDeps): ServiceAp
 					422,
 				);
 			}
-			const documentDerived = loaded.bundle.items.some((item) => item.sourceType === "document");
+			const documentDerived = isDocumentDerived(loaded.bundle.items);
 			const policyValidation = validatePolicyMemoDraft(
 				validation.content,
 				loaded.context,

@@ -314,6 +314,7 @@ async function baseEvidence(input: {
 		officer: input.actor,
 		assignedToMe: input.kase.assignedToMe,
 		documentsEnabled: input.runtime.documentsEnabled,
+		fraudReviewEnabled: input.runtime.fraudReviewEnabled,
 		now: input.now,
 		pinned: { ...input.pinned, snapshot: undefined },
 		research: {

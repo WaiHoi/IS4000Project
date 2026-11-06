@@ -132,6 +132,13 @@ evaluation merges signal codes/document refs and keeps the higher severity.
   Everyone else gets a non-leaking 404. While a run is `queued`/`running` the
   UI shows "Integrity brief in progress" and keeps polling; a `failed` or
   missing brief never blocks resolution.
+- Assist evidence (memo, policy exception): the newest unredacted review's
+  status and severity become the `fraudReview.status` case fact, behind the
+  same document gates (assigned officer, documents on) plus
+  `FRAUD_REVIEW_ENABLED`. The brief text never enters it. The memo's risks
+  section keeps a neutral claim for `open`/`needs_info`/`confirmed`
+  ([agentic-memo.md](agentic-memo.md#tone-rewrite)); artifacts citing it
+  are document-derived.
 - `GET .../resolution-draft` returns a server-composed draft note (signals +
   brief summary, first 5 citations) that the assigned officer edits; there is
   no auto-resolution.

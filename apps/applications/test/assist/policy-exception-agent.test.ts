@@ -20,6 +20,7 @@ import {
 	type PolicyExceptionAgentRunner,
 	type PolicyExceptionAgentRunResult,
 	type PolicySectionDelivery,
+	buildInitialPrompt,
 } from "../../src/agents/policy-exception/index.js";
 
 const APP_ID = "55555555-5555-4555-8555-555555555555";
@@ -818,5 +819,44 @@ describe("runPolicyExceptionAgent", () => {
 			(second.payload as { query: string }).query,
 		);
 		expect(first.policySections.length).toBeGreaterThan(0);
+	});
+});
+
+describe("follow-up prompt PII scrub", () => {
+	const caseFact = (field: string, content: string) => ({
+		ref: `case_fact:11111111-1111-4111-8111-111111111111:${field}`,
+		sourceType: "case_fact" as const,
+		label: field,
+		content,
+		access: { retentionUntil: null, legalHold: false },
+		metadata: { field },
+	});
+	const context = {
+		applicationId: "11111111-1111-4111-8111-111111111111",
+		applicationKind: "sme",
+		outcome: "refer",
+		failedRules: [],
+		unmappedRuleIds: [],
+	} as unknown as Parameters<typeof buildInitialPrompt>[1];
+
+	it("scrubs case identities but not the fraud-review status word", () => {
+		const prompt = buildInitialPrompt(
+			"followup",
+			context,
+			"What open items remain for Acme Widgets Pte Ltd?",
+			{
+				applicationId: context.applicationId,
+				generatedAt: "2026-07-01T00:00:00.000Z",
+				items: [
+					caseFact("companyName", "Acme Widgets Pte Ltd"),
+					caseFact("fraudReview.status", "open"),
+				],
+				unavailable: [],
+			} as unknown as Parameters<typeof buildInitialPrompt>[3],
+			[],
+		);
+		const question = prompt.slice(prompt.indexOf("Officer question:"));
+		expect(question).toContain("What open items remain");
+		expect(question).not.toContain("Acme Widgets Pte Ltd");
 	});
 });

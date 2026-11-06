@@ -47,7 +47,10 @@ The agent also receives a deterministic `BASE SECTIONS` payload for `request`,
 those sentences for natural bank-memo prose, but code accepts the rewrite only
 when every numeric token, currency token, citation ref, and `secured`/`unsecured`
 meaning matches the base. Any mismatch falls back to the code-built text. The
-`policy_compliance` section is never model-rewritten.
+`policy_compliance` section is never model-rewritten. An open fraud review
+(the `fraudReview.status` case fact, assigned officers only) is code-owned too:
+when the agent's `risks` section does not cite it, code prepends the built,
+neutrally worded claim.
 
 ## Pipeline
 

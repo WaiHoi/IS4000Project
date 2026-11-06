@@ -30,7 +30,11 @@ import {
 import { evidenceBundleSchema } from "@credit/core";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assembleCaseEvidence, type EvidenceDeps } from "../../src/assist/evidence.js";
+import {
+	assembleCaseEvidence,
+	isDocumentDerived,
+	type EvidenceDeps,
+} from "../../src/assist/evidence.js";
 
 process.env.LOG_LEVEL ??= "silent";
 
@@ -417,6 +421,50 @@ describe("assembleCaseEvidence", () => {
 			),
 		).toBe(true);
 		expect(bundle.items.some((item) => item.sourceType === "case_fact")).toBe(true);
+	});
+
+	it("cites the latest fraud review as a document-gated case fact", async () => {
+		const app = seeded.application;
+		await db.insert(fraudReviews).values({
+			applicationId: app.id,
+			reasonCode: "crosscheck_mismatch",
+			severity: "high",
+			sourceHash: `src-${randomUUID()}`,
+			createdBy: randomUUID(),
+			retentionUntil: new Date("2033-07-01T00:00:00Z"),
+		});
+		try {
+			const bundle = await assembleCaseEvidence(depsFor(app, seeded, { fraudReviewEnabled: true }));
+			expect(evidenceBundleSchema.safeParse(bundle).success).toBe(true);
+			const fact = bundle.items.find((entry) => entry.metadata["field"] === "fraudReview.status");
+			expect(fact?.content).toBe("open");
+			expect(fact?.metadata["severity"]).toBe("high");
+			// The fact alone marks content document-derived (unassigned officers never see it).
+			expect(isDocumentDerived([fact!])).toBe(true);
+			for (const over of [
+				{ fraudReviewEnabled: true, assignedToMe: false },
+				{ fraudReviewEnabled: true, documentsEnabled: false },
+				{ fraudReviewEnabled: false },
+				{ fraudReviewEnabled: true, now: new Date("2034-01-01T00:00:00Z") },
+			]) {
+				const hidden = await assembleCaseEvidence(depsFor(app, seeded, over));
+				expect(hidden.items.some((entry) => entry.metadata["field"] === "fraudReview.status")).toBe(
+					false,
+				);
+			}
+			await db
+				.update(fraudReviews)
+				.set({ redactedAt: NOW })
+				.where(eq(fraudReviews.applicationId, app.id));
+			const redacted = await assembleCaseEvidence(
+				depsFor(app, seeded, { fraudReviewEnabled: true }),
+			);
+			expect(redacted.items.some((entry) => entry.metadata["field"] === "fraudReview.status")).toBe(
+				false,
+			);
+		} finally {
+			await db.delete(fraudReviews).where(eq(fraudReviews.applicationId, app.id));
+		}
 	});
 
 	it("marks documents unavailable when the feature is off", async () => {

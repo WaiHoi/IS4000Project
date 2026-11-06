@@ -15,6 +15,7 @@ import {
 	applications,
 	decisions,
 	documentCrosschecks,
+	fraudReviews,
 	documentFiles,
 	documentFindings,
 	documentLegalHolds,
@@ -41,6 +42,8 @@ export interface EvidenceDeps {
 	officer: AssistActor;
 	assignedToMe: boolean;
 	documentsEnabled: boolean;
+	/** Fraud-review flag; the review fact is cited only when it is on. */
+	fraudReviewEnabled?: boolean;
 	now: Date;
 	pinned?: EvidencePinned;
 	research: {
@@ -49,6 +52,16 @@ export interface EvidenceDeps {
 		timeoutMs: number;
 		fetchImpl?: typeof fetch;
 	};
+}
+
+const FRAUD_REVIEW_FIELD = "fraudReview.status";
+
+/** Content built from these items needs document access: document items and
+ * the document fraud-review fact. Drives `documentDerived` on artifacts. */
+export function isDocumentDerived(items: readonly EvidenceItem[]): boolean {
+	return items.some(
+		(item) => item.sourceType === "document" || item.ref.endsWith(`:${FRAUD_REVIEW_FIELD}`),
+	);
 }
 
 export async function assembleCaseEvidence(deps: EvidenceDeps): Promise<EvidenceBundle> {
@@ -544,6 +557,31 @@ function documentRef(fileId: string): string {
 	});
 }
 
+/** The latest document fraud review as a deterministic case fact: status and
+ * severity only. The integrity agent's brief text is never memo evidence.
+ * Called behind the same document gates as the documents themselves. */
+async function addFraudReviewFact(
+	db: Db,
+	application: typeof applications.$inferSelect,
+	items: EvidenceItem[],
+	now: Date,
+): Promise<void> {
+	const [row] = await db
+		.select({
+			status: fraudReviews.status,
+			severity: fraudReviews.severity,
+			retentionUntil: fraudReviews.retentionUntil,
+			redactedAt: fraudReviews.redactedAt,
+		})
+		.from(fraudReviews)
+		.where(eq(fraudReviews.applicationId, application.id))
+		.orderBy(desc(fraudReviews.createdAt), desc(fraudReviews.id))
+		.limit(1);
+	if (!row || row.redactedAt !== null || row.retentionUntil <= now) return;
+	const item = caseFact(application.id, FRAUD_REVIEW_FIELD, row.status, "Fraud review status");
+	if (item) items.push({ ...item, metadata: { ...item.metadata, severity: row.severity } });
+}
+
 async function addDocuments(
 	deps: EvidenceDeps,
 	items: EvidenceItem[],
@@ -568,6 +606,7 @@ async function addDocuments(
 		});
 		return;
 	}
+	if (deps.fraudReviewEnabled) await addFraudReviewFact(db, application, items, now);
 	const files = await db
 		.select()
 		.from(documentFiles)

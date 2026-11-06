@@ -12,7 +12,7 @@ import { evidenceHash } from "../agents/shared/trace.js";
 import type { AssistActor } from "./access.js";
 import { createArtifact, findArtifactByEvidence, listArtifacts } from "./artifacts.js";
 import type { CreateArtifactInput } from "./artifacts.js";
-import { assembleCaseEvidence } from "./evidence.js";
+import { assembleCaseEvidence, isDocumentDerived } from "./evidence.js";
 import { buildCreditMemo, composeCreditMemo } from "./memo.js";
 import type { ArtifactDto, AssistConfig, AssistRuntime, MemoAgentTrace } from "./types.js";
 
@@ -125,6 +125,7 @@ export async function draftCreditMemo(input: DraftMemoInput): Promise<DraftMemoR
 		officer: actor,
 		assignedToMe: input.assignedToMe,
 		documentsEnabled: input.documents && runtime.documentsEnabled,
+		fraudReviewEnabled: runtime.fraudReviewEnabled,
 		now: runtime.now(),
 		research: input.research
 			? {
@@ -145,7 +146,7 @@ export async function draftCreditMemo(input: DraftMemoInput): Promise<DraftMemoR
 	if (replayed && memoReplayMatches(replayed, config, writer)) {
 		return { ok: true, artifact: replayed, replayed: true };
 	}
-	const documentDerived = evidence.items.some((item) => item.sourceType === "document");
+	const documentDerived = isDocumentDerived(evidence.items);
 
 	if (writer === "agent") {
 		const memoAgentRunner = runtime.memoAgentRunner;

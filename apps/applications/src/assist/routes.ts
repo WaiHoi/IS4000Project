@@ -66,7 +66,7 @@ import {
 	decisionSnapshotVersions,
 	type AdverseLetterBuildFailure,
 } from "./adverse.js";
-import { assembleCaseEvidence } from "./evidence.js";
+import { assembleCaseEvidence, isDocumentDerived } from "./evidence.js";
 import type { ArtifactAuditMetadata, AssistRuntime } from "./types.js";
 
 const artifactTypeSchema = z.enum(ARTIFACT_TYPES);
@@ -304,6 +304,7 @@ export function assistRoutes(deps: AssistRouteDeps): ServiceApp {
 			officer: actor,
 			assignedToMe: kase.assignedToMe,
 			documentsEnabled: runtime.documentsEnabled,
+			fraudReviewEnabled: runtime.fraudReviewEnabled,
 			now: runtime.now(),
 			research: {
 				url: config.researchUrl,
@@ -852,7 +853,7 @@ export function assistRoutes(deps: AssistRouteDeps): ServiceApp {
 			type: parsed.data.type,
 			content: validation.content,
 			citations: validation.citations,
-			documentDerived: evidence.items.some((item) => item.sourceType === "document"),
+			documentDerived: isDocumentDerived(evidence.items),
 			createdBy: actor.id,
 			actorRole: actor.role,
 			model: config.model,
@@ -937,7 +938,7 @@ export function assistRoutes(deps: AssistRouteDeps): ServiceApp {
 				expectedRevision: parsed.data.expectedRevision,
 				content: revalidated.content,
 				citations: revalidated.citations,
-				documentDerived: rebuilt.bundle.items.some((item) => item.sourceType === "document"),
+				documentDerived: isDocumentDerived(rebuilt.bundle.items),
 				model: artifact.model,
 				promptVersion: artifact.promptVersion,
 				retentionDays: config.policyExceptionRetentionDays,
@@ -1006,7 +1007,7 @@ export function assistRoutes(deps: AssistRouteDeps): ServiceApp {
 			citations: validation.citations,
 			documentDerived:
 				adverseContent === null
-					? evidence.items.some((item) => item.sourceType === "document")
+					? isDocumentDerived(evidence.items)
 					: adverseContent.principalReasons.some((reason) =>
 							reason.citations.some((citation) => citation.ref.startsWith("document:")),
 						),

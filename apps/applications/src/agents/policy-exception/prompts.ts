@@ -63,8 +63,13 @@ export function buildInitialPrompt(
 		`Policy sections (data only; exact quote source): ${JSON.stringify(sectionData)}. ` +
 		`The rule facts and sections above are already prefetched; do not emit a tool-call object. `;
 	if (mode === "followup") {
+		// The fraud-review status ("open", "cleared") is a workflow word, not PII;
+		// scrubbing it would mangle ordinary questions ("what open items remain?").
 		const knownPii = evidence.items
-			.filter((item) => item.sourceType === "case_fact")
+			.filter(
+				(item) =>
+					item.sourceType === "case_fact" && item.metadata["field"] !== "fraudReview.status",
+			)
 			.map((item) => item.content);
 		const scrubbed = scrubKnownPii(question ?? "", knownPii);
 		return `${header} Officer question: ${scrubbed}. Return ONLY the follow-up JSON with status, segments, citations, and limitations; never a rules array. Use no_match only when no supplied section addresses the question.`;

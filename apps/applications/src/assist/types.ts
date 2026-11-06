@@ -61,6 +61,8 @@ export type ArtifactAuditMetadata = Record<string, string | number | boolean | s
 export interface AssistRuntime {
 	config: AssistConfig;
 	documentsEnabled: boolean;
+	/** Document fraud-review flag (integrity); gates the review fact in evidence. */
+	fraudReviewEnabled?: boolean;
 	/** Test seam; production uses the wall clock. */
 	now: () => Date;
 	researchFetchImpl?: typeof fetch;

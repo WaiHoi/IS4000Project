@@ -129,6 +129,8 @@ export function createApp(deps: ApplicationsDeps): ServiceApp {
 	const assistRuntime = {
 		config: { ...deps.env.assist, ...deps.assist?.config },
 		documentsEnabled: documentConfig.featureEnabled,
+		fraudReviewEnabled:
+			deps.integrity?.config?.fraudReviewEnabled ?? deps.env.integrity.fraudReviewEnabled,
 		memoAgentRunner: deps.assist?.memoAgentRunner,
 		policyClient: deps.assist?.policyClient,
 		policyExceptionAgentRunner: deps.assist?.policyExceptionAgentRunner,

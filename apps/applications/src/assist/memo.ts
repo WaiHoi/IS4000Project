@@ -120,6 +120,25 @@ function policyRiskText(item: EvidenceItem): string {
 	return POLICY_RISK_FALLBACK;
 }
 
+/** Neutral wording: names the review, never asserts fraud (EN-03). A cleared
+ * review is not a risk. */
+export function fraudReviewRiskText(status: string, severity: string | null): string | null {
+	const level =
+		severity === "low" || severity === "medium" || severity === "high"
+			? `${severity}-severity `
+			: "";
+	switch (status) {
+		case "open":
+			return `A ${level}document fraud review is open on this case.`;
+		case "needs_info":
+			return `A ${level}document fraud review is awaiting information on this case.`;
+		case "confirmed":
+			return `A ${level}document fraud review on this case was closed with a confirmed finding.`;
+		default:
+			return null;
+	}
+}
+
 function parseScoreCode(ref: string): string | null {
 	const parsed = parseSourceRef(ref);
 	return parsed !== null && parsed.type === "score_reason" ? parsed.code : null;
@@ -416,6 +435,12 @@ function buildRisks(items: Map<string, EvidenceItem>): SectionClaim[] {
 						: "A document consistency check recorded a mismatch for the record.",
 				),
 			});
+		} else if (
+			item.sourceType === "case_fact" &&
+			asText(item.metadata["field"]) === "fraudReview.status"
+		) {
+			const text = fraudReviewRiskText(item.content, asText(item.metadata["severity"]));
+			if (text !== null) risks.push({ priority: 1, claim: claimFor(item, text) });
 		} else if (item.sourceType === "external_evidence") {
 			if (asText(item.metadata["reviewStatus"]) === "rejected") continue;
 			risks.push({
@@ -520,6 +545,18 @@ export function styleRewriteIsSafe(agent: MemoSection, base: MemoSection): boole
 	return true;
 }
 
+const citesFraudReview = (claim: SectionClaim): boolean =>
+	claim.citations.some((citation) => citation.ref.endsWith(":fraudReview.status"));
+
+/** The agent writes `risks`, but an open fraud review is code-owned: keep the
+ * built claim when the agent's section does not cite it. */
+function withFraudReviewRisk(agent: MemoSection, base: MemoSection | undefined): MemoSection {
+	const fraud = base?.claims.find(citesFraudReview);
+	if (fraud === undefined || agent.claims.some(citesFraudReview)) return agent;
+	// Schema caps a section at 20 claims; the fraud claim outranks the last.
+	return { ...agent, notAvailable: false, claims: [fraud, ...agent.claims].slice(0, 20) };
+}
+
 /** Rewrite the prose sections only when the agent preserved every fact;
  * policy compliance always stays code-built. */
 export function composeCreditMemo(
@@ -538,6 +575,7 @@ export function composeCreditMemo(
 		...agent,
 		sections: agent.sections.map((entry) => {
 			if (entry.key === "policy_compliance") return byKey.get(entry.key) ?? entry;
+			if (entry.key === "risks") return withFraudReviewRisk(entry, byKey.get(entry.key));
 			if (!rewrite.has(entry.key)) return entry;
 			const base = byKey.get(entry.key);
 			return base && styleRewriteIsSafe(entry, base) ? entry : (base ?? entry);

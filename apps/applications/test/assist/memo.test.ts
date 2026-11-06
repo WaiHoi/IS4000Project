@@ -2,6 +2,7 @@
 // content passes validateGeneratedText against the same evidence bundle.
 import { describe, expect, it } from "vitest";
 import {
+	containsDefinitiveFraudLanguage,
 	hashQuote,
 	validateGeneratedText,
 	type EvidenceBundle,
@@ -9,7 +10,7 @@ import {
 	type UnavailableSource,
 } from "@credit/core";
 import type { applications } from "@credit/db/applications";
-import { buildCreditMemo, composeCreditMemo } from "../../src/assist/memo.js";
+import { buildCreditMemo, composeCreditMemo, fraudReviewRiskText } from "../../src/assist/memo.js";
 
 type ApplicationRow = typeof applications.$inferSelect;
 
@@ -399,5 +400,61 @@ describe("buildCreditMemo", () => {
 		expect(financials?.claims).toEqual([]);
 		expect(content.openItems.length).toBeGreaterThan(0);
 		expect(content.openItems.some((o) => o.code === "financials_unavailable")).toBe(true);
+	});
+});
+
+describe("fraud review risk", () => {
+	const review = (status: string): EvidenceItem =>
+		item(`case_fact:${APP_ID}:fraudReview.status`, "case_fact", "Fraud review status", status, {
+			field: "fraudReview.status",
+			severity: "high",
+		});
+
+	it("cites an open fraud review in the risks section and still validates", () => {
+		const evidence = richBundle();
+		evidence.items.push(review("open"));
+		const content = buildCreditMemo({ application: smeApp(), evidence });
+		const risks = content.sections.find((section) => section.key === "risks");
+		const claim = risks?.claims.find((entry) =>
+			entry.citations.some((c) => c.ref.endsWith("fraudReview.status")),
+		);
+		expect(claim?.text).toBe("A high-severity document fraud review is open on this case.");
+		expect(validateGeneratedText({ artifactType: "credit_memo", content, evidence }).ok).toBe(true);
+	});
+
+	it("keeps the fraud review risk when the agent's risks section drops it", () => {
+		const evidence = richBundle();
+		evidence.items.push(review("open"));
+		const built = buildCreditMemo({ application: smeApp(), evidence });
+		const agent = structuredClone(built);
+		const agentRisks = agent.sections.find((section) => section.key === "risks")!;
+		agentRisks.claims = agentRisks.claims.filter(
+			(entry) => !entry.citations.some((c) => c.ref.endsWith("fraudReview.status")),
+		);
+		const composed = composeCreditMemo(agent, built);
+		const risks = composed.sections.find((section) => section.key === "risks");
+		expect(risks?.claims[0]?.text).toBe(
+			"A high-severity document fraud review is open on this case.",
+		);
+		expect(
+			risks?.claims.filter((entry) =>
+				entry.citations.some((c) => c.ref.endsWith("fraudReview.status")),
+			),
+		).toHaveLength(1);
+		// Idempotent: an agent that already cites the review is left alone.
+		expect(composeCreditMemo(composed, built).sections).toEqual(composed.sections);
+		expect(
+			validateGeneratedText({ artifactType: "credit_memo", content: composed, evidence }).ok,
+		).toBe(true);
+	});
+
+	it("words every status neutrally and drops a cleared review", () => {
+		expect(fraudReviewRiskText("cleared", "high")).toBeNull();
+		for (const status of ["open", "needs_info", "confirmed"]) {
+			const text = fraudReviewRiskText(status, "high");
+			expect(text).not.toBeNull();
+			expect(containsDefinitiveFraudLanguage(text ?? "")).toBe(false);
+		}
+		expect(fraudReviewRiskText("open", null)).toBe("A document fraud review is open on this case.");
 	});
 });
