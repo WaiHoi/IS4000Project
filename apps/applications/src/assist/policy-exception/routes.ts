@@ -7,6 +7,7 @@
 // content never enters logs or telemetry — ids, codes, and counts only.
 import {
 	classifyPolicyScope,
+	exceptionMemoRequired,
 	hasDirectIdentifier,
 	hmacQuestion,
 	POLICY_REGISTRY_HASH,
@@ -655,6 +656,22 @@ export function policyExceptionRoutes(deps: PolicyExceptionRouteDeps): ServiceAp
 				throw new HttpError(422, "MAPPING_UNAVAILABLE", "no failed rules for this case", {
 					ruleIds: [],
 				});
+			}
+			// Referral-only cases (every rule not_applicable) carry no exception.
+			if (!exceptionMemoRequired(loaded.context.failedRules)) {
+				const ruleIds = loaded.context.failedRules.map((rule) => rule.ruleId);
+				await auditGenerateBlocked({
+					applicationId,
+					actor,
+					failureCode: "NO_EXCEPTION_REQUIRED",
+					issueCodes: ruleIds,
+				}).catch(() => {});
+				throw new HttpError(
+					422,
+					"NO_EXCEPTION_REQUIRED",
+					"every failed rule is a refer trigger; no exception memo is needed",
+					{ ruleIds },
+				);
 			}
 			if (loaded.sourceStatus === "unavailable") {
 				await auditGenerateBlocked({

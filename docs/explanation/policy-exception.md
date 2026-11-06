@@ -50,6 +50,9 @@ mitigant mentions are checked against the deterministic path and the case
 policy catalog.
 
 Fail-closed typed outcomes: `MAPPING_UNAVAILABLE` (no fabricated path),
+`NO_EXCEPTION_REQUIRED` (memo draft, edit, and approve: every failed rule is a
+refer trigger, so there is no exception to document; `exceptionMemoRequired` in
+the registry; the Policy tab shows "Referred, not an exception" and no memo),
 `POLICY_SOURCE_UNAVAILABLE` (policy service down), `POLICY_EXCEPTION_INVALID`
 (validation fails after repair). Cross-case, identifier, and out-of-scope
 follow-ups refuse without a model call.

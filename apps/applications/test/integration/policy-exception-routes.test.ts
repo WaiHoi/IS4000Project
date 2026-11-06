@@ -293,6 +293,7 @@ let service: TestUser;
 let appId: string;
 let unmappedAppId: string;
 let terminalAppId: string;
+let referralAppId: string;
 
 async function seedApp(
 	status: "pending_review" | "declined",
@@ -434,6 +435,11 @@ beforeAll(async () => {
 	unmappedAppId = await seedApp("pending_review", "sme_term_loan", 1_000_000);
 	await seedEvaluation(unmappedAppId, "decline", [{ code: "BANKRUPTCY_FLAG" }], SME_CLEAN_INPUTS);
 	terminalAppId = await seedApp("declined", "personal_loan", 1_200_000);
+	referralAppId = await seedApp("pending_review", "sme_term_loan", 6_000_000);
+	await seedEvaluation(referralAppId, "refer", [{ code: "AMOUNT_ABOVE_AUTO_LIMIT" }], {
+		...SME_CLEAN_INPUTS,
+		amountCents: 6_000_000,
+	});
 
 	await ctx.db.insert(caseAccessGrants).values({
 		applicationId: appId,
@@ -692,6 +698,67 @@ describe("memo draft, replay, edit, approve", () => {
 		expect(res.status).toBe(409);
 		expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
 			"ARTIFACT_IMMUTABLE",
+		);
+	});
+
+	it("refuses an exception memo for a referral-only case", async () => {
+		const res = await call(
+			ctx,
+			"POST",
+			`/api/assist/cases/${referralAppId}/policy-exception/memo`,
+			officer,
+			{},
+		);
+		expect(res.status).toBe(422);
+		const body = (await res.json()) as { error: { code: string; fields?: { ruleIds?: string[] } } };
+		expect(body.error.code).toBe("NO_EXCEPTION_REQUIRED");
+		expect(body.error.fields?.ruleIds).toEqual(["SME-AMOUNT-AUTO"]);
+		const audits = await ctx.db
+			.select()
+			.from(auditLog)
+			.where(eq(auditLog.applicationId, referralAppId));
+		const blocked = audits.filter((row) => row.action === "policy_exception.generate_blocked");
+		expect(blocked.length).toBeGreaterThan(0);
+		expect(blocked.map((row) => (row.payload as Record<string, unknown>)["failureCode"])).toContain(
+			"NO_EXCEPTION_REQUIRED",
+		);
+		expect(audits.some((row) => row.action === "artifact.created")).toBe(false);
+	});
+
+	it("refuses to edit or approve a stale exception memo on a referral-only case", async () => {
+		const stale = await createArtifact(ctx.db, {
+			applicationId: referralAppId,
+			type: "policy_exception_memo",
+			content: {
+				title: "t",
+				sections: [],
+				openItems: [],
+				rules: [],
+				regularisationPlanMonths: null,
+			},
+			citations: [],
+			documentDerived: false,
+			createdBy: officer.id,
+			model: "test-model",
+			promptVersion: "policy-exception-v1",
+			retentionDays: 2555,
+			auditFeature: "policy_exception",
+		});
+		const approve = await call(ctx, "POST", `/api/assist/artifacts/${stale.id}/approve`, officer, {
+			expectedRevision: stale.revision,
+			confirm: true,
+		});
+		expect(approve.status).toBe(422);
+		expect(((await approve.json()) as { error: { code: string } }).error.code).toBe(
+			"NO_EXCEPTION_REQUIRED",
+		);
+		const edit = await call(ctx, "PATCH", `/api/assist/artifacts/${stale.id}`, officer, {
+			expectedRevision: stale.revision,
+			content: stale.content,
+		});
+		expect(edit.status).toBe(422);
+		expect(((await edit.json()) as { error: { code: string } }).error.code).toBe(
+			"NO_EXCEPTION_REQUIRED",
 		);
 	});
 

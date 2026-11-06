@@ -697,6 +697,24 @@ Artifact bodies are type-specific and strict. Validation failure returns `422`
 `VERSION_CONFLICT`, a live draft already exists `409` `DRAFT_EXISTS`, and a
 terminal artifact `409` `ARTIFACT_IMMUTABLE`.
 
+### Policy exception (EN-06 / EN-07)
+
+Behind `ASSIST_POLICY_EXCEPTION_ENABLED` (off is an opaque 404). Officer only.
+
+| Method and path                                         | Purpose                                                      |
+| ------------------------------------------------------- | ------------------------------------------------------------ |
+| `GET /api/assist/cases/:id/policy-exception`            | Deterministic rule context, exception paths, section catalog |
+| `POST /api/assist/cases/:id/policy-exception/explain`   | Cited explanation of the failed rules                        |
+| `POST /api/assist/cases/:id/policy-exception/followups` | Case-scoped follow-up question                               |
+| `POST /api/assist/cases/:id/policy-exception/memo`      | Draft a `policy_exception_memo` (pending_review only)        |
+
+Typed failures: `422 MAPPING_UNAVAILABLE` (no mapped failed rule),
+`422 NO_EXCEPTION_REQUIRED` (memo draft, and `PATCH`/`approve` of an existing
+policy memo: every failed rule is a refer trigger, which POL-CR-009 9.4 says is
+not an exception; `fields.ruleIds` lists them),
+`503 POLICY_SOURCE_UNAVAILABLE`, and `422 POLICY_EXCEPTION_INVALID` (output
+failed validation after repair).
+
 ### Adverse action (EN-08 / E4)
 
 Officer only. `POST /api/assist/cases/:id/adverse-action` builds a

@@ -671,6 +671,15 @@ export interface ResolveExceptionInput {
 	tradingSecured?: boolean;
 }
 
+/** POL-CR-009 9.4: refer and informational triggers are not exceptions. A
+ * policy-exception memo is needed only when some failed rule has an
+ * exception route other than not_applicable. */
+export function exceptionMemoRequired(
+	rules: ReadonlyArray<{ exception: { state: ExceptionState } }>,
+): boolean {
+	return rules.some((rule) => rule.exception.state !== "not_applicable");
+}
+
 export function resolveExceptionPath(input: ResolveExceptionInput): PolicyExceptionPath {
 	const { definition } = input;
 	const standard = standardApproverForAmount(input.amountCents);

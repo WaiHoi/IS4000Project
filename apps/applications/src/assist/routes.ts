@@ -22,6 +22,7 @@ import {
 	type ArtifactType,
 	type CitationRecord,
 	type ValidationIssue,
+	exceptionMemoRequired,
 } from "@credit/core";
 import {
 	HttpError,
@@ -495,6 +496,16 @@ export function assistRoutes(deps: AssistRouteDeps): ServiceApp {
 				503,
 				"POLICY_SOURCE_UNAVAILABLE",
 				"the policy source is unavailable for revalidation",
+			);
+		}
+		// A draft made before the referral-only gate must not become an
+		// approved exception memo for a case with no exception (POL-CR-009 9.4).
+		if (!exceptionMemoRequired(rebuilt.context.failedRules)) {
+			throw new HttpError(
+				422,
+				"NO_EXCEPTION_REQUIRED",
+				"every failed rule is a refer trigger; no exception memo is needed",
+				{ ruleIds: rebuilt.context.failedRules.map((rule) => rule.ruleId) },
 			);
 		}
 		return rebuilt;

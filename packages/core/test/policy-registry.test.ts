@@ -4,6 +4,7 @@ import {
 	POLICY_REGISTRY_HASH,
 	POLICY_RULE_DEFINITIONS,
 	computedPolicyRegistryHash,
+	exceptionMemoRequired,
 	registryCoverage,
 	resolveExceptionPath,
 	ruleDefinitionFor,
@@ -339,5 +340,36 @@ describe("explainPolicyRules", () => {
 		expect(sector?.effect).toBe("informational");
 		expect(sector?.persisted).toBe(false);
 		expect(sector?.evaluated).toBe(true);
+	});
+});
+
+describe("exceptionMemoRequired", () => {
+	const rule = (
+		state: Parameters<typeof exceptionMemoRequired>[0][number]["exception"]["state"],
+	) => ({
+		exception: { state },
+	});
+	it("is false when every failed rule is a refer trigger (POL-CR-009 9.4)", () => {
+		expect(exceptionMemoRequired([rule("not_applicable")])).toBe(false);
+		expect(exceptionMemoRequired([rule("not_applicable"), rule("not_applicable")])).toBe(false);
+		expect(exceptionMemoRequired([])).toBe(false);
+	});
+	it("is true when any failed rule has another exception route", () => {
+		expect(exceptionMemoRequired([rule("not_applicable"), rule("allowed")])).toBe(true);
+		expect(exceptionMemoRequired([rule("prohibited")])).toBe(true);
+		expect(exceptionMemoRequired([rule("structural_remedy")])).toBe(true);
+		expect(exceptionMemoRequired([rule("mapping_unavailable")])).toBe(true);
+	});
+	it("classifies the SME auto-limit referral as not_applicable", () => {
+		const definition = ruleDefinitionFor("AMOUNT_ABOVE_AUTO_LIMIT", "sme");
+		expect(definition?.ruleId).toBe("SME-AMOUNT-AUTO");
+		const path = resolveExceptionPath({
+			definition: definition!,
+			observedValue: 6_000_000,
+			amountCents: 6_000_000,
+			failedRuleCount: 0,
+			securedQualifying: false,
+		});
+		expect(exceptionMemoRequired([{ exception: path }])).toBe(false);
 	});
 });
