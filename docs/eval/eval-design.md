@@ -235,17 +235,17 @@ a supported capability.
 
 | Feature                                          | Archetype                                | Dataset                                                   | Command                                                    | Status                                                                     |
 | ------------------------------------------------ | ---------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Policy navigator (`apps/policy`)                 | Retrieval-augmented answer               | `apps/policy/eval/answer-cases.json` (43 cases)           | `pnpm --filter @credit/policy eval:answers`                | passing: held-out 12/14 pass^3, 20-label judge calibration (0.85); model comparison Terra best (`ANSWER-MODELS-RESULTS.md`) |
+| Policy navigator (`apps/policy`)                 | Retrieval-augmented answer               | `apps/policy/eval/answer-cases.json` (45 cases)           | `pnpm --filter @credit/policy eval:answers`                | passing: held-out 12/14 pass^3, 20-label judge calibration (0.85); model comparison Terra best (`ANSWER-MODELS-RESULTS.md`) |
 | Case policy review (`apps/policy` explain-case)   | Explain/classify                         | 22 structured contexts in `apps/policy/eval/case-review-eval.ts` | `pnpm --filter @credit/policy eval:case-review`            | passing: Sol 22/22 pass^2, Terra 20/22; coverage ~0.70; see `CASE-REVIEW-RESULTS.md` |
-| External case brief (`apps/research`)            | Tool-using research                      | 20 fixture cases in `apps/research/eval/brief-eval.ts`     | `pnpm --filter @credit/research eval:brief`                | passing: 20/20 pass^3; 20-label judge calibration (0.95); Terra high pinned, matches Sol (`reasoning-effort-2026-11-02.md`) |
-| Context analyst (`apps/research`)                | Structured extraction/selection          | 30 window cases + 7 independent-customer cases in `eval/context-models-cases.json` | `pnpm --filter @credit/research eval:context` / `eval:context-models` | saturated: Terra/Sol 37/37 pass^3; model comparison Terra best (`CONTEXT-MODELS-RESULTS.md`) |
+| External case brief (`apps/research`)            | Tool-using research                      | 22 fixture cases in `apps/research/eval/brief-eval.ts`     | `pnpm --filter @credit/research eval:brief`                | passing: 22/22 pass^3 (incl. two UBS demo cases, v8); 20-label judge calibration (0.95); Terra high pinned, matches Sol (`reasoning-effort-2026-11-02.md`) |
+| Context analyst (`apps/research`)                | Structured extraction/selection          | 31 window cases (incl. Envy demo) + 7 independent-customer cases in `eval/context-models-cases.json` | `pnpm --filter @credit/research eval:context` / `eval:context-models` | saturated: Terra/Sol 37/37 pass^3; model comparison Terra best (`CONTEXT-MODELS-RESULTS.md`) |
 | Advisory-only invariant                          | System invariant                         | same approval with/without advisory bundle                 | `pnpm --filter @credit/worker test -- refer`               | covered at workflow level: score, policy, terms, booking identical; full HTTP e2e remains open |
 | Case-assist validator (`apps/applications`)      | Pure gate/classifier                     | 27 code-defined cases in `eval/assist-eval.ts`            | `pnpm --filter @credit/applications eval:assist`           | passing: 27/27 at pass^3, 0 unsafe pass-through                            |
 | Adverse-action letter (`apps/applications`)      | Pure gate/classifier                     | 19 code-defined cases in `eval/adverse-eval.ts`           | `pnpm --filter @credit/applications eval:adverse`          | passing: 19/19 at pass^3, 0 unsafe pass-through                            |
 | Document integrity (`apps/applications`)         | Explain/classify + structured extraction | `apps/applications/eval/integrity-cases.json` (35)        | `pnpm --filter @credit/applications eval:integrity`        | passing: dev 19/19, held-out 15/16 at pass^3; Sol 34/35 full suite, 0 safety (`INTEGRITY-MODELS-RESULTS.md`) |
 | Policy exception navigator (`apps/applications`) | Explain/classify                         | `apps/applications/eval/policy-exception-cases.json` (28) | `pnpm --filter @credit/applications eval:policy-exception` | passing: Terra 27/28 pass^3, structural/semantic 1.0, 0 safety, calibration 0.90; one bounded-residual held-out failure (`POLICY-EXCEPTION-MODELS-RESULTS.md`) |
-| Credit memo (live) (`apps/applications`)          | Bounded tool loop                        | 22 evidence bundles in `eval/memo-live-eval.ts`            | `pnpm --filter @credit/applications eval:memo-live`        | historical Sol 22/22 on prompt v1; prompt v5 two-case subset 2/2, judge G/C/A 3/3/4 and 3/4/4; full rerun pending (`MEMO-LIVE-RESULTS.md`) |
-| Case assistant (`apps/research`)                 | Bounded tool loop (case Q&A)        | 20 questions x 5 eval-owned customers in `eval/case-assistant-eval.ts` | `pnpm --filter @credit/research eval:case-assistant` | passing: Terra 20/20 pass^3, code gates, no PII/injection hits (`CASE-ASSISTANT-MODELS-RESULTS.md`) |
+| Credit memo (live) (`apps/applications`)          | Bounded tool loop                        | 22 evidence bundles in `eval/memo-live-eval.ts`            | `pnpm --filter @credit/applications eval:memo-live`        | Sol 42/44, 21/22 pass^2 on prompt v5 + composer, judge G/C/A 4.17/4.33/3.44; `no-evidence` fails closed (`MEMO-LIVE-RESULTS.md`) |
+| Case assistant (`apps/research`)                 | Bounded tool loop (case Q&A)        | 22 questions (2 multi-turn) x 5 eval-owned customers in `eval/case-assistant-eval.ts` | `pnpm --filter @credit/research eval:case-assistant` | passing: Terra 20/20 pass^3, code gates, no PII/injection hits (`CASE-ASSISTANT-MODELS-RESULTS.md`) |
 | Future feature                                   | Pick §1.2                                | `apps/<app>/eval/cases.json`                              | `pnpm --filter @credit/<app> eval:<feature>`               | required                                                                   |
 
 Update the status column to `baseline`, `passing`, `saturated`, or
@@ -343,7 +343,7 @@ Rules:
 
 This is the most visible AI feature and the easiest to grade well.
 
-Dataset, 43 cases (29 dev, 14 held-out): 28 answerable, 3 adversarial,
+Dataset, 45 cases (31 dev, 14 held-out; two dev cases are the UBS demo questions): 30 answerable, 3 adversarial,
 4 unanswerable, 4 ambiguous, 2 out-of-scope, 2 identifier.
 
 - 24 answerable, across underwriting, affordability, documentation, pricing,
@@ -414,7 +414,8 @@ adverse-only, clean, ambiguous name/city collision, individual, no-hit,
 low-tier-only, long page, multi-adverse, conflicting registry, stale registry,
 and boundary as-of. One fixture client per case so a search cannot leak another
 case's pages. The 17 fixtures added since the original three were authored after
-prompt `v7` and are held-out by construction.
+prompt `v7` and are held-out by construction for v7; the two UBS demo cases
+(Envy, BreadTalk) were authored with prompt `v8` and are in-sample.
 
 Metrics: schema pass, quote verification rate, evidence per finding,
 independent source count, official/registry source linked to the finding,

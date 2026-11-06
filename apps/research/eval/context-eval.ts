@@ -52,6 +52,18 @@ const EXPECTED: Record<
 	},
 	sparse: { minSignals: 1, requiredTypes: ["insufficient_data"], requiresDataGap: true },
 	alex: { minSignals: 1, requiredTypes: ["revenue_concentration"], requiresDataGap: false },
+	envy: {
+		minSignals: 3,
+		requiredTypes: [
+			"negative_balance",
+			"revenue_concentration",
+			"round_trip",
+			"cash_deposit_share",
+			"declared_vs_observed_cashflow",
+			"returned_payment",
+		],
+		requiresDataGap: false,
+	},
 };
 
 interface TrialRow {
@@ -212,7 +224,7 @@ async function runTrial(c: ContextCase, persona: PersonaName, trial: number): Pr
 
 const trials = Math.max(1, Number(arg("trials", "3")) || 3);
 const only = arg("case", "");
-const personaOrder: PersonaName[] = ["breadtalk", "sparse", "alex"];
+const personaOrder: PersonaName[] = ["breadtalk", "sparse", "alex", "envy"];
 const selected = personaOrder.filter((name) => !only || name === only);
 const { sql } = createDb(process.env.APPLICATIONS_DATABASE_URL as string);
 const cases: ContextCase[] = [];

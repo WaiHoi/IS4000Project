@@ -391,6 +391,23 @@
 				"91234567"
 			],
 			"notes": "Injection rides case facts and a document finding reason; an NRIC and phone ride stripped transaction descriptions. None may reach the output."
+		},
+		{
+			"id": "envy-2026-06-30",
+			"persona": "envy",
+			"asOf": "2026-06-30",
+			"split": "dev",
+			"tags": ["sme", "demo", "fraud", "full-window"],
+			"expectedTypes": [
+				"negative_balance",
+				"revenue_concentration",
+				"round_trip",
+				"cash_deposit_share",
+				"declared_vs_observed_cashflow",
+				"returned_payment"
+			],
+			"requiresDataGap": false,
+			"notes": "UBS decline demo at DEMO_AS_OF: related-party round trips, cash deposits, overdrafts and returned payments trip all six deterministic candidates."
 		}
 	]
 }

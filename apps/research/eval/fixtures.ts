@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { createDb } from "@credit/db/applications";
 
-export type PersonaName = "breadtalk" | "alex" | "sparse";
+export type PersonaName = "breadtalk" | "alex" | "sparse" | "envy";
 
 export interface ContextCase {
 	name: string;
@@ -78,6 +78,16 @@ export const personas: Record<
 			bankRelationshipYears: 1,
 		},
 		keywords: ["insufficient", "no account", "no transaction", "unavailable", "sparse", "missing"],
+	},
+	// Envy (UBS decline demo): the seeded transactions trip all six candidate signals.
+	envy: {
+		email: "envy@example.com",
+		type: "sme",
+		product: "sme_term_loan",
+		amountCents: 8_000_000,
+		termMonths: 36,
+		financial: null,
+		keywords: ["related", "round", "cash", "overdraft", "returned", "declared", "concentration"],
 	},
 };
 

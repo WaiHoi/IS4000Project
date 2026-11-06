@@ -23,9 +23,9 @@ the earlier six-model sweeps.
 | Context analyst     |       37 | Terra (low) |  1.000 |  37/37 | $1.337 | [model comparison](research/CONTEXT-MODELS-RESULTS.md)              |
 | Policy navigator    |       43 | Terra (medium) |  0.907 |  35/43 | $0.318 | [model comparison](policy/ANSWER-MODELS-RESULTS.md)                 |
 | Document integrity  |       35 | Sol (low) |  0.990 |  34/35 | $0.539 | [model comparison](applications/INTEGRITY-MODELS-RESULTS.md)        |
-| External case brief |       20 | Terra (high) |  1.000 |  20/20 | $1.684 | [model comparison](research/BRIEF-MODELS-RESULTS.md)                |
+| External case brief |       22 | Terra (high) |  1.000 |  22/22 | $2.070 | [model comparison](research/BRIEF-MODELS-RESULTS.md)                |
 | Policy exception    |   17 dev | Terra (low) |  1.000 |  17/17 | $0.180 | [model comparison](applications/POLICY-EXCEPTION-MODELS-RESULTS.md) |
-| Credit memo (live)  |       22 | Sol (low) |  1.000 |  22/22 | $1.009 | [live report](applications/MEMO-LIVE-RESULTS.md)                    |
+| Credit memo (live)  |       22 | Sol (low) |  0.955 |  21/22 | $2.310 | [live report](applications/MEMO-LIVE-RESULTS.md)                    |
 | Case policy review  |       22 | Terra (medium) |  0.932 |  20/22 | $0.092 | [report](policy/CASE-REVIEW-RESULTS.md)                             |
 | Case assistant      |       20 | Terra (low) |  1.000 |  20/20 | $0.215 | [model comparison](research/CASE-ASSISTANT-MODELS-RESULTS.md)       |
 
@@ -35,11 +35,12 @@ held-out split was last run at medium (27/28 over 28 cases) and is not re-run
 after tuning. Costs are harness projections and differ by harness; the memo
 harness switched from a flat $1/M estimate to list prices in this sweep.
 Known residuals: one long-document integrity miss, one dual-prohibited
-exception case, ~2.6/5 memo completeness, and case-review coverage ~0.70. See
-each report's caveats. The credit-memo 22-case row predates prompt v3/v4 and
-the deterministic composer; it is historical. A two-case v5 style-rewrite
-subset passed 2/2 with judge grounding/completeness/analysis of 3/3/4 and
-3/4/4 (a third passed but the judge was unavailable); the full rerun is pending.
+exception case, the memo `no-evidence` fail-closed case, and case-review
+coverage ~0.70. See each report's caveats. The credit-memo row is the full v5
+rerun through the deterministic composer (2026-11-05; judge completeness
+4.33/5). The 2026-11-05 demo-case additions (Envy/BreadTalk brief, context,
+and navigator cases; two multi-turn case-assistant cases) are reported in each
+feature's report.
 
 ## Applications
 
@@ -62,10 +63,10 @@ subset passed 2/2 with judge grounding/completeness/analysis of 3/3/4 and
 ## Research
 
 - [External case brief](research/BRIEF-RESULTS.md) — feature eval and refresh.
-- [External case brief model comparison](research/BRIEF-MODELS-RESULTS.md) — six models, 20 fixtures, judge calibration.
+- [External case brief model comparison](research/BRIEF-MODELS-RESULTS.md) — six models, 22 fixtures (two UBS demo cases), judge calibration.
 - [Context analyst](research/CONTEXT-RESULTS.md) — feature eval and independent-customer refresh.
 - [Context analyst model comparison](research/CONTEXT-MODELS-RESULTS.md) — six models, 30 windows + 7 independent customers.
-- [Case assistant model comparison](research/CASE-ASSISTANT-MODELS-RESULTS.md) — Terra/Sol, 20 questions, five eval customers, code gates.
+- [Case assistant model comparison](research/CASE-ASSISTANT-MODELS-RESULTS.md) — Terra/Sol, 22 questions (two multi-turn), five eval customers, code gates.
 - [Tuning](TUNING-2026-10-28.md) — preflight A/Bs, prompt v7, and the P0/P1/P2 gap work.
 - [Reasoning-effort sweep](reasoning-effort-2026-11-02.md) — low/high/xhigh on Terra, Sol low fallback, current pins.
 

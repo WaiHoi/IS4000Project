@@ -108,3 +108,47 @@ a ±2-case pass^3 spread between runs at the same effort, so low and medium are
 not distinguishable here; high is slower and not better. Raw:
 `answers-2026-11-01T23-04-27-935Z.json` (medium), `…T21-45-16-448Z.json`,
 `…T22-43-53-967Z.json` (low), `…T22-15-48-166Z.json` (high).
+
+## UBS demo questions (2026-11-05)
+
+Added two dev cases with the exact navigator questions from the BreadTalk and
+Envy demos. GPT-6.1 Terra at the pinned `medium` effort, same judge and pass
+definition (status, citation, grounded, complete).
+
+| Case | Required sections | Trials | pass@1 | Status accuracy |
+|---|---|---:|---:|---:|
+| `nav-demo-envy-01` (prohibited exceptions + SME evidence) | 5.2, 4.2 | 3 | 3/3 | 3/3 |
+| `nav-demo-breadtalk-01` (is the referral an exception?) | 9.4 | 5 | 3/5 | 5/5 |
+
+The BreadTalk question was reframed after the first draft (“may an exception
+be granted, and what mitigants…”) returned `needs_policy_owner` 3/3: the
+navigator correctly cited POL-CR-009 9.4, under which the amount refer trigger
+is not an exception. The reference answer was then cut to what the question
+asks (first run 1/3, final run 3/5). Both final misses are judge-level: one
+answer never says the memo is not needed (`partial`), one merges two claims
+under one citation (grounding `partial`); status was right in every trial
+of the final run. BreadTalk therefore fails pass^k (3/5); across the two runs
+on the same question one of eight trials returned `needs_policy_owner` after
+an invalid citation, so the live demo step can occasionally show
+“needs a policy owner”. The Envy case passes pass^3.
+
+Raw results: `apps/policy/eval/results/answers-2026-11-05T13-30-16-909Z.json`
+(Envy) and `answers-2026-11-05T13-43-54-562Z.json` (BreadTalk); local,
+gitignored. The 43-case headline is unchanged (not re-run).
+
+**Live BreadTalk also trips the score band (2026-11-06).** On the live stack
+BreadTalk scores 698, inside the 580–699 refer band, so the case fails both
+`SME-AMOUNT-AUTO` and `SME-SCORE-REFER` (both refer triggers). Three rewordings
+that named both triggers were tried on this dev case, five trials each, and
+none was kept:
+
+| Variant | pass@1 | Status accuracy | Why it fails |
+|---|---:|---:|---|
+| both triggers, “…policy exceptions that need an exception memo?” | 0/5 | 3/5 | the corpus never says a memo is not needed (the app's `exceptionMemoRequired` owns that), so answers hedge or escalate |
+| both triggers, “Are those referral reasons policy exceptions?” | 0/5 | 0/5 | answers open with “No.”, two sentences in one segment, which the single-claim validator rejects |
+| both triggers, “How does policy classify those referral reasons…?” | 0/5 | 1/5 | the corpus never calls the score band a refer trigger in so many words, so escalation is defensible |
+
+The original question is kept as a general policy question about the amount
+trigger; the Policy tab shows the case's own failed rules. Raw:
+`answers-2026-11-05T17-57-16-394Z.json`, `…T17-58-37-122Z.json`,
+`…T18-00-12-279Z.json` (local, gitignored).

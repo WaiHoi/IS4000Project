@@ -171,3 +171,18 @@ Production now pins **Terra at `low`** (`CONTEXT_AGENT_REASONING_EFFORT`).
 
 High was not run: medium is already perfect. Raw:
 `context-models-2026-11-01T21-30-01-213Z.json`.
+
+## UBS demo case: Envy (2026-11-05)
+
+Added `envy-2026-06-30` (dev split): the Envy decline-demo persona at
+DEMO_AS_OF, whose seeded transactions trip all six deterministic candidates.
+GPT-6.1 Terra at the pinned `low` effort, 3 trials, same production validator
+and pass definition.
+
+| Case | pass@1 | Coverage | Signals | Mean | Cost |
+|---|---:|---:|---:|---:|---:|
+| `envy-2026-06-30` | 3/3 | 1.000 | 6/6 every trial | 31.5s | $0.084 |
+
+Raw result: `apps/research/eval/results/context-models-2026-11-05T13-25-46-115Z.json`
+(local, gitignored). Caveat: one case, in-sample persona; it guards the demo
+path, not generalisation. The 37-case headline is unchanged (not re-run).

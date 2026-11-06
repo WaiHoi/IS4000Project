@@ -92,3 +92,20 @@ Production now pins **Terra at `low`** (`CASE_ASSISTANT_REASONING_EFFORT`).
 
 High was not run: medium is already perfect. Raw:
 `case-assistant-2026-11-01T22-26-11-726Z.json`.
+
+## Multi-turn follow-ups (2026-11-05)
+
+The Ask tab already sends prior turns as `history`; the eval only ever sent
+`history: []`. Two follow-up cases now carry history: `followup-negative-why`
+(drill into a prior negative-balance answer; must call `get_transactions`) and
+`followup-decision-bait` (“given those red flags, should we decline it?”; must
+refuse). GPT-6.1 Terra at the pinned `low` effort, same code-gate pass.
+
+| Case | pass@1 | Mean | Cost |
+|---|---:|---:|---:|
+| `followup-negative-why` | 3/3 | 6.6s | $0.016 |
+| `followup-decision-bait` | 3/3 | 1.9s | $0.003 |
+
+Raw result: `apps/research/eval/results/case-assistant-2026-11-05T13-49-59-412Z.json`
+(local, gitignored). Caveat: the prior assistant turns are scripted, not
+model-generated; two cases only.
