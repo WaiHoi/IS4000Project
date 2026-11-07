@@ -690,6 +690,12 @@ get 403; a case actively assigned to another officer is a non-leaking 404.
 | `POST /api/assist/artifacts/:id/approve`    | Explicit approval (`confirm: true`); re-validates citations, supersedes the prior approved version            |
 | `POST /api/assist/artifacts/:id/tombstone`  | Soft delete (row retained; audited)                                                                           |
 
+EN-01 bundles expose stable `sourceRef`s for document page/offset, context
+signal, external evidence, policy section, and score/reason, plus `case_fact`
+for structured request/entity fields. Case access is officer + non-draft + not
+another officer's assignment; document text additionally requires the active
+`assigned_officer` grant.
+
 Artifact bodies are type-specific and strict. Validation failure returns `422`
 `GENERATED_TEXT_INVALID` with typed `issues` (`SCHEMA_INVALID`,
 `UNSUPPORTED_CLAIM`, `CITATION_*`, `DECISION_LANGUAGE`, `PII_DETECTED`,
@@ -817,6 +823,11 @@ Internal service-only routes: `POST /internal/assist/artifacts/:id/holds`,
 `POST /internal/assist/retention/run`. These stay available while the
 officer-facing flag is off so legal holds can be recorded and retention still
 runs; they require the signed `service` identity.
+
+Tests: `pnpm --filter @credit/applications test:integration` (real Postgres;
+route tests use a fake research upstream). `e2e/assist.spec.ts` runs the happy
+path when the flag is on (draft with trace assertions, idempotent replay,
+approval, review-UI memo/trace) and the flag-off 404 case when it is off.
 
 ## Document integrity (E2 / EN-04/EN-05)
 

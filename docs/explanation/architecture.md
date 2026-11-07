@@ -21,6 +21,8 @@ This page explains the design. Audience: developers who change the system, and r
 
 Sources: `apps/web/vite.config.ts`, `apps/gateway/src/server.ts`, `apps/worker/package.json`, `docker-compose.yml`, `apps/*/Dockerfile`.
 
+All backend services are built from `@credit/service-kit`: error envelope, pino logger factory, `createService({name, routes, health})` (public `/health`; signed auth on `/api/*` and `/internal/*`), HMAC internal auth, `internalFetch` signed client, Temporal client gateway, and outbox/audit writers. Test fakes live behind `@credit/service-kit/test`.
+
 The runtime split is deliberate. Gateway, the pipeline services, and the web build run on Bun. The worker and the research service run on Node: the worker uses `@temporalio/worker`, and research uses the Grafana/OpenTelemetry observability stack (`@opentelemetry/sdk-node` is Node-oriented). `@openai/agents` itself runs under Bun; the Node choice for research is the observability stack, not the Agents SDK. The repository pins Node 26 in `.nvmrc` while Temporal officially supports 20/22/24. If the worker misbehaves, try Node 24 first.
 
 ## Request flow

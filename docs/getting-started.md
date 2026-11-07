@@ -21,6 +21,18 @@ built from `apps/<service>/Dockerfile` (one `docker-compose.yml`). The web app (
 can support (AI needs `OPENROUTER_API_KEY`) and prints a summary of what is
 on. Use `pnpm start --lite` for the deterministic pipeline only.
 
+Manual equivalent: `docker compose up -d --wait`, `pnpm run setup`, `pnpm dev`.
+
+The container backend runs under the `microservices` profile:
+`docker compose --profile microservices up -d --build` (stop with
+`docker compose --profile microservices down`, which also stops infra). Images
+are `node:26-slim` plus the Bun binary, install the workspace once with
+`pnpm install --frozen-lockfile`, and run TypeScript directly (Bun; Node +
+tsx for research, the worker, and the agent workers). Images never contain
+`.env`: services read it through `env_file`, then `.data/stack.env`, and
+explicit `environment:` entries wire container networking and win. `.data/`
+is bind-mounted for document blobs; every service has a fetch healthcheck.
+
 ## 2. Check health
 
 Open the gateway health endpoint:
@@ -46,7 +58,7 @@ The application page polls until the status is terminal. The loan page shows a d
 
 ## 4. Run the four scenarios
 
-For the canonical run, start from a clean database (see step 6). The full click-through lives in `../README.md`. Expected outcomes:
+For the canonical run, start from a clean database (see step 6). Expected outcomes:
 
 | Scenario                      | Input                                                                                                                                           | Expected result                                                                                                                   |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -54,6 +66,33 @@ For the canonical run, start from a clean database (see step 6). The full click-
 | Tomás refer and counter-offer | SME term loan, $60,000 / 60 months, hospitality, 4 years trading, 9 employees, $610,000 revenue, $3,800/mo free cash flow, $300/mo debt service | `pending_review` with `AMOUNT_ABOVE_AUTO_LIMIT` and `SECTOR_REVIEW`; officer approves at $50,000 / 60 months; `booked` at $50,000 |
 | Sam auto-decline              | Individual, $10,000 / 36 months, employed 1 year, $2,800 income, $950 debts                                                                     | `declined` with `SCORE_TOO_LOW` and negative factors; no loan                                                                     |
 | Monitoring on the Tomás loan  | Officer ages the loan 40 days, runs monitoring, acknowledges the alert, pays the next installment                                               | One `payment_overdue` alert; acknowledged; payment posted; no open alerts                                                         |
+
+### Click-through
+
+Each application page polls every 2s until the status is terminal.
+
+1. **Maria auto path.** Login `maria@example.com` → New application →
+   individual, **$12,000 / 48m**, identity (any valid values; email must stay
+   `maria@example.com`), employed 6y, income $4,200/mo, debts $610/mo,
+   relationship 3y → consent ×3 → submit. The application page shows
+   processing, then **booked** with **Score 777 / grade A**. Open the loan:
+   48 installments, next due date, no alerts.
+2. **Tomás refer path.** Login `tomas@cafe-aurora.example` → New
+   application → SME, **$60,000 / 60m**, Café Aurora, hospitality, 4 years,
+   9 employees, revenue $610,000, FCF $3,800/mo, debt service $300/mo →
+   submit. Status becomes **pending_review** with `AMOUNT_ABOVE_AUTO_LIMIT` +
+   `SECTOR_REVIEW` (+ score band) reasons. Login `officer@example.com` →
+   Review queue → open the case (it stays queued until decided) → approve at
+   **$50,000 / 60m** with a note → **booked** at $50,000; the case page shows
+   the officer terms.
+3. **Sam decline path.** Login `sam@example.com` → New application →
+   individual, **$10,000 / 36m**, employed 1y, income $2,800/mo, debts
+   $950/mo → submit. Status becomes **declined** with `SCORE_TOO_LOW` plus
+   negative factors; no officer step, no loan.
+4. **Monitoring demo** (officer, on Tomás's loan). Open the loan → Demo
+   controls → Age **40 days** → Run monitoring → a `payment_overdue` alert
+   appears → Acknowledge → Pay next installment → a payment shows and no
+   alert stays open.
 
 A `pending_review` or `declined` status is a correct result. Do not treat it as a failure.
 
@@ -125,7 +164,7 @@ then `pnpm db:migrate` (creates the `credit_research` tables) and `pnpm dev` (st
 
 ## Related
 
-- [README](../README.md) — quickstart and full click-through narrative.
+- [README](../README.md) — quickstart and demo users.
 - [API](reference/api.md) — endpoint contracts used by the checks.
 - [Configuration](reference/configuration.md) — variables and ports.
 - [Troubleshooting](operations/troubleshooting.md) — recovery for each failure.

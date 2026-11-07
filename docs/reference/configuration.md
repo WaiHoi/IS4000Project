@@ -270,8 +270,8 @@ AGENT_CASE_BRIEF_ENABLED=false
 AGENT_AUTO_TRIGGER_ENABLED=false
 # T01/T02 document workflow (SPEC-t01-t02): off by default. Uploads need the
 # flag, an encryption key, a storage dir, and a ClamAV daemon; PDF text needs
-# no OCR assets; image OCR uses the vendored app asset by default. See README
-# "Document workflow" for run instructions and v1 limitations.
+# no OCR assets; image OCR uses the vendored app asset by default. See
+# explanation/document-workflow.md for run instructions and v1 limitations.
 DOCUMENT_FEATURE_ENABLED=false
 DOCUMENT_STORAGE_DIR=.data/documents
 DOCUMENT_ENCRYPTION_KEY=
