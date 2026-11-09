@@ -69,6 +69,7 @@ feature's report.
 - [Case assistant model comparison](research/CASE-ASSISTANT-MODELS-RESULTS.md) — Terra/Sol, 22 questions (two multi-turn), five eval customers, code gates.
 - [Tuning](TUNING-2026-10-28.md) — preflight A/Bs, prompt v7, and the P0/P1/P2 gap work.
 - [Reasoning-effort sweep](reasoning-effort-2026-11-02.md) — low/high/xhigh on Terra, Sol low fallback, current pins.
+- [Agent architecture experiments](agent-architecture-experiments-2026-10-28.md) — skills in prompt vs `load_skill` tool, prompt slimming, helper/reviewer/advisor sub-agents, strict tool schemas (screening runs).
 
 ## Commands
 
