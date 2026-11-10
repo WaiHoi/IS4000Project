@@ -46,6 +46,8 @@ export const researchServerSchema = {
 	// closed with config_error when the key it needs is missing.
 	OPENROUTER_API_KEY: z.string().default(""),
 	TAVILY_API_KEY: z.string().default(""),
+	// Standalone mode (`pnpm start --stub`): canned Tavily + ACRA responses.
+	EXTERNAL_STUBS: z.string().default("false"),
 	// Readiness gate (§10): model/tool keys are required only when the
 	// feature is enabled; a compliant disabled deployment is healthy.
 	AGENTS_ENABLED: z.string().default("false"),
@@ -148,6 +150,14 @@ assertProductionSecrets(
 	},
 	{ nodeEnv: process.env.NODE_ENV },
 );
+assertNoProductionStubs(parsed.EXTERNAL_STUBS, process.env.NODE_ENV);
+
+/** Canned web data must never pass for a real screen: refuse to boot. */
+export function assertNoProductionStubs(stubs: string, nodeEnv: string | undefined): void {
+	if (stubs.trim().toLowerCase() === "true" && nodeEnv?.trim().toLowerCase() === "production") {
+		throw new Error("EXTERNAL_STUBS is not allowed in production");
+	}
+}
 
 export const env = {
 	databaseUrl: parsed.RESEARCH_DATABASE_URL,
@@ -158,6 +168,7 @@ export const env = {
 	agentModel: parsed.AGENT_MODEL as AllowedModel,
 	openrouterApiKey: parsed.OPENROUTER_API_KEY,
 	tavilyApiKey: parsed.TAVILY_API_KEY,
+	externalStubs: parsed.EXTERNAL_STUBS.trim().toLowerCase() === "true",
 	maxSources: parsed.AGENT_MAX_SOURCES,
 	maxFetches: parsed.AGENT_MAX_FETCHES,
 	timeoutMs: parsed.AGENT_TIMEOUT_MS,

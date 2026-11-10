@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyFlags, deriveFlags } from "../lib/stack-flags.js";
 
-const full = { lite: false, ai: true, brief: true, docs: true, policy: true };
+const full = { lite: false, stub: false, ai: true, brief: true, docs: true, policy: true };
 
 describe("pnpm start flags", () => {
 	it("turns every surface on when the keys and ClamAV are there", () => {
@@ -23,10 +23,24 @@ describe("pnpm start flags", () => {
 		const noAi = deriveFlags({ ...full, ai: false, brief: false, policy: false });
 		expect(noAi.AGENTS_ENABLED).toBe("false");
 		expect(noAi.AGENT_AUTO_TRIGGER_ENABLED).toBe("false");
-		const lite = deriveFlags({ lite: true, ai: false, brief: false, docs: false, policy: false });
+		const lite = deriveFlags({
+			lite: true,
+			stub: false,
+			ai: false,
+			brief: false,
+			docs: false,
+			policy: false,
+		});
 		expect(lite.ASSIST_ENABLED).toBe("false");
 		expect(lite.DOCUMENT_FEATURE_ENABLED).toBe("false");
 		expect(lite.AGENT_AUTO_TRIGGER_ENABLED).toBe("false");
+	});
+
+	it("switches the web services to stubs only with --stub", () => {
+		expect(deriveFlags(full).EXTERNAL_STUBS).toBe("false");
+		const stub = deriveFlags({ ...full, stub: true });
+		expect(stub.EXTERNAL_STUBS).toBe("true");
+		expect(stub.AGENT_CASE_BRIEF_ENABLED).toBe("true");
 	});
 
 	it("overrides values that came from .env (the Bun auto-load regression)", () => {

@@ -12,8 +12,10 @@ import {
 	createLlmLanguageRepair,
 	createLlmSupportJudge,
 	createRealRunner,
+	createStubTavilyClient,
 	createTavilyClient,
 	lookupAcra,
+	stubAcraLookup,
 } from "./agents/case-brief/index.js";
 import { createRealContextRunner } from "./agents/context-analyst/index.js";
 import { createHttpPolicyRunner } from "./agents/policy-review/index.js";
@@ -39,17 +41,20 @@ export function createResearchRuntime() {
 			apiKey: env.openrouterApiKey || "unconfigured",
 			retry: { onRetry: logRetry(agent, "model call") },
 		});
-	const tavily = createTavilyClient({
-		apiKey: env.tavilyApiKey,
-		retry: { onRetry: logRetry("case-brief", "tavily request") },
-	});
+	const tavily = env.externalStubs
+		? createStubTavilyClient()
+		: createTavilyClient({
+				apiKey: env.tavilyApiKey,
+				retry: { onRetry: logRetry("case-brief", "tavily request") },
+			});
+	const acra = env.externalStubs ? stubAcraLookup : lookupAcra;
 	const briefClient = modelClient("case-brief");
 	const contextClient = modelClient("context-analyst");
 	const caseAssistantClient = modelClient("case-assistant");
 	// Same cached instance createApp defaults to: direct repair/judge calls join
 	// the run conversation without a second pipeline.
 	const observability = getObservability();
-	const runner = createRealRunner({ env, tavily, openai: briefClient, acra: lookupAcra });
+	const runner = createRealRunner({ env, tavily, openai: briefClient, acra });
 	const judge = createLlmSupportJudge(briefClient, env.agentModel, { observability });
 	const repair = createLlmLanguageRepair(briefClient, env.agentModel, { observability });
 	const contextRunner = createRealContextRunner({ env, openai: contextClient });

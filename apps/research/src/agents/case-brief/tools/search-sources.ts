@@ -24,7 +24,8 @@ export function createSearchSourcesTool(rt: BriefToolRuntime) {
 		execute: async ({ entity, category }: { entity: string; category: SearchCategory }) =>
 			rt.track("search_sources", async () => {
 				rt.budget();
-				if (!env.tavilyApiKey) throw new TavilyError("search is not configured");
+				if (!env.tavilyApiKey && !env.externalStubs)
+					throw new TavilyError("search is not configured");
 				counters.searches += 1;
 				// The server builds the query from a fixed template; the
 				// model supplies only the entity name and category.

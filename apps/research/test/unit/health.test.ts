@@ -47,6 +47,12 @@ describe("checkConfig", () => {
 		});
 	});
 
+	it("needs no Tavily key in stub mode", () => {
+		const base = { ...loadEnv(), agentsEnabled: true, openrouterApiKey: "k", tavilyApiKey: "" };
+		expect(checkConfig({ ...base, externalStubs: true })).toEqual({ ok: true });
+		expect(checkConfig({ ...base, externalStubs: false }).ok).toBe(false);
+	});
+
 	it("refuses a context budget above the external budget", () => {
 		const base = { ...loadEnv(), agentsEnabled: true, openrouterApiKey: "k", tavilyApiKey: "t" };
 		expect(checkConfig({ ...base, maxCostUsd: 0.15, contextMaxCostUsd: 0.1 })).toEqual({

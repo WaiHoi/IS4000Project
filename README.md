@@ -29,7 +29,12 @@ then starts every service and the web app as containers. The first start
 builds the images; later starts reuse the cache.
 
 - `pnpm start --local` — infra in Docker, everything else on the host with hot reload.
-- `pnpm start --lite` — deterministic pipeline only.
+- `pnpm start --lite` — deterministic pipeline only (no AI, no API keys).
+- `pnpm start --stub` — standalone mode: the full AI stack, but web search
+  (Tavily) and the ACRA registry return canned demo data, so no
+  `TAVILY_API_KEY` or outbound web access is needed. The LLM still runs
+  through OpenRouter. Stub pages exist for the BreadTalk and Envy demo cases;
+  other entities return no results.
 
 Features follow your `.env`; there are no flags to set by hand:
 
@@ -38,7 +43,7 @@ Features follow your `.env`; there are no flags to set by hand:
 - **`OPENROUTER_API_KEY`:** every advisory AI feature (memo writer, case
   assistant, context analyst, policy navigator and case review, policy
   exceptions, document integrity analysis and triage) plus the policy corpus.
-- **`TAVILY_API_KEY` as well:** the external case brief.
+- **`TAVILY_API_KEY` as well:** the external case brief (or use `--stub`).
 - **Auto-research on referral:** on when an OpenRouter key is present; opt out
   with `AGENT_AUTO_TRIGGER_ENABLED=false`.
 
@@ -47,6 +52,31 @@ Open http://localhost:3000, log in with password `demo1234`, and check
 
 When done: Ctrl+C, then `pnpm cleanup` to wipe containers, volumes and local
 blobs (keeps `.env`).
+
+## Modes and data
+
+| Mode               | Command             | External services                                                  |
+| ------------------ | ------------------- | ------------------------------------------------------------------ |
+| Live integration   | `pnpm start`        | OpenRouter (LLMs), Tavily (web search/extract), data.gov.sg (ACRA) |
+| Standalone (stubs) | `pnpm start --stub` | OpenRouter only; Tavily and ACRA served from canned fixtures       |
+| Deterministic only | `pnpm start --lite` | None                                                               |
+
+In every mode the bank, bureau and customer data are labelled mocks
+(`packages/core/src/mockBank.ts`, `mockBureau.ts`) and seeded fixtures.
+
+**Dataset inclusion rules.** The submission includes all code and the
+synthetic data it needs: `fixtures/demo/manifest.json` (demo personas, accounts,
+documents), the mock bank/bureau, the policy corpus
+(`packages/core/src/policy-corpus.ts`), stub web pages
+(`apps/research/src/agents/case-brief/stub.ts`) and eval datasets
+(`apps/*/eval/`), plus a few reference eval result JSONs under
+`apps/applications/eval/results/`. It excludes `.env` (your keys),
+`node_modules`, `.data/` (document blobs, generated stack files) and new eval
+result JSONs (gitignored); `pnpm install` and `pnpm start` recreate what is
+needed. The BreadTalk and Envy company names and UENs are real public
+entities, but their stub news pages and registry details are synthetic
+paraphrases marked "(synthetic fixture)". All people and accounts are
+fictional. Do not add real PII.
 
 ## Demo users
 

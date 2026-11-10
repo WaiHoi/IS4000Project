@@ -21,7 +21,8 @@ export function createFetchSourceTool(rt: BriefToolRuntime) {
 				const cached = fetched.find((f) => f.requestedUrl === url || f.returnedUrl === url);
 				if (cached) return cached.rawContent.slice(0, 2500);
 				rt.budget();
-				if (!env.tavilyApiKey) throw new TavilyError("extract is not configured");
+				if (!env.tavilyApiKey && !env.externalStubs)
+					throw new TavilyError("extract is not configured");
 				if (counters.extracts >= env.maxFetches) throw new TavilyError("extract budget exceeded");
 				const verdict = validateFinalUrl(url);
 				if (!verdict.ok) throw new TavilyError(`unsafe URL: ${verdict.error}`);

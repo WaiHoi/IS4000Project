@@ -3,6 +3,8 @@
 //   pnpm start          everything your .env can support
 //   pnpm start --lite   deterministic pipeline only (no AI, no documents)
 //   pnpm start --local  everything but the infra as host processes (hot reload)
+//   pnpm start --stub   full stack, but web search (Tavily) and the ACRA
+//                       registry return canned demo data (no TAVILY_API_KEY)
 //
 // By default the backend services, the pipeline worker, both agent workers
 // and the web app run as containers built from apps/<service>/Dockerfile
@@ -40,6 +42,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_PATH = join(ROOT, ".env");
 const lite = process.argv.includes("--lite");
 const local = process.argv.includes("--local");
+const stub = !lite && process.argv.includes("--stub");
 const COMPOSE = ["compose"];
 // Commands run through the shell: inside a pnpm script, `pnpm` on PATH is a
 // shim Bun can't exec directly (ENOEXEC), and on Windows it is pnpm.cmd.
@@ -149,7 +152,7 @@ async function waitForClamd(port: number, timeoutMs: number): Promise<boolean> {
 const dotenv = bootstrapEnv();
 const has = (key: string): boolean => (process.env[key] ?? dotenv.get(key) ?? "").trim() !== "";
 const ai = !lite && has("OPENROUTER_API_KEY");
-const brief = ai && has("TAVILY_API_KEY");
+const brief = ai && (stub || has("TAVILY_API_KEY"));
 let docs = !lite;
 
 // TLS-inspecting networks (corporate proxies, sandboxes) re-sign HTTPS with
@@ -179,7 +182,7 @@ must("setup: databases, kafka topics, migrations, users", pnpm, ["run", "setup"]
 if (docs) docs = await waitForClamd(Number(dotenv.get("CLAMAV_PORT") ?? 3310), 5 * 60_000);
 const policy = ai;
 
-const flags = deriveFlags({ lite, ai, brief, docs, policy });
+const flags = deriveFlags({ lite, stub, ai, brief, docs, policy });
 // A flag you exported in your shell (different from .env) beats the derived value.
 const env = withNodeProxy(applyFlags(process.env, dotenv, flags)) as NodeJS.ProcessEnv;
 // Record what this stack runs with, so tools that attach to it (the e2e
@@ -265,12 +268,12 @@ function seedReferenceData(): { policySeeded: boolean } {
 
 function summary(stackUp: boolean, policySeeded: boolean): string {
 	return `
-┌ credit pipeline — ${lite ? "lite" : "full"} stack ${stackUp ? "ready" : "NOT healthy (see logs above)"}
+┌ credit pipeline — ${lite ? "lite" : stub ? "stub" : "full"} stack ${stackUp ? "ready" : "NOT healthy (see logs above)"}
 │ pipeline (apply → score → decide → book → monitor)  on
 │ documents + integrity panel + fraud review          ${why(docs, lite ? "--lite" : "ClamAV not ready")}
 │ credit memo (template) + adverse-action letter      ${why(!lite, "--lite")}${!lite && !has("ASSIST_ADVERSE_CONTACT_PATH") ? "  (letter needs ASSIST_ADVERSE_CONTACT_PATH)" : ""}
 │ AI: memo writer, case assistant, context analyst    ${why(ai, noKey)}
-│ AI: external case brief                             ${why(brief, ai ? "no TAVILY_API_KEY in .env" : noKey)}
+│ AI: external case brief                             ${why(brief, ai ? "no TAVILY_API_KEY in .env (or use --stub)" : noKey)}${brief && stub ? "  (stub web + ACRA)" : ""}
 │ AI: policy navigator + case review + exceptions     ${why(policySeeded, ai ? "policy corpus seed failed" : noKey)}
 │ AI: document integrity analysis + triage            ${why(ai && docs, ai ? "documents off" : noKey)}
 │ auto-research on every referral                     ${why(env.AGENT_AUTO_TRIGGER_ENABLED === "true", ai ? "AGENT_AUTO_TRIGGER_ENABLED=false" : noKey)}

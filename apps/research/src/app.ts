@@ -94,7 +94,7 @@ export function createApp(deps: ResearchDeps): ServiceApp {
  * fail-closed: a missing key still finalizes the run as config_error. */
 export function checkConfig(env: ResearchEnv): { ok: boolean; error?: string } {
 	if (!env.agentsEnabled) return { ok: true };
-	if (!env.openrouterApiKey || !env.tavilyApiKey) {
+	if (!env.openrouterApiKey || (!env.tavilyApiKey && !env.externalStubs)) {
 		return { ok: false, error: "research keys are not configured" };
 	}
 	// Boot guard (§5): the context stage budget must not exceed the

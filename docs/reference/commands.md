@@ -5,13 +5,13 @@ shell. Outcome: the right command without guessing.
 
 ## Stack
 
-| Command             | What it does                                                                                                         |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `pnpm start`        | Create `.env` if needed, start infra + containers, setup, seed. `--local` = host processes; `--lite` = pipeline only |
-| `pnpm cleanup`      | Remove containers, volumes and local blobs; keeps `.env` and images                                                  |
-| `pnpm dev`          | Gateway + six services + worker + agent workers + web in parallel                                                    |
-| `pnpm dev:services` | Gateway + four pipeline services (no research/policy/worker/web)                                                     |
-| `pnpm build`        | Recursive `--if-present` build                                                                                       |
+| Command             | What it does                                                                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm start`        | Create `.env` if needed, start infra + containers, setup, seed. `--local` = host processes; `--lite` = pipeline only; `--stub` = canned Tavily/ACRA |
+| `pnpm cleanup`      | Remove containers, volumes and local blobs; keeps `.env` and images                                                                                 |
+| `pnpm dev`          | Gateway + six services + worker + agent workers + web in parallel                                                                                   |
+| `pnpm dev:services` | Gateway + four pipeline services (no research/policy/worker/web)                                                                                    |
+| `pnpm build`        | Recursive `--if-present` build                                                                                                                      |
 
 ## Quality
 

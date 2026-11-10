@@ -2,6 +2,7 @@
 // agent's private modules.
 export * from "./agent.js";
 export * from "./acra.js";
+export * from "./stub.js";
 export * from "./prompt.js";
 export * from "./validator.js";
 export * from "./support.js";

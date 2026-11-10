@@ -6,6 +6,8 @@
 
 export interface StackCapabilities {
 	lite: boolean;
+	/** --stub: canned Tavily/ACRA instead of the live web services. */
+	stub: boolean;
 	ai: boolean;
 	brief: boolean;
 	docs: boolean;
@@ -29,6 +31,7 @@ export function deriveFlags(c: StackCapabilities): Record<string, string> {
 		CASE_ASSISTANT_ENABLED: on(c.ai),
 		CONTEXT_ANALYST_ENABLED: on(c.ai),
 		AGENT_CASE_BRIEF_ENABLED: on(c.brief),
+		EXTERNAL_STUBS: on(c.stub),
 		POLICY_ASSIST_ENABLED: on(c.policy),
 		AGENT_AUTO_TRIGGER_ENABLED: on(c.ai),
 		DOCUMENT_INTEGRITY_AGENT_ENABLED: on(c.ai && c.docs),
