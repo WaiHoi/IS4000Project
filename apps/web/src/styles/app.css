@@ -136,6 +136,34 @@
 		-webkit-text-size-adjust: 100%;
 	}
 
+	/* Slim grey scrollbars. Chromium/Safari: custom 8px bar, no arrow buttons.
+	   Firefox ignores ::-webkit-scrollbar, so it gets the standard props instead. */
+	::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	::-webkit-scrollbar-track,
+	::-webkit-scrollbar-corner {
+		background: transparent;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: var(--slate-light);
+		border-radius: 4px;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--slate);
+	}
+
+	@supports (-moz-appearance: none) {
+		* {
+			scrollbar-width: thin;
+			scrollbar-color: var(--slate-light) transparent;
+		}
+	}
+
 	body {
 		@apply bg-background text-foreground antialiased;
 		font-family: var(--font-sans);
